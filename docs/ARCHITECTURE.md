@@ -2,7 +2,23 @@
 
 ## Purpose
 
-AIDOS is an orchestration and governance layer around existing AI runtimes. It is not an LLM platform and does not attempt to replace ChatGPT or Codex.
+AIDOS is the private orchestration, governance and learning layer around existing AI runtimes. It is not an LLM platform and does not attempt to replace ChatGPT or Codex.
+
+Project preparation is deliberately separated:
+
+```text
+AIDOS-Contracts
+  → deterministic Project Baseline/access interfaces
+
+AIDOS-Builder
+  → distributable inventory/interview/completeness implementation
+
+Project repository
+  → accepted project truth
+
+AIDOS
+  → private goal definition, orchestration, execution, review and learning
+```
 
 The first target runtime is:
 
@@ -16,10 +32,10 @@ Model/runtime choices are configuration, not architectural identity.
 ## Components
 
 ```text
-Human
+Accepted Project Baseline
   │
   ▼
-Definition Agent (ChatGPT)
+Human + Definition Agent (ChatGPT)
   │
   ▼
 Accepted Definition ───────────────┐
@@ -45,23 +61,31 @@ Worker review ─────────────────────┘
 
 ## Separation of truth
 
+### AIDOS-Contracts
+
+Contains shared stable interfaces needed across repositories, including the Project Baseline and explicit repository-access model. It contains no project truth or private orchestration logic.
+
+### AIDOS-Builder
+
+Contains the distributable Project Documentation Agent and deterministic preparation tooling. It consumes AIDOS-Contracts and writes only to the project repository.
+
 ### AIDOS repository
 
-Contains generic capability:
+Contains private runtime capability:
 
-- agents;
-- protocols;
-- schemas/contracts;
-- bridge/tooling;
-- reusable validators;
-- generalized knowledge;
-- templates.
+- Definition/Worker/Execution agents;
+- runtime protocols and state contracts;
+- bridge/orchestration tooling;
+- reusable execution validators;
+- generalized goal/capability knowledge;
+- learning/session/recovery logic.
 
 ### Project repository
 
 Contains project truth:
 
-- business/product sources;
+- accepted AIDOS Project Baseline;
+- project/product sources;
 - architecture/runtime/deployment sources;
 - project-specific `AGENTS.md`;
 - AIDOS project profile;
@@ -69,16 +93,21 @@ Contains project truth:
 - executions and event history;
 - project-specific validators and evidence.
 
+Explicit additional context repositories may inform the baseline/Definition only when declared under the project-access contract. Their access is non-transitive and normally read-only.
+
 Principle: **Project-local truth; AIDOS-global capability.**
 
-## Definition-first lifecycle
+## Baseline-first, Definition-first lifecycle
 
 Development cannot start from an unreviewed agent-generated plan.
 
 ```text
-source inventory
-→ unknown/ambiguous decisions
-→ one-question-at-a-time elicitation
+fixed Project Baseline catalog
+→ repository/context inventory
+→ deterministic completeness
+→ human acceptance of durable project baseline
+→ goal-specific unknown/ambiguous decisions
+→ one-question-at-a-time Definition elicitation
 → proposed Definition
 → human review
 → ACCEPTED
@@ -93,7 +122,7 @@ A material contradiction discovered during implementation reopens the Definition
 
 ## Event sourcing
 
-Project state has two representations:
+AIDOS runtime project state has two representations:
 
 1. **append-only event log** — durable history of what occurred;
 2. **current state projection** — compact current status used for routing.
@@ -109,6 +138,7 @@ project_id
 repo
 official_root
 branch
+accepted_baseline version/commit
 accepted_definition_id/version
 execution_id/revision
 codex_session_id
@@ -118,11 +148,13 @@ review_id where relevant
 
 A mismatch fails closed.
 
+Repository access is explicit per project. A context repository or sibling project is not reachable merely because the machine owner has access to it.
+
 ## Multi-project operation
 
 AIDOS may manage many active projects concurrently. Workflow concurrency is distinct from local heavy-job concurrency.
 
-The bridge schedules local work based on resource policy while each project retains independent state, Codex session and review lifecycle.
+The bridge schedules local work based on resource policy while each project retains independent credentials/access, state, Codex session and review lifecycle.
 
 ## Human control
 
