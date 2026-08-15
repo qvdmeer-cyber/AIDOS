@@ -2,6 +2,24 @@
 
 AIDOS uses explicit states so neither GPT nor Codex can infer permission to continue merely from conversation context.
 
+## External preparation gate
+
+Preparation state is owned by AIDOS-Builder/AIDOS-Contracts but is a hard prerequisite for private AIDOS runtime:
+
+```text
+NEW_PROJECT
+PROJECT_BASELINE_ACCEPTED
+→ AIDOS runtime eligible
+
+EXISTING_PROJECT
+PROJECT_BASELINE_ACCEPTED
+→ CURRENT_PRODUCT_STATE_REQUIRED
+→ CURRENT_PRODUCT_STATE_ACCEPTED
+→ AIDOS runtime eligible
+```
+
+Private AIDOS must not compensate for missing Existing Project Discovery by allowing Definition to reconstruct the current product informally.
+
 ## Definition states
 
 ```text
@@ -19,6 +37,17 @@ ACCEPTED
 ```
 
 Only `ACCEPTED` may authorize creation of a new execution for that Definition version.
+
+If current evidence shows the bound Current Product State is materially stale/wrong:
+
+```text
+ACCEPTED / GPT_REVIEWING
+→ DISCOVERY_REFRESH_REQUIRED
+→ AIDOS-Builder refresh
+→ CURRENT_PRODUCT_STATE_ACCEPTED (new snapshot/version)
+→ Definition consistency check
+→ resume or REOPENED if desired delta is affected
+```
 
 ## Launch Definition states
 
@@ -66,12 +95,13 @@ IDLE
 → GPT_REVIEWING
 
 GPT_REVIEWING
-├─ ACCEPTED      → IDLE / next accepted goal
-├─ REPAIR        → TASK_READY (same goal, revised execution)
-├─ CONTRADICTION → WAITING_DEFINITION
-├─ GATE          → WAITING_USER
-├─ BLOCKED       → WAITING_USER
-└─ RELEASE_READY → release lifecycle / genuine release authority gate
+├─ ACCEPTED                   → IDLE / next accepted goal
+├─ REPAIR                     → TASK_READY (same goal, revised execution)
+├─ CONTRADICTION              → WAITING_DEFINITION
+├─ DISCOVERY_REFRESH_REQUIRED → external AIDOS-Builder discovery refresh
+├─ GATE                       → WAITING_USER
+├─ BLOCKED                    → WAITING_USER
+└─ RELEASE_READY              → release lifecycle / genuine release authority gate
 ```
 
 When a frozen Launch Definition exists, ordinary accepted goals within that release do not authorize extra release scope.
@@ -107,7 +137,7 @@ Execution Agent may terminate only as:
 
 Ordinary build/test/runtime failures are not terminal while safe useful technical steps remain.
 
-`RELEASE_READY` is a Worker/review state, not an Execution Agent self-declared terminal result.
+`DISCOVERY_REFRESH_REQUIRED` and `RELEASE_READY` are Worker/review states, not Execution Agent self-declared terminal results.
 
 ## Success stop
 
@@ -117,8 +147,8 @@ Only Worker may dispatch another already-accepted goal; only the human/Definitio
 
 ## Fail-closed transitions
 
-A transition is rejected when project, definition version, execution ID/revision, root, branch or required commit binding does not match current canonical state.
+A transition is rejected when project, project mode, preparation binding, definition version, execution ID/revision, root, branch or required commit binding does not match current canonical state.
 
-For release-scoped work, Launch Definition/release identity must also match once runtime contracts implement that binding.
+For `EXISTING_PROJECT`, the accepted Current Product State ID/commit is part of preparation binding. For release-scoped work, Launch Definition/release identity must also match once runtime contracts implement that binding.
 
 See `protocols/LAUNCH_PROTOCOL.md`.
