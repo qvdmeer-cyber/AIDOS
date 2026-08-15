@@ -8,7 +8,9 @@
   "properties": {
     "schema_version": {"type": "string", "const": "0.1"},
     "project_id": {"type": "string", "minLength": 1},
-    "state": {"type": "string", "enum": ["IDLE", "WAITING_DEFINITION", "TASK_READY", "QUEUED", "CODEX_RUNNING", "TERMINAL_PENDING", "REVIEW_READY", "GPT_REVIEWING", "WAITING_USER", "WAITING_INTERACTIVE_SESSION", "CONTEXT_ROTATION_REQUIRED", "RECOVERY_REQUIRED"]},
+    "state": {"type": "string", "enum": ["IDLE", "WAITING_DEFINITION", "DISCOVERY_REFRESH_REQUIRED", "TASK_READY", "QUEUED", "CODEX_RUNNING", "TERMINAL_PENDING", "REVIEW_READY", "GPT_REVIEWING", "RELEASE_READY", "WAITING_USER", "WAITING_INTERACTIVE_SESSION", "CONTEXT_ROTATION_REQUIRED", "RECOVERY_REQUIRED"]},
+    "current_product_state_id": {"type": ["string", "null"]},
+    "current_product_state_commit": {"type": ["string", "null"]},
     "definition_id": {"type": ["string", "null"]},
     "definition_version": {"type": ["integer", "null"], "minimum": 1},
     "execution_id": {"type": ["string", "null"]},
