@@ -4,16 +4,28 @@
   "title": "AIDOS Execution",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "execution_id", "revision", "project_id", "definition", "goal", "scope", "acceptance", "authority", "knowledge_selection", "executor_profile"],
+  "required": ["schema_version", "execution_id", "revision", "project_id", "project_mode", "preparation", "definition", "goal", "scope", "acceptance", "authority", "knowledge_selection", "executor_profile"],
   "properties": {
     "schema_version": {"type": "string", "const": "0.1"},
-    "execution_id": {"type": "string"},
+    "execution_id": {"type": "string", "minLength": 1},
     "revision": {"type": "integer", "minimum": 1},
-    "project_id": {"type": "string"},
+    "project_id": {"type": "string", "minLength": 1},
+    "project_mode": {"type": "string", "enum": ["NEW_PROJECT", "EXISTING_PROJECT"]},
+    "preparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline_commit"],
+      "properties": {
+        "baseline_commit": {"type": "string", "minLength": 7},
+        "current_product_state_id": {"type": ["string", "null"]},
+        "current_product_state_commit": {"type": ["string", "null"]}
+      }
+    },
     "definition": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["id", "version"],
-      "properties": {"id": {"type": "string"}, "version": {"type": "integer", "minimum": 1}}
+      "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 1}}
     },
     "goal": {"type": "string", "minLength": 1},
     "scope": {"type": "object"},
@@ -23,12 +35,29 @@
     "validators": {"type": "array", "items": {"type": "string"}},
     "executor_profile": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["model", "reasoning_effort"],
       "properties": {
-        "model": {"type": "string"},
-        "reasoning_effort": {"type": "string"}
+        "model": {"type": "string", "minLength": 1},
+        "reasoning_effort": {"type": "string", "minLength": 1}
       }
     },
     "stop_conditions": {"type": "array", "items": {"type": "string"}}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"project_mode": {"const": "EXISTING_PROJECT"}}},
+      "then": {
+        "properties": {
+          "preparation": {
+            "required": ["baseline_commit", "current_product_state_id", "current_product_state_commit"],
+            "properties": {
+              "current_product_state_id": {"type": "string", "minLength": 1},
+              "current_product_state_commit": {"type": "string", "minLength": 7}
+            }
+          }
+        }
+      }
+    }
+  ]
 }
