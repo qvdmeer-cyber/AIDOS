@@ -2,46 +2,37 @@
 
 ## Purpose
 
-AIDOS is the private orchestration, governance and learning layer around existing AI runtimes. It is not an LLM platform and does not attempt to replace ChatGPT or Codex.
-
-Project preparation is deliberately separated:
+AIDOS is the private orchestration, governance and learning layer around existing AI runtimes. Project preparation is deliberately separated from private Definition/Execution orchestration.
 
 ```text
 AIDOS-Contracts
-  → deterministic Project Baseline + Existing Project Discovery interfaces
+  → deterministic Project Baseline + Discovery Closure interfaces
 
 AIDOS-Builder
-  → distributable evidence inventory / baseline / Current Product State implementation
+  → Evidence Inventory / Project Baseline / Current Product State implementation
 
 Project repository
-  → accepted project truth + evidence + current-state snapshot
+  → accepted project truth + evidence + current product snapshot
 
 AIDOS
   → private goal definition, orchestration, execution, review and learning
 ```
 
-The first target runtime is:
+## Preparation architecture
 
-- normal ChatGPT chats for high-value definition/reasoning/review;
-- Codex using `gpt-5.4-mini` with `medium` reasoning as the default execution worker;
-- Git/project repositories as durable state and evidence transport;
-- a local Windows bridge for project routing, session lifecycle, concurrency and event-driven handoff.
-
-Model/runtime choices are configuration, not architectural identity.
-
-## Preparation model
-
-The first source/code inventory is shared across project preparation rather than repeated by separate phases.
+The first source inventory is shared across preparation:
 
 ```text
-commit-bound Evidence Inventory
+Evidence Inventory
         │
         ├─ Project Baseline mapping
         │
         └─ Existing Project Discovery enrichment
+             ├─ linked first-party source evidence
+             └─ runtime observation evidence
 ```
 
-Then project mode determines the gate:
+Project mode then determines the gate:
 
 ```text
 NEW_PROJECT
@@ -50,124 +41,71 @@ Accepted Project Baseline
 
 EXISTING_PROJECT
 Accepted Project Baseline
-→ deterministic Existing Project Discovery
+→ Existing Project Discovery
+→ material product graph CLOSED
 → Accepted Current Product State
 → Definition
 ```
 
-The Current Product State (CPS) reconstructs current capabilities/flows and explicitly separates implementation evidence from observed runtime evidence.
+### Product boundary
 
-## Runtime components
+For an existing product, the primary repository is the **discovery root**, not the assumed system boundary.
 
-```text
-Accepted preparation state
-  │
-  ▼
-Human + Definition Agent (ChatGPT)
-  │ defines desired delta
-  ▼
-Accepted Definition ───────────────┐
-  │                                │ contradiction
-  ▼                                │
-Worker Agent (ChatGPT)             │
-  │                                │
-  ▼                                │
-Execution Envelope                 │
-  │                                │
-  ▼                                │
-Local Bridge                       │
-  │ selects project/root/session   │
-  ▼                                │
-Execution Agent / Codex            │
-  │                                │
-  ▼                                │
-Evidence + terminal handoff        │
-  │                                │
-  ▼                                │
-Worker review ─────────────────────┘
-```
-
-For product/material releases, a release-scoped governance layer is established before the final development phase wherever practical:
+AIDOS-Builder builds an evidence-backed component graph:
 
 ```text
-Human + Definition Agent
-  ↓
-Accepted Launch Definition
-  ↓
-RELEASE_SCOPE_FROZEN
-  ↓
-final bounded goals/executions
-  ↓
-Worker release-gate review
-  ↓
-RELEASE_READY
-  ↓
-release lifecycle / real users
+primary component
+→ dependency
+   ├─ FIRST_PARTY_MATERIAL → recursively discover component
+   ├─ THIRD_PARTY_EXTERNAL → interface + relevant observable behaviour
+   ├─ INFRASTRUCTURE       → infrastructure relationship/constraints
+   └─ NON_MATERIAL         → explicit stop reason
 ```
 
-## Separation of truth
+Every `FIRST_PARTY` + `MATERIAL` component participates in closure and must have complete per-surface discovery coverage.
 
-### AIDOS-Contracts
+Core invariant:
 
-Contains shared stable interfaces needed across repositories, including:
+> **Existing Project Discovery is complete only when AIDOS has closed the material product graph: all materially relevant first-party components and all reasonably observable runtime surfaces have either been discovered or are explicitly unresolved blockers.**
 
-- Project Baseline catalog/schema;
-- repository-access model;
-- Evidence Inventory schema;
-- Existing Project Discovery surface catalog;
-- Current Product State schema.
+Because an explicit unresolved blocker means the graph is not closed, Current Product State acceptance remains blocked until it is resolved.
 
-It contains no project truth or private orchestration logic.
+## Authority architecture
 
-### AIDOS-Builder
+Three concerns remain separate:
 
-Contains distributable project preparation:
+### Project/source authority
 
-- Project Documentation/Baseline Agent;
-- shared repository/evidence inventory tooling;
-- Existing Project Discovery Agent/procedure;
-- deterministic baseline/CPS validators;
-- explicit acceptance tooling.
+`PROJECT_ACCESS.json` describes the primary build repository and explicitly declared project/context sources.
 
-It writes only to project-local state and allowed context is read-only/bounded.
+### Discovery authority
 
-### AIDOS repository
+`DISCOVERY_AUTHORITY.json` governs evidence collection only.
 
-Contains private runtime capability:
+Default discovery authority permits:
 
-- Definition/Worker/Execution agents;
-- runtime protocols and state contracts;
-- bridge/orchestration tooling;
-- reusable execution validators;
-- generalized goal/capability knowledge;
-- learning/session/recovery logic.
+- passive read-only observation of known public runtime;
+- read-only following of an evidence-linked material first-party source when accessible;
+- no unrelated repository enumeration.
 
-### Project repository
+It forbids code changes, deploys, database writes, payments, side-effect forms and mutating admin actions. Active/authenticated runtime interaction requires an explicit bounded discovery grant.
 
-Contains project truth:
+### Execution authority
 
-- accepted AIDOS Project Baseline;
-- shared commit-bound Evidence Inventory;
-- accepted Current Product State for existing products;
-- project/product sources;
-- architecture/runtime/deployment sources;
-- project-specific `AGENTS.md`;
-- AIDOS project profile;
-- Definitions and acceptance;
-- Launch Definition/release-governance state where applicable;
-- executions and event history;
-- post-launch backlog;
-- project-specific validators and evidence.
+Private AIDOS Execution envelopes independently authorize technical mutation/deploy behaviour for one accepted goal. Discovery authority never expands execution authority.
 
-Explicit additional context repositories may inform baseline/discovery/Definition only when declared under the project-access contract. Their access is non-transitive and normally read-only.
+## Current Product State
 
-Principle: **Project-local truth; AIDOS-global capability.**
+CPS is product-complete rather than repository-complete. It contains at least:
 
-## Existing Project Discovery invariant
-
-For `EXISTING_PROJECT`, Definition must not be used as an informal reverse-engineering phase.
-
-AIDOS-Builder reconstructs current state first across bounded discovery surfaces: source/modules, routes/entrypoints, UI/admin, background work, data/schema, auth/permissions, interfaces, integrations, configuration/flags, runtime/deployment, tests and documentation claims.
+- `system_components`;
+- `dependency_graph`;
+- `runtime_surfaces`;
+- discovery blockers/limitations;
+- capabilities/flows;
+- implementation/runtime/reconciliation state;
+- evidence/provenance;
+- explicit `CONFLICT`/`DRIFT`.
 
 Required distinction:
 
@@ -177,107 +115,126 @@ implementation state
 observed runtime state
 ```
 
-Code presence cannot silently become `OBSERVED_WORKING`. Source/runtime/data/config/documentation disagreement becomes explicit `CONFLICT`/`DRIFT`.
+Known public/passive runtime must be actually observed when reasonably reachable. `NOT_OBSERVED` cannot close that branch merely because source code exists or because repository access is bounded.
 
-Deterministic coverage proves all required discovery surfaces were handled and every inventoried item was mapped/classified. Human acceptance then freezes the CPS snapshot used by Definition.
+## Deterministic Discovery Closure
 
-Definition asks only about the desired **delta** from that accepted current state.
+A CPS is acceptance-eligible only when deterministic validation proves:
+
+1. all required global discovery surfaces are closed;
+2. all disposition-required evidence is resolved;
+3. all product mappings/references resolve;
+4. every material first-party component is recursively complete;
+5. every `FIRST_PARTY_MATERIAL` edge resolves to such a component;
+6. all reasonably observable public/passive runtime has observation evidence;
+7. capability/flow `NOT_OBSERVED` does not hide observation-required runtime;
+8. no discovery blocker remains open.
+
+Known defects, `CONFLICT` or `DRIFT` can remain because they describe known current reality.
+
+## Runtime components
+
+```text
+Accepted preparation state
+  │
+  ▼
+Human + Definition Agent
+  │ defines desired delta
+  ▼
+Accepted Definition ───────────────┐
+  │                                │
+  ▼                                │ contradiction
+Worker Agent                       │
+  │                                │
+  ▼                                │
+Execution Envelope                 │
+  │                                │
+  ▼                                │
+Local Bridge                       │
+  ▼                                │
+Execution Agent / Codex            │
+  │                                │
+  ▼                                │
+Evidence + terminal handoff        │
+  ▼                                │
+Worker review ─────────────────────┘
+```
+
+If review discovers an omitted material first-party component, missing runtime branch or other closure failure:
+
+```text
+DISCOVERY_REFRESH_REQUIRED
+→ AIDOS-Builder
+→ reuse existing evidence/CPS
+→ close only missing branches
+→ accept new CPS
+→ Definition consistency check
+```
+
+This is distinct from a product `CONTRADICTION`.
 
 ## Definition-first lifecycle
 
-Development cannot start from an unreviewed agent-generated plan.
+Once preparation is valid:
 
 ```text
 accepted preparation state
-→ goal-specific unknown/ambiguous decisions
-→ one-question-at-a-time Definition elicitation
+→ goal-specific questions only
 → proposed Definition
-→ human review
-→ ACCEPTED
-→ consistency check against baseline/current state
-→ execution planning
-→ plan-vs-Definition check
-→ execution
-→ convergence review against Definition
+→ human ACCEPTED
+→ plan/Definition consistency
+→ Execution
+→ convergence review
 ```
 
-If implementation evidence later shows CPS was stale/wrong, refresh Existing Project Discovery rather than silently rewriting current-state history through Definition.
+For existing products, Definition is explicitly the desired delta from the accepted CPS.
 
 ## Launch discipline
 
-AIDOS must prevent a second failure mode as well: execution can be perfectly bounded while the human continuously moves the release finish line.
-
-For a product/material release, define an explicit **Launch Definition / Release Gate before the final development phase wherever practical**.
-
-Architectural invariant:
+For product/material releases, a Launch Definition defines the falsifiable release threshold before final launch pressure where practical.
 
 > **Launch criteria are defined before launch pressure exists. Once satisfied, improvement alone is not sufficient grounds for delay.**
 
-After Launch Definition acceptance:
+After acceptance, release scope is frozen. New findings are classified as `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`. When all launch criteria pass, default state is `RELEASE_READY`.
 
-- release scope is frozen;
-- new findings are classified as `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`;
-- useful non-blocking improvements are preserved in a post-launch backlog;
-- subjective polish or a new feature idea cannot silently extend the release;
-- when all accepted launch criteria PASS, the default state is `RELEASE_READY`;
-- delaying after `RELEASE_READY` requires explicit Launch Definition/release-scope reopen with reason and consequence recorded;
-- after launch, optimization should increasingly use evidence from real users/operations rather than speculative pre-launch refinement.
+## Separation of truth
 
-See `protocols/LAUNCH_PROTOCOL.md`.
+### AIDOS-Contracts
 
-## Event sourcing
+Owns generic, versioned preparation contracts only.
 
-AIDOS runtime project state has two representations:
+### AIDOS-Builder
 
-1. **append-only event log** — durable history of what occurred;
-2. **current state projection** — compact current status used for routing.
+Owns distributable preparation procedures and deterministic validators.
 
-State can be rebuilt from events. Chat history is not required for recovery.
+### AIDOS
 
-## Isolation
+Owns private Definition/Worker/Execution/orchestration/review/learning capability.
 
-A project execution binds at minimum:
+### Project repository
+
+Owns all project-specific accepted truth and durable state, including Baseline, Evidence Inventory, Discovery Authority, CPS/component graph/runtime observations, Definitions, executions and release state.
+
+Principle: **Project-local truth; AIDOS-global capability.**
+
+## Runtime binding and fail-closed behaviour
+
+Existing-project execution binds at least:
 
 ```text
 project_id
 project_mode
-repo
-official_root
-branch
-accepted_baseline version/commit
-accepted_current_product_state id/commit (EXISTING_PROJECT)
-accepted_definition_id/version
-execution_id/revision
-codex_session_id
-commit_sha / expected head where relevant
-review_id where relevant
+repo/root/branch
+accepted baseline commit
+accepted CPS id + commit
+CPS contract version
+discovery catalog version
+accepted Definition id/version
+execution id/revision
 ```
 
-Release-scoped executions additionally bind the accepted Launch Definition/release identity when that runtime contract is implemented.
+Current AIDOS requires CPS/discovery contract/catalog `0.2.0` for existing-project execution. A stale/older accepted CPS is historical truth, not valid current preparation.
 
-A mismatch fails closed.
+## Multi-project isolation
 
-Repository access is explicit per project. A context repository or sibling project is not reachable merely because the machine owner has access to it.
-
-## Multi-project operation
-
-AIDOS may manage many active projects concurrently. Workflow concurrency is distinct from local heavy-job concurrency.
-
-The bridge schedules local work based on resource policy while each project retains independent credentials/access, preparation/current-state bindings, state, Codex session and review lifecycle.
-
-## Human control
-
-The human remains required for:
-
-- acceptance of Project Baseline and Current Product State during external preparation;
-- acceptance of a new/reopened Definition;
-- acceptance/reopening of a Launch Definition;
-- new product choices;
-- material authority expansion;
-- destructive/non-reversible operations outside pre-authorized scope;
-- unresolved contradictions/blockers;
-- deliberate release delay after `RELEASE_READY`.
-
-The human is not asked to manually rediscover objective current-product facts when evidence can establish them.
-
-The bridge must support a supervised mode where locking the Windows session prevents the next interactive GPT cycle while allowing an already-running bounded Codex execution to finish safely.
+Repository/source/discovery/execution authority is project-scoped. Access to one project or a material component does not imply access to sibling projects. The dedicated runner must enforce per-project credential/root boundaries rather than relying only on agent instructions.
