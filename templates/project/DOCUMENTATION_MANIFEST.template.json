@@ -1,0 +1,25 @@
+{
+  "schema_version": "0.1",
+  "project_id": "REPLACE_ME",
+  "baseline_revision": 0,
+  "status": "UNINITIALIZED",
+  "accepted_at": null,
+  "accepted_commit": null,
+  "concerns": [
+    {"id":"identity","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"product","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"architecture","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"runtime","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"data","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"interfaces","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"development","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"validation","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"deployment","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"security_privacy","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"operations","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"decisions","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null},
+    {"id":"constraints","coverage":"MISSING","canonical_source":null,"supporting_sources":[],"provenance":"UNKNOWN","notes":"","last_verified_commit":null}
+  ],
+  "known_conflicts": [],
+  "open_material_gaps": []
+}
