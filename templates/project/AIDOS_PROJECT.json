@@ -6,10 +6,13 @@
   "default_branch": "main",
   "canonical_sources": [
     "AGENTS.md",
-    "docs/"
+    "docs/",
+    ".aidos/documentation/PROJECT_BASELINE.json"
   ],
   "agent_profile": ".aidos/AGENT_PROFILE.json",
-  "documentation_manifest": ".aidos/documentation/MANIFEST.json",
+  "project_baseline": ".aidos/documentation/PROJECT_BASELINE.json",
+  "project_access": ".aidos/documentation/PROJECT_ACCESS.json",
+  "contracts_repository": "qvdmeer-cyber/AIDOS-Contracts",
   "capabilities": [],
   "project_validators": [],
   "runner_policy": "SUPERVISED"
