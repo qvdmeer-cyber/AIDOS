@@ -17,6 +17,8 @@ AIDOS runtime onboarding requires an accepted compatible project baseline.
 - [x] repository responsibility and architectural boundaries;
 - [x] generic Definition/Worker/Execution agent contracts;
 - [x] Definition, execution, review, interruption and learning protocols;
+- [x] launch/release governance principle and frozen-scope protocol;
+- [x] `RELEASE_READY` conceptual state and explicit Launch Definition reopen rule;
 - [x] state/event/project/Definition/execution/learning schemas;
 - [x] project bootstrap bound to an existing project baseline;
 - [x] first PowerShell state/project-binding module;
@@ -56,6 +58,19 @@ AIDOS runtime onboarding requires an accepted compatible project baseline.
 - [ ] explicit acceptance write path;
 - [ ] contradiction → reopen → reaccept → execution continuation proof;
 - [ ] consistency/convergence checks.
+
+## Launch / release governance runtime
+
+The governance invariant is already part of the foundation. Runtime persistence/enforcement comes when project state/execution plumbing is implemented.
+
+- [ ] project-local Launch Definition persistence/version lineage;
+- [ ] explicit `RELEASE_SCOPE_FROZEN` binding for release-scoped executions;
+- [ ] durable `LAUNCH_BLOCKER` / `POST_LAUNCH` / `EVIDENCE_REQUIRED` classification events;
+- [ ] project-local post-launch backlog routing without release-scope mutation;
+- [ ] Worker `RELEASE_READY` transition when all frozen launch criteria PASS;
+- [ ] explicit reopen event requiring reason/consequence and renewed acceptance;
+- [ ] convergence test proving subjective improvement alone cannot block a satisfied release gate;
+- [ ] post-launch evidence loop integration where project/product metrics exist.
 
 ## Learning loop
 
