@@ -4,7 +4,7 @@
 
 Make foreseeable product acceptance explicit before implementation cost is incurred.
 
-For an existing product, Definition specifies the **desired delta from an accepted Current Product State**, not a fresh reconstruction of what already exists.
+For an existing product, Definition specifies the **desired delta from a closure-compatible accepted Current Product State**, not a fresh reconstruction of what already exists.
 
 For release-bound work, also establish the quality threshold for going to real users **before launch pressure exists**.
 
@@ -17,18 +17,23 @@ accepted Project Baseline
 
 EXISTING_PROJECT
 accepted Project Baseline
-+ accepted Current Product State
++ Discovery Closure PASS
++ accepted current CPS
 → Definition
 ```
 
-If existing-product discovery is missing/stale or materially contradicted by evidence, refresh AIDOS-Builder discovery rather than absorbing that discovery into goal Definition.
+Current existing-project preparation requires CPS contract/discovery catalog `0.2.0`, accepted discovery state and zero open discovery blockers.
+
+If discovery is missing, `DISCOVERY_REFRESH_REQUIRED`, based on an incompatible older contract, or materially contradicted by new evidence, return to AIDOS-Builder rather than absorbing product reconstruction into Definition.
+
+The primary repository is not assumed to represent the whole current product; Definition relies on the accepted CPS material component/dependency graph.
 
 ## Minimum Definition content
 
 A Definition should contain, as relevant:
 
 - goal/problem statement;
-- current-state references relevant to the goal;
+- current-state component/capability/flow references relevant to the goal;
 - explicit desired change/delta;
 - user-visible/product behaviour after the change;
 - actors/permissions;
@@ -46,61 +51,64 @@ A Definition should contain, as relevant:
 
 ## One-question elicitation
 
-The Definition Agent asks one material decision at a time. The next question may depend on the answer. The objective is decision quality, not questionnaire throughput.
+Ask one material decision at a time. Skip questions already settled reliably by the accepted Project Baseline, closure-compatible CPS or canonical project truth.
 
-Questions must be skipped when the accepted Project Baseline/Current Product State or other canonical project truth already settles the answer reliably.
+Existing capability/component/runtime discovery is not a Definition question. Definition asks only what should change.
 
-Existing capability discovery is not a Definition question. Definition asks only what should change.
+## Current-state conflict/drift/closure gaps
 
-## Current-state conflict/drift
+Accepted CPS may contain known `CONFLICT` or `DRIFT` because that discrepancy can itself be current truth.
 
-Accepted Current Product State may contain known `CONFLICT` or `DRIFT` because that discrepancy is itself current truth.
+If a goal touches such an area, surface it and ask only the desired future-state decision.
 
-If the goal touches that area:
+A **Discovery Closure gap** is different. Examples:
 
-- surface the known evidence/state;
-- distinguish current uncertainty from desired future behaviour;
-- ask only the product decision needed for the future state;
-- route a materially incomplete/incorrect current-state snapshot back to Existing Project Discovery.
+- omitted material first-party component;
+- unclosed first-party material dependency;
+- known public/passive runtime missing observation;
+- materially stale/incorrect CPS fact.
+
+These route to:
+
+```text
+DISCOVERY_REFRESH_REQUIRED
+→ AIDOS-Builder
+→ close missing current-state branch
+→ accept new CPS
+→ Definition consistency check
+```
+
+Do not ask the human to invent a product decision as a substitute for objective discovery.
 
 ## Consistency gate
 
 Before `ACCEPTED`, check:
 
 - internal Definition contradictions;
-- contradictions with accepted Project Baseline/current-state evidence;
+- contradictions with accepted Project Baseline/CPS evidence;
 - required behaviour without acceptance coverage;
 - acceptance checks for behaviour not requested;
 - hidden material assumptions;
-- non-functional constraints that can invalidate the chosen behaviour;
-- accidental re-specification of unchanged existing functionality.
+- non-functional constraints that can invalidate behaviour;
+- accidental re-specification of unchanged existing functionality;
+- preparation/CPS binding still valid and closure-compatible.
 
 ## Launch Definition / Release Gate
 
-When a product or material release is expected to reach real users, establish a separate release-scoped Launch Definition before the final development phase wherever practical.
-
-It defines the falsifiable threshold for release readiness and explicitly freezes release scope after acceptance.
-
-Required principle:
+When a product/material release is expected to reach real users, establish a release-scoped Launch Definition before the final development phase where practical.
 
 > **Launch criteria are defined before launch pressure exists. Once satisfied, improvement alone is not sufficient grounds for delay.**
 
-The Launch Definition should identify:
+The Launch Definition identifies core launch promise/flows, material security/privacy/data-integrity/compliance conditions, required reliability/compatibility/deployment, launch evidence, deliberate deferred scope, release/audience/environment and human acceptance/version.
 
-- core promise/critical flows required at launch;
-- objective security/privacy/data-integrity/compliance blockers;
-- required reliability/compatibility/deployment conditions;
-- launch evidence/validators;
-- deliberately deferred/out-of-scope improvements;
-- intended release/audience/environment;
-- human acceptance/version.
-
-After acceptance, new findings are governed by `protocols/LAUNCH_PROTOCOL.md` and classified as `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`.
+After acceptance, new findings are classified as `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`.
 
 ## Reopen
 
-A Definition is immutable once accepted except through a new version. Implementation contradiction produces `REOPENED`, preserving prior accepted lineage and evidence for why it changed.
+Definition is immutable once accepted except through a new version.
 
-If the contradiction actually means the accepted Current Product State is stale/wrong, refresh discovery instead of rewriting history through Definition.
+- Desired future requirement contradiction → reopen Definition.
+- Pre-existing current-product discovery/closure failure → refresh CPS first.
+- Launch gate change after scope freeze → explicit Launch Definition reopen/version.
 
-An accepted Launch Definition is similarly immutable for that release. Reopening after scope freeze requires an explicit reason and new accepted version; subjective desire for further improvement is not an implicit reopen.
+Preserve lineage in all cases.
