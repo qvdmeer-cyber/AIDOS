@@ -6,9 +6,9 @@ This roadmap is implementation sequencing for the private AIDOS runtime.
 
 Project preparation is intentionally outside this repository:
 
-- `qvdmeer-cyber/AIDOS-Contracts` owns deterministic Project Baseline/access and Existing Project Discovery/Current Product State contracts;
-- `qvdmeer-cyber/AIDOS-Builder` owns the distributable Project Documentation Builder + Existing Project Discovery procedure;
-- accepted baseline/evidence/current-product-state truth remains in each project repository.
+- `qvdmeer-cyber/AIDOS-Contracts` owns deterministic Project Baseline, Discovery Authority and Discovery Closure/Current Product State contracts;
+- `qvdmeer-cyber/AIDOS-Builder` owns distributable Project Baseline + Existing Project Discovery procedures;
+- accepted baseline/evidence/discovery/current-product-state truth remains in each project repository.
 
 AIDOS runtime onboarding requires:
 
@@ -18,7 +18,10 @@ NEW_PROJECT
 
 EXISTING_PROJECT
 → accepted compatible Project Baseline
-→ accepted compatible Current Product State
+→ Evidence Inventory 0.2
+→ accepted Discovery Closure / CPS 0.2
+→ discovery state ACCEPTED
+→ zero open discovery blockers
 ```
 
 ## Foundation — current
@@ -26,34 +29,52 @@ EXISTING_PROJECT
 - [x] repository responsibility and architectural boundaries;
 - [x] generic Definition/Worker/Execution agent contracts;
 - [x] Definition, execution, review, interruption and learning protocols;
-- [x] existing-project Current Product State gate before Definition;
+- [x] existing-project CPS gate before Definition;
+- [x] **Discovery Closure** principle: primary repo is discovery root, not product boundary;
+- [x] recursive material first-party component/dependency closure;
+- [x] separate Discovery Authority vs Execution Authority;
+- [x] public passive runtime observation required when reasonably reachable;
+- [x] `NOT_OBSERVED` no longer closes observation-required runtime;
+- [x] `DISCOVERY_REFRESH_REQUIRED` preserves old CPS/evidence and reopens missing branches;
 - [x] delta-based Definition rule for existing products;
-- [x] shared Evidence Inventory recognised as external project-preparation source;
-- [x] launch/release governance principle and frozen-scope protocol;
-- [x] `RELEASE_READY` conceptual state and explicit Launch Definition reopen rule;
-- [x] state/event/project/Definition/execution/learning schemas;
-- [x] project bootstrap differentiating `NEW_PROJECT` / `EXISTING_PROJECT`;
-- [x] first PowerShell state/project-binding module;
-- [x] review artefact lifecycle design;
-- [x] security/session/concurrency/recovery principles.
+- [x] execution schema binds CPS/discovery contract versions;
+- [x] launch/release governance and `RELEASE_READY` invariant;
+- [x] project/state/execution schemas updated for discovery preparation bindings;
+- [x] project bootstrap differentiates `NEW_PROJECT` / closure-compatible `EXISTING_PROJECT`;
+- [x] review artefact lifecycle/security/session/concurrency/recovery principles.
 
 ## Bridge MVP
 
 - [ ] validate accepted AIDOS-Contracts baseline/access before project registration;
-- [ ] for `EXISTING_PROJECT`, validate accepted Current Product State + Evidence Inventory binding before registration;
-- [ ] persist preparation snapshot identity (baseline/CPS commits) in runtime project binding;
-- [ ] detect materially stale CPS and transition to `DISCOVERY_REFRESH_REQUIRED` instead of improvising discovery inside Definition/Worker;
+- [ ] for `EXISTING_PROJECT`, validate Evidence Inventory 0.2 + CPS/discovery catalog 0.2 + discovery state ACCEPTED;
+- [ ] reject open discovery blockers/material closure gaps at registration/dispatch;
+- [ ] persist preparation snapshot identity and contract versions in runtime binding;
+- [ ] detect a newly exposed material first-party/runtime branch and transition to `DISCOVERY_REFRESH_REQUIRED`;
+- [ ] preserve execution evidence for Builder refresh without allowing Worker to rewrite CPS;
 - [ ] robust atomic state writes + append-only event locking;
 - [ ] execution lease acquire/renew/reconcile;
 - [ ] project registry on dedicated runner;
 - [ ] per-project credential/access isolation;
+- [ ] keep discovery-read credentials/authority distinct from execution-write credentials/authority;
 - [ ] Codex CLI start/resume wrapper and JSON event capture;
-- [ ] session-rotation implementation;
-- [ ] multi-project scheduler;
-- [ ] heavy-job resource semaphore;
-- [ ] review-ref publisher/consumer cleanup implementation;
+- [ ] session rotation;
+- [ ] multi-project scheduler + heavy-job semaphore;
+- [ ] review-ref publish/consume/cleanup;
 - [ ] crash/restart recovery reconciler;
-- [ ] telemetry store and compact status view.
+- [ ] telemetry + compact status view.
+
+## Discovery Closure integration proof
+
+External Builder/Contracts implement the closure procedure; AIDOS Core must prove the gates/interruption path.
+
+- [ ] onboarding rejects an accepted CPS created under an older incompatible discovery contract;
+- [ ] onboarding rejects `DISCOVERY_REFRESH_REQUIRED`;
+- [ ] execution rejects a CPS binding whose id/commit/version does not match project state;
+- [ ] Worker review detects omitted `FIRST_PARTY_MATERIAL` component and routes to discovery refresh;
+- [ ] Worker review detects missing reasonably observable public runtime and routes to discovery refresh;
+- [ ] expected product change caused by execution does **not** falsely trigger discovery refresh;
+- [ ] after Builder accepts refreshed CPS, unchanged Definition can resume when its delta remains consistent;
+- [ ] Definition reopens only when refreshed current state materially affects desired delta.
 
 ## GPT desktop integration proof
 
@@ -68,26 +89,24 @@ EXISTING_PROJECT
 ## Definition Agent integration
 
 - [ ] consume accepted Project Baseline as bounded source context;
-- [ ] consume accepted Current Product State for `EXISTING_PROJECT`;
-- [ ] prove Definition asks only for desired delta and does not rediscover accepted existing capabilities;
-- [ ] project-local Definition persistence workflow;
-- [ ] one-question interactive protocol proof on desktop/mobile;
+- [ ] consume closure-compatible accepted CPS for `EXISTING_PROJECT`;
+- [ ] prove Definition asks only for desired delta;
+- [ ] project-local Definition persistence;
+- [ ] one-question interactive protocol proof desktop/mobile;
 - [ ] explicit acceptance write path;
-- [ ] contradiction → distinguish Definition issue vs stale CPS → correct reopen/refresh route;
+- [ ] contradiction → distinguish product Definition issue vs Discovery Closure issue;
 - [ ] consistency/convergence checks.
 
 ## Launch / release governance runtime
 
-The governance invariant is already part of the foundation. Runtime persistence/enforcement comes when project state/execution plumbing is implemented.
-
 - [ ] project-local Launch Definition persistence/version lineage;
-- [ ] explicit `RELEASE_SCOPE_FROZEN` binding for release-scoped executions;
-- [ ] durable `LAUNCH_BLOCKER` / `POST_LAUNCH` / `EVIDENCE_REQUIRED` classification events;
-- [ ] project-local post-launch backlog routing without release-scope mutation;
-- [ ] Worker `RELEASE_READY` transition when all frozen launch criteria PASS;
+- [ ] explicit `RELEASE_SCOPE_FROZEN` execution binding;
+- [ ] durable `LAUNCH_BLOCKER` / `POST_LAUNCH` / `EVIDENCE_REQUIRED` events;
+- [ ] post-launch backlog routing without release-scope mutation;
+- [ ] Worker `RELEASE_READY` transition when frozen criteria PASS;
 - [ ] explicit reopen event requiring reason/consequence and renewed acceptance;
-- [ ] convergence test proving subjective improvement alone cannot block a satisfied release gate;
-- [ ] post-launch evidence loop integration where project/product metrics exist.
+- [ ] test that subjective improvement alone cannot block a satisfied release gate;
+- [ ] post-launch evidence-loop integration where metrics exist.
 
 ## Learning loop
 
