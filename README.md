@@ -2,22 +2,38 @@
 
 **Artificial Intelligence Development Operating System**
 
-AIDOS is a human-governed operating model for AI-assisted software development. It separates project documentation, product definition, high-value reasoning, technical execution, review, recovery and reusable learning so that AI agents can work autonomously inside explicit boundaries without making product decisions on behalf of the human owner.
+AIDOS is the private core for human-governed AI software development. It separates human-accepted goal definition, high-value reasoning, technical execution, review, recovery and reusable learning so that AI agents can work autonomously inside explicit boundaries without making product decisions on behalf of the human owner.
 
-The name also echoes Ancient Greek *aidōs*: respect, self-restraint and awareness of proper boundaries — a useful description of the intended operating model.
+The name also echoes Ancient Greek *aidōs*: respect, self-restraint and awareness of proper boundaries.
 
-## Core idea
+## Ecosystem boundary
+
+AIDOS is intentionally separated from project preparation:
 
 ```text
-Human
+AIDOS-Contracts
+  → shared project-baseline/access contracts
+
+AIDOS-Builder
+  → distributable project documentation/completeness builder
+
+Project repository
+  → project truth + accepted baseline + decisions
+
+AIDOS (this repository)
+  → private definition/orchestration/execution/review/learning core
+```
+
+The private AIDOS core does not need to be shared with a collaborator who only uses AIDOS-Builder.
+
+## Core flow
+
+```text
+Accepted Project Baseline
   ↓
-Project Documentation Agent
+Definition Agent + Human
   ↓
-TRUSTWORTHY PROJECT-LOCAL SOURCES
-  ↓
-Definition Agent
-  ↓
-ACCEPTED DEFINITION
+ACCEPTED DEVELOPMENT DEFINITION
   ↓
 Worker Agent
   ↓
@@ -32,99 +48,80 @@ Worker Agent
   └─ GATE/BLOCKER → Human
 ```
 
-AIDOS is designed around six rules:
+## Core rules
 
-1. **Project truth before goal definition.** Agents first establish which project-local sources are trustworthy instead of rediscovering the project from chat history.
-2. **Definition before execution.** Development starts only after the human explicitly accepts the foreseeable product behaviour, constraints and acceptance criteria.
-3. **Project-local truth.** Product, architecture, runtime and project-specific instructions stay in the project repository. AIDOS does not become a central project-knowledge dump.
-4. **AIDOS-global capability.** Generic agents, protocols, tools, validators and proven reusable learnings live once in AIDOS.
-5. **Goal-scoped context.** Agents receive AIDOS knowledge selected for the current development goal instead of the entire accumulated knowledge base.
-6. **Bounded autonomy.** An execution agent may work for as long as useful inside the accepted goal and authority, but must stop at product contradictions, material authority boundaries or terminal completion.
+1. **Accepted project truth before goal definition.** A project enters AIDOS with a baseline prepared under AIDOS-Contracts, normally by AIDOS-Builder.
+2. **Definition before execution.** Development starts only after the human explicitly accepts the foreseeable product behaviour, constraints and acceptance criteria for the goal.
+3. **Project-local truth.** Product, architecture, runtime and project-specific instructions stay in the project repository.
+4. **AIDOS-global capability.** Generic runtime agents, protocols, tools, validators and proven reusable learnings live once in AIDOS.
+5. **Goal-scoped context.** Agents receive AIDOS knowledge selected for the current development goal rather than the whole accumulated knowledge base.
+6. **Bounded autonomy.** Execution may continue as long as useful inside accepted goal/authority, but stops at contradictions, material authority boundaries or terminal completion.
 
 ## Repository responsibility
 
 AIDOS owns:
 
-- generic agent definitions;
-- project-documentation/definition/execution/review/escalation/recovery protocols;
-- bridge state and event contracts;
-- session-rotation rules;
+- Definition, Worker and Execution agent definitions;
+- definition/execution/review/escalation/recovery protocols;
+- bridge/orchestration implementation;
+- session rotation and multi-project execution rules;
 - reusable validators, tools and skills;
 - goal/capability-scoped learned knowledge;
-- telemetry contracts;
-- project integration templates.
+- telemetry and learning logic;
+- private runtime/project integration.
 
 AIDOS does **not** own:
 
+- the distributable Project Documentation Builder;
+- the generic project-baseline completeness contract;
 - organisation-documentation procedures;
-- project strategy or product requirements;
-- project architecture/runtime truth;
-- project-specific agent instructions;
-- accepted project documentation, definitions and execution history;
+- project strategy/product requirements/architecture/runtime truth;
+- accepted project baselines, definitions or execution history;
 - customer/project secrets or credentials.
 
-Those remain in the relevant project repository.
+See:
+
+- `qvdmeer-cyber/AIDOS-Builder`
+- `qvdmeer-cyber/AIDOS-Contracts`
 
 ## Agent model
 
-AIDOS defines four primary generic agents:
+AIDOS defines three private runtime agents:
 
-- **Project Documentation Agent** — inventories existing project sources, resolves material documentation gaps one question at a time and maintains the project-local canonical-source map without creating duplicate truth.
-- **Definition Agent** — discovers missing decisions one question at a time and produces a human-accepted Definition for one development goal.
+- **Definition Agent** — discovers missing goal decisions one question at a time and produces a human-accepted Definition.
 - **Worker Agent** — plans bounded execution from an accepted Definition, dispatches work, reviews evidence and controls state transitions.
-- **Execution Agent** — performs implementation, tests, deployment/verification where authorized, repairs ordinary technical failures and returns only terminal outcomes.
+- **Execution Agent** — performs technical execution, tests, deployment/verification where authorized, repairs ordinary failures and returns terminal outcomes.
 
-Projects configure these agents; they do not fork or duplicate them.
+Project documentation preparation is handled outside this private core by AIDOS-Builder.
 
 ## Knowledge inheritance
 
 ```text
 AIDOS Core
   ↓
-Capability knowledge
+relevant capability knowledge
   ↓
-Goal-pattern knowledge
+relevant goal-pattern knowledge
   ↓
-Project profile + accepted project documentation sources
+accepted project baseline + project truth
   ↓
-Accepted Definition
+accepted goal Definition
   ↓
-Current Execution
+current Execution
 ```
 
-More specific accepted/project truth wins over generic heuristics. AIDOS learning may improve future execution, but may never silently override project truth or a human-accepted Definition.
-
-## Project documentation single source of truth
-
-AIDOS does not require projects to copy their documentation into an AIDOS-specific documentation tree.
-
-Instead, each project may keep a small `.aidos/documentation/MANIFEST.json` that identifies the canonical source for material concerns such as architecture, runtime, deployment and security. Existing reliable project docs remain canonical. Missing focused docs are created only where needed.
-
-The interactive entrypoint is `START_PROJECT_DOCUMENTATION.md`.
+More specific accepted/project truth wins over generic heuristics. AIDOS learning may improve future execution but may never silently override project truth or a human-accepted Definition.
 
 ## Durable state
 
-Chats and Codex sessions are disposable reasoning contexts. They are never the only source of essential state.
+Chats and Codex sessions are disposable reasoning contexts. Essential state must be reconstructable from repository state and append-only events.
 
-Each integrated project stores its own AIDOS state in the project repository, including documentation baseline/session state, accepted definitions, executions, current state and an append-only event history. This allows Documentation/Definition/Worker/Codex sessions to be rotated or recovered without reconstructing truth from old chat history.
-
-## Repository map
-
-- `agents/` — generic AIDOS agents.
-- `protocols/` — project documentation, definition, execution, review, interruption and learning protocols.
-- `schemas/` — machine-readable project/documentation/state/event/Definition/execution/learning contracts.
-- `knowledge/` — generic reusable knowledge, selected by capability/goal.
-- `bridge/` — local Windows orchestration layer and bridge module.
-- `tools/` — project/bootstrap/documentation validation and future maintenance tooling.
-- `templates/` — project-local integration templates.
-- `docs/` — architecture, project documentation, security, state, recovery, telemetry and implementation roadmap.
+The project baseline remains in the project repository under the AIDOS-Contracts format. AIDOS adds goal definitions, executions, reviews and runtime state to that same project-local boundary.
 
 ## Current implementation status
 
-The initial AIDOS foundation is present, including generic agents/protocols, machine-readable contracts, project bootstrap, state-transition primitives and implementation roadmap.
+The private AIDOS foundation is present. The local multi-project bridge, Codex lifecycle, review transport, desktop ChatGPT integration and crash reconciliation remain the main runtime implementation work.
 
-The Project Documentation Builder can already be used independently of the future unattended bridge through `START_PROJECT_DOCUMENTATION.md`. It has persistent project-local manifest/session contracts plus PowerShell bootstrap/validation tooling.
+Projects must first have an accepted AIDOS Project Baseline. `tools/New-AidosProject.ps1` now refuses initialization when `.aidos/documentation/PROJECT_BASELINE.json` is absent.
 
-The bridge is **not yet an unattended production runner**. Codex CLI lifecycle, leases/scheduler, ephemeral review-ref automation, desktop ChatGPT triggering and crash reconciliation remain the next runtime implementation tranche. See `docs/IMPLEMENTATION_ROADMAP.md`.
-
-AIDOS is being built from a proven manual GPT ↔ Codex workflow. The existing Workflow V2 remains separate as a fallback and is not modified by AIDOS.
+The existing Workflow V2 remains separate as a fallback and is not modified by AIDOS.
