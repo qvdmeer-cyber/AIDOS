@@ -4,7 +4,7 @@ AIDOS uses explicit states so neither GPT nor Codex can infer permission to cont
 
 ## External preparation gate
 
-Preparation state is owned by AIDOS-Builder/AIDOS-Contracts but is a hard prerequisite for private AIDOS runtime:
+Preparation is owned by AIDOS-Builder/AIDOS-Contracts but is a hard prerequisite for private AIDOS runtime:
 
 ```text
 NEW_PROJECT
@@ -14,11 +14,35 @@ PROJECT_BASELINE_ACCEPTED
 EXISTING_PROJECT
 PROJECT_BASELINE_ACCEPTED
 → CURRENT_PRODUCT_STATE_REQUIRED
+→ DISCOVERY_CLOSURE
 → CURRENT_PRODUCT_STATE_ACCEPTED
 → AIDOS runtime eligible
 ```
 
-Private AIDOS must not compensate for missing Existing Project Discovery by allowing Definition to reconstruct the current product informally.
+`CURRENT_PRODUCT_STATE_ACCEPTED` means accepted under the current required CPS/discovery contract and with the material product graph closed. An accepted historical CPS under weaker rules does not pass the current gate.
+
+## Discovery refresh states
+
+If newer evidence or stronger closure contracts reveal missing product branches:
+
+```text
+CURRENT_PRODUCT_STATE_ACCEPTED
+→ DISCOVERY_REFRESH_REQUIRED
+→ AIDOS-Builder refresh
+→ deterministic Discovery Closure
+→ CURRENT_PRODUCT_STATE_ACCEPTED (new CPS lineage)
+```
+
+Examples that require refresh include:
+
+- a newly identified `FIRST_PARTY_MATERIAL` component not covered by CPS;
+- a known public/passive runtime that was not observed;
+- unresolved material source/runtime references;
+- evidence showing the bound CPS was materially stale/wrong.
+
+Existing evidence and prior accepted CPS are preserved. Refresh discovers only missing branches unless broader truth has become unreliable.
+
+Private AIDOS must not compensate by allowing Definition/Worker to reconstruct the missing product state informally.
 
 ## Definition states
 
@@ -36,53 +60,9 @@ ACCEPTED
 → ...
 ```
 
+Here `DISCOVERY` is goal/decision elicitation inside Definition; it is **not Existing Project Discovery**.
+
 Only `ACCEPTED` may authorize creation of a new execution for that Definition version.
-
-If current evidence shows the bound Current Product State is materially stale/wrong:
-
-```text
-ACCEPTED / GPT_REVIEWING
-→ DISCOVERY_REFRESH_REQUIRED
-→ AIDOS-Builder refresh
-→ CURRENT_PRODUCT_STATE_ACCEPTED (new snapshot/version)
-→ Definition consistency check
-→ resume or REOPENED if desired delta is affected
-```
-
-## Launch Definition states
-
-A product/material release may additionally have a release-scoped Launch Definition:
-
-```text
-LAUNCH_DISCOVERY
-→ LAUNCH_PROPOSED
-→ LAUNCH_USER_REVIEW
-→ LAUNCH_ACCEPTED
-→ RELEASE_SCOPE_FROZEN
-```
-
-After freeze, new findings do not implicitly change the release. They are classified:
-
-```text
-LAUNCH_BLOCKER
-POST_LAUNCH
-EVIDENCE_REQUIRED
-```
-
-`POST_LAUNCH` does not leave the frozen release state. `EVIDENCE_REQUIRED` requests bounded evidence, not automatic scope expansion.
-
-A proven blocker or deliberate human delay may explicitly reopen the release gate:
-
-```text
-RELEASE_SCOPE_FROZEN / RELEASE_READY
-→ LAUNCH_REOPEN_REQUESTED
-→ LAUNCH_REOPENED
-→ LAUNCH_USER_REVIEW
-→ LAUNCH_ACCEPTED
-→ RELEASE_SCOPE_FROZEN
-```
-
-The prior Launch Definition version remains durable lineage.
 
 ## Project/execution states
 
@@ -96,59 +76,88 @@ IDLE
 
 GPT_REVIEWING
 ├─ ACCEPTED                   → IDLE / next accepted goal
-├─ REPAIR                     → TASK_READY (same goal, revised execution)
+├─ REPAIR                     → TASK_READY
 ├─ CONTRADICTION              → WAITING_DEFINITION
-├─ DISCOVERY_REFRESH_REQUIRED → external AIDOS-Builder discovery refresh
+├─ DISCOVERY_REFRESH_REQUIRED → external AIDOS-Builder refresh
 ├─ GATE                       → WAITING_USER
 ├─ BLOCKED                    → WAITING_USER
 └─ RELEASE_READY              → release lifecycle / genuine release authority gate
 ```
 
-When a frozen Launch Definition exists, ordinary accepted goals within that release do not authorize extra release scope.
+`DISCOVERY_REFRESH_REQUIRED` is not a product-decision gate. It means current-state preparation no longer satisfies the required closure invariant.
+
+## Launch Definition states
+
+```text
+LAUNCH_DISCOVERY
+→ LAUNCH_PROPOSED
+→ LAUNCH_USER_REVIEW
+→ LAUNCH_ACCEPTED
+→ RELEASE_SCOPE_FROZEN
+```
+
+New findings after freeze are:
+
+```text
+LAUNCH_BLOCKER
+POST_LAUNCH
+EVIDENCE_REQUIRED
+```
+
+A proven blocker or deliberate human delay may explicitly reopen:
+
+```text
+RELEASE_SCOPE_FROZEN / RELEASE_READY
+→ LAUNCH_REOPEN_REQUESTED
+→ LAUNCH_REOPENED
+→ LAUNCH_USER_REVIEW
+→ LAUNCH_ACCEPTED
+→ RELEASE_SCOPE_FROZEN
+```
 
 ## Release-ready invariant
 
-When all accepted Launch Definition criteria are PASS and no unresolved `LAUNCH_BLOCKER` remains:
+When all accepted Launch Definition criteria are PASS and no unresolved `LAUNCH_BLOCKER` remains, default forward state is:
 
 ```text
 RELEASE_READY
 ```
 
-is the default forward state.
-
-AIDOS must not transition from `RELEASE_READY` back to feature discovery merely because a new improvement is imaginable. Additional improvement is routed to `POST_LAUNCH` unless an explicit Launch Definition reopen is accepted.
+AIDOS must not return to feature discovery merely because another improvement is imaginable.
 
 ## Additional infrastructure states
 
-- `QUEUED` — task valid but waiting for a local execution slot;
-- `WAITING_INTERACTIVE_SESSION` — review/work is ready but supervised policy blocks desktop GPT activation;
-- `CONTEXT_ROTATION_REQUIRED` — current GPT/Codex session must not be resumed;
-- `RECOVERY_REQUIRED` — state cannot safely advance until reconciliation completes.
+- `QUEUED` — valid task waiting for local execution slot;
+- `WAITING_INTERACTIVE_SESSION` — work ready but supervised policy blocks desktop GPT activation;
+- `CONTEXT_ROTATION_REQUIRED` — current GPT/Codex context must not resume;
+- `RECOVERY_REQUIRED` — durable state requires reconciliation.
 
 ## Execution terminal outcomes
 
 Execution Agent may terminate only as:
 
-- `TER_REVIEW` — accepted outcome appears complete and evidence is ready;
-- `CONTROLLED_GATE` — new material authority/decision is required;
-- `BLOCKER` — safe technical autonomy is exhausted;
-- `RUNTIME_STOP` — agent/runtime itself cannot continue;
-- `REQUIREMENT_CONTRADICTION` — project evidence conflicts materially with the accepted Definition.
+- `TER_REVIEW`;
+- `CONTROLLED_GATE`;
+- `BLOCKER`;
+- `RUNTIME_STOP`;
+- `REQUIREMENT_CONTRADICTION`.
 
 Ordinary build/test/runtime failures are not terminal while safe useful technical steps remain.
 
-`DISCOVERY_REFRESH_REQUIRED` and `RELEASE_READY` are Worker/review states, not Execution Agent self-declared terminal results.
-
-## Success stop
-
-Once acceptance and required evidence are complete, Execution Agent stops. It never starts a new goal because the roadmap makes it obvious.
-
-Only Worker may dispatch another already-accepted goal; only the human/Definition Agent may accept new product intent or reopen frozen release scope.
+`DISCOVERY_REFRESH_REQUIRED` and `RELEASE_READY` are Worker/review transitions, not self-declared Execution Agent outcomes.
 
 ## Fail-closed transitions
 
-A transition is rejected when project, project mode, preparation binding, definition version, execution ID/revision, root, branch or required commit binding does not match current canonical state.
+A transition is rejected when project, project mode, preparation binding, Definition version, execution ID/revision, root, branch or required commit binding does not match canonical state.
 
-For `EXISTING_PROJECT`, the accepted Current Product State ID/commit is part of preparation binding. For release-scoped work, Launch Definition/release identity must also match once runtime contracts implement that binding.
+For `EXISTING_PROJECT`, preparation binding includes:
 
-See `protocols/LAUNCH_PROTOCOL.md`.
+```text
+accepted CPS id/commit
+CPS contract version = 0.2.0
+discovery catalog version = 0.2.0
+discovery state = ACCEPTED
+open discovery blockers = 0
+```
+
+For release-scoped work, Launch Definition/release identity is additionally bound when runtime persistence is implemented.
