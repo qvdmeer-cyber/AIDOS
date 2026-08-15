@@ -2,7 +2,7 @@
 
 **Artificial Intelligence Development Operating System**
 
-AIDOS is the private core for human-governed AI software development. It separates human-accepted goal definition, high-value reasoning, technical execution, review, release governance, recovery and reusable learning so that AI agents can work autonomously inside explicit boundaries without making product decisions on behalf of the human owner.
+AIDOS is the private core for human-governed AI software development. It separates project preparation, human-accepted goal definition, high-value reasoning, technical execution, review, release governance, recovery and reusable learning so that AI agents can work autonomously inside explicit boundaries without making product decisions on behalf of the human owner.
 
 The name also echoes Ancient Greek *aidōs*: respect, self-restraint and awareness of proper boundaries.
 
@@ -12,13 +12,13 @@ AIDOS is intentionally separated from project preparation:
 
 ```text
 AIDOS-Contracts
-  → shared project-baseline/access contracts
+  → shared Project Baseline + Existing Project Discovery contracts
 
 AIDOS-Builder
-  → distributable project documentation/completeness builder
+  → distributable baseline + Current Product State builder
 
 Project repository
-  → project truth + accepted baseline + decisions
+  → project truth + evidence + accepted baseline/current state + decisions
 
 AIDOS (this repository)
   → private definition/orchestration/execution/review/learning core
@@ -26,10 +26,27 @@ AIDOS (this repository)
 
 The private AIDOS core does not need to be shared with a collaborator who only uses AIDOS-Builder.
 
+## Preparation gate
+
+AIDOS consumes different accepted preparation objects by project mode:
+
+```text
+NEW_PROJECT
+Accepted Project Baseline
+→ Definition
+
+EXISTING_PROJECT
+Accepted Project Baseline
+→ Accepted Current Product State
+→ Definition
+```
+
+For existing products, Current Product State reconstructs what is already implemented/observable so Definition can focus only on the desired **delta**.
+
 ## Core flow
 
 ```text
-Accepted Project Baseline
+Accepted preparation state
   ↓
 Definition Agent + Human
   ↓
@@ -66,13 +83,14 @@ release / real-user evidence
 
 ## Core rules
 
-1. **Accepted project truth before goal definition.** A project enters AIDOS with a baseline prepared under AIDOS-Contracts, normally by AIDOS-Builder.
-2. **Definition before execution.** Development starts only after the human explicitly accepts the foreseeable product behaviour, constraints and acceptance criteria for the goal.
-3. **Project-local truth.** Product, architecture, runtime and project-specific instructions stay in the project repository.
-4. **AIDOS-global capability.** Generic runtime agents, protocols, tools, validators and proven reusable learnings live once in AIDOS.
-5. **Goal-scoped context.** Agents receive AIDOS knowledge selected for the current development goal rather than the whole accumulated knowledge base.
-6. **Bounded autonomy.** Execution may continue as long as useful inside accepted goal/authority, but stops at contradictions, material authority boundaries or terminal completion.
-7. **Frozen launch criteria.** Launch criteria are defined before launch pressure exists. Once accepted criteria are satisfied, improvement alone is not sufficient grounds for delay; the default state is `RELEASE_READY` unless the Launch Definition is explicitly reopened.
+1. **Accepted project truth before goal definition.** A project enters AIDOS with a compatible accepted Project Baseline; an existing product additionally requires an accepted Current Product State.
+2. **Current state before change definition.** Existing functionality is discovered as evidence, not repeatedly rediscovered as product decisions inside Definition.
+3. **Definition before execution.** Development starts only after the human explicitly accepts the foreseeable product behaviour, constraints and acceptance criteria for the desired change.
+4. **Project-local truth.** Product, architecture, runtime, evidence, Current Product State and project-specific instructions stay in the project repository.
+5. **AIDOS-global capability.** Generic runtime agents, protocols, tools, validators and proven reusable learnings live once in AIDOS.
+6. **Goal-scoped context.** Agents receive AIDOS knowledge selected for the current development goal rather than the whole accumulated knowledge base.
+7. **Bounded autonomy.** Execution may continue as long as useful inside accepted goal/authority, but stops at contradictions, material authority boundaries or terminal completion.
+8. **Frozen launch criteria.** Launch criteria are defined before launch pressure exists. Once accepted criteria are satisfied, improvement alone is not sufficient grounds for delay; the default state is `RELEASE_READY` unless the Launch Definition is explicitly reopened.
 
 ## Repository responsibility
 
@@ -89,11 +107,11 @@ AIDOS owns:
 
 AIDOS does **not** own:
 
-- the distributable Project Documentation Builder;
-- the generic project-baseline completeness contract;
+- the distributable Project Documentation/Existing Project Discovery procedures;
+- generic Project Baseline/Current Product State completeness contracts;
 - organisation-documentation procedures;
 - project strategy/product requirements/architecture/runtime truth;
-- accepted project baselines, Definitions, Launch Definitions or execution history;
+- accepted Project Baselines, Current Product States, Definitions, Launch Definitions or execution history;
 - customer/project secrets or credentials.
 
 Those accepted project/release objects remain project-local.
@@ -107,11 +125,11 @@ See:
 
 AIDOS defines three private runtime agents:
 
-- **Definition Agent** — discovers missing goal decisions one question at a time, produces a human-accepted Definition and helps establish/reopen a release-scoped Launch Definition.
+- **Definition Agent** — consumes accepted current project truth, asks only goal-specific delta questions, produces a human-accepted Definition and helps establish/reopen a release-scoped Launch Definition.
 - **Worker Agent** — plans bounded execution from an accepted Definition, dispatches work, reviews evidence, enforces frozen release scope and controls state transitions.
 - **Execution Agent** — performs technical execution, tests, deployment/verification where authorized, repairs ordinary failures and returns terminal outcomes.
 
-Project documentation preparation is handled outside this private core by AIDOS-Builder.
+Project Baseline and Existing Project Discovery are handled outside this private core by AIDOS-Builder/AIDOS-Contracts.
 
 ## Knowledge inheritance
 
@@ -122,7 +140,9 @@ relevant capability knowledge
   ↓
 relevant goal-pattern knowledge
   ↓
-accepted project baseline + project truth
+accepted Project Baseline
+  ↓
+accepted Current Product State (EXISTING_PROJECT only)
   ↓
 accepted goal Definition
   ↓
@@ -131,13 +151,13 @@ accepted Launch Definition where applicable
 current Execution
 ```
 
-More specific accepted/project truth wins over generic heuristics. AIDOS learning may improve future execution but may never silently override project truth, a human-accepted Definition or a frozen Launch Definition.
+More specific accepted/project truth wins over generic heuristics. AIDOS learning may improve future execution but may never silently override accepted project truth, a human-accepted Definition or a frozen Launch Definition.
 
 ## Durable state
 
 Chats and Codex sessions are disposable reasoning contexts. Essential state must be reconstructable from repository state and append-only events.
 
-The project baseline remains in the project repository under the AIDOS-Contracts format. AIDOS adds goal definitions, Launch Definition/release state, executions, reviews and runtime state to that same project-local boundary.
+The Project Baseline, shared Evidence Inventory and Current Product State remain in the project repository under AIDOS-Contracts/Builder formats. AIDOS adds goal definitions, Launch Definition/release state, executions, reviews and runtime state to that same project-local boundary.
 
 ## Launch governance
 
@@ -155,8 +175,6 @@ See `protocols/LAUNCH_PROTOCOL.md`.
 
 The private AIDOS foundation is present. The local multi-project bridge, Codex lifecycle, review transport, desktop ChatGPT integration and crash reconciliation remain the main runtime implementation work.
 
-Launch/release governance is now part of the architectural foundation; machine-readable Launch Definition/state/backlog persistence is deliberately left for the relevant runtime implementation phase.
-
-Projects must first have an accepted AIDOS Project Baseline. `tools/New-AidosProject.ps1` now refuses initialization when `.aidos/documentation/PROJECT_BASELINE.json` is absent.
+AIDOS onboarding now distinguishes `NEW_PROJECT` and `EXISTING_PROJECT`. Existing projects are rejected until an accepted `.aidos/discovery/CURRENT_PRODUCT_STATE.json` exists; new projects require only the accepted baseline/evidence preparation.
 
 The existing Workflow V2 remains separate as a fallback and is not modified by AIDOS.
