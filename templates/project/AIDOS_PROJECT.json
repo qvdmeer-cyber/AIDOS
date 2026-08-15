@@ -1,0 +1,15 @@
+{
+  "schema_version": "0.1",
+  "project_id": "REPLACE_ME",
+  "repository": "owner/repository",
+  "official_root": "C:\\Projects\\Code\\REPLACE_ME",
+  "default_branch": "main",
+  "canonical_sources": [
+    "AGENTS.md",
+    "docs/"
+  ],
+  "agent_profile": ".aidos/AGENT_PROFILE.json",
+  "capabilities": [],
+  "project_validators": [],
+  "runner_policy": "SUPERVISED"
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/project.schema.json",
+  "title": "AIDOS Project Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "repository", "official_root", "canonical_sources", "agent_profile"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "project_id": {"type": "string", "minLength": 1},
+    "repository": {"type": "string", "minLength": 1},
+    "official_root": {"type": "string", "minLength": 3},
+    "default_branch": {"type": "string"},
+    "canonical_sources": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "agent_profile": {"type": "string", "minLength": 1},
+    "capabilities": {"type": "array", "items": {"type": "string"}},
+    "project_validators": {"type": "array", "items": {"type": "string"}},
+    "runner_policy": {"type": "string"}
+  }
+}

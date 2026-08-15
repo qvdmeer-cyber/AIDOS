@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/state.schema.json",
+  "title": "AIDOS Project State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "state", "updated_at"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "project_id": {"type": "string", "minLength": 1},
+    "state": {"type": "string", "enum": ["IDLE", "WAITING_DEFINITION", "TASK_READY", "QUEUED", "CODEX_RUNNING", "TERMINAL_PENDING", "REVIEW_READY", "GPT_REVIEWING", "WAITING_USER", "WAITING_INTERACTIVE_SESSION", "CONTEXT_ROTATION_REQUIRED", "RECOVERY_REQUIRED"]},
+    "definition_id": {"type": ["string", "null"]},
+    "definition_version": {"type": ["integer", "null"], "minimum": 1},
+    "execution_id": {"type": ["string", "null"]},
+    "revision": {"type": ["integer", "null"], "minimum": 1},
+    "codex_session_id": {"type": ["string", "null"]},
+    "review_id": {"type": ["string", "null"]},
+    "lease_id": {"type": ["string", "null"]},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/definition.schema.json",
+  "title": "AIDOS Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "definition_id", "version", "project_id", "status", "goal", "requirements", "acceptance", "out_of_scope", "sources"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "definition_id": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "project_id": {"type": "string"},
+    "status": {"type": "string", "enum": ["DISCOVERY", "OPEN_QUESTIONS", "PROPOSED", "USER_REVIEW", "ACCEPTED", "REOPENED"]},
+    "goal": {"type": "string", "minLength": 1},
+    "requirements": {"type": "array", "items": {"type": "object"}},
+    "non_functional": {"type": "array", "items": {"type": "object"}},
+    "acceptance": {"type": "array", "items": {"type": "object"}, "minItems": 1},
+    "out_of_scope": {"type": "array", "items": {"type": "string"}},
+    "open_questions": {"type": "array", "items": {"type": "object"}},
+    "sources": {"type": "array", "items": {"type": "string"}},
+    "accepted_at": {"type": ["string", "null"], "format": "date-time"},
+    "accepted_by": {"type": ["string", "null"]}
+  }
+}

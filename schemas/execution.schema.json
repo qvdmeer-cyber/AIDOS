@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/execution.schema.json",
+  "title": "AIDOS Execution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "execution_id", "revision", "project_id", "definition", "goal", "scope", "acceptance", "authority", "knowledge_selection", "executor_profile"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "execution_id": {"type": "string"},
+    "revision": {"type": "integer", "minimum": 1},
+    "project_id": {"type": "string"},
+    "definition": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {"id": {"type": "string"}, "version": {"type": "integer", "minimum": 1}}
+    },
+    "goal": {"type": "string", "minLength": 1},
+    "scope": {"type": "object"},
+    "acceptance": {"type": "array", "items": {"type": "object"}, "minItems": 1},
+    "authority": {"type": "object"},
+    "knowledge_selection": {"type": "array", "items": {"type": "string"}},
+    "validators": {"type": "array", "items": {"type": "string"}},
+    "executor_profile": {
+      "type": "object",
+      "required": ["model", "reasoning_effort"],
+      "properties": {
+        "model": {"type": "string"},
+        "reasoning_effort": {"type": "string"}
+      }
+    },
+    "stop_conditions": {"type": "array", "items": {"type": "string"}}
+  }
+}

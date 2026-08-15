@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/event.schema.json",
+  "title": "AIDOS Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "timestamp", "project_id", "event_type", "actor", "payload"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "event_id": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "project_id": {"type": "string", "minLength": 1},
+    "definition_id": {"type": ["string", "null"]},
+    "definition_version": {"type": ["integer", "null"], "minimum": 1},
+    "execution_id": {"type": ["string", "null"]},
+    "revision": {"type": ["integer", "null"], "minimum": 1},
+    "review_id": {"type": ["string", "null"]},
+    "event_type": {"type": "string", "minLength": 1},
+    "actor": {"type": "string", "enum": ["HUMAN", "DEFINITION_AGENT", "WORKER_AGENT", "EXECUTION_AGENT", "BRIDGE", "SYSTEM"]},
+    "payload": {"type": "object"}
+  }
+}

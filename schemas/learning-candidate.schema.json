@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/learning-candidate.schema.json",
+  "title": "AIDOS Learning Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "learning_id", "status", "classification", "statement", "source", "evidence"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "learning_id": {"type": "string"},
+    "status": {"type": "string", "enum": ["CANDIDATE", "PROVEN", "TOOLIZED", "DEPRECATED"]},
+    "classification": {
+      "type": "object",
+      "required": ["level", "tags"],
+      "properties": {
+        "level": {"type": "string", "enum": ["CORE", "CAPABILITY", "GOAL"]},
+        "tags": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "statement": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "required": ["project_id", "execution_id"],
+      "properties": {
+        "project_id": {"type": "string"},
+        "execution_id": {"type": "string"},
+        "revision": {"type": "integer"}
+      }
+    },
+    "evidence": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "validation": {"type": "string"},
+    "supersedes": {"type": "array", "items": {"type": "string"}}
+  }
+}

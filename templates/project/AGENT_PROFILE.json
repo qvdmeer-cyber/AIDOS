@@ -1,0 +1,15 @@
+{
+  "schema_version": "0.1",
+  "project_id": "REPLACE_ME",
+  "aidos_agents": {
+    "definition": "agents/DEFINITION_AGENT.md",
+    "worker": "agents/WORKER_AGENT.md",
+    "execution": "agents/EXECUTION_AGENT.md"
+  },
+  "project_specific_sources": [],
+  "project_constraints": [],
+  "executor": {
+    "model": "gpt-5.4-mini",
+    "reasoning_effort": "medium"
+  }
+}
