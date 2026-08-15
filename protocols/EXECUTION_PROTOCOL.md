@@ -4,6 +4,8 @@
 
 An Execution exists to deliver one accepted development goal. Technical subtasks and repair loops do not become separate product goals merely because they require multiple steps.
 
+For work inside a frozen release, execution is also bounded by the accepted Launch Definition/release scope. Execution Agent may not pull attractive `POST_LAUNCH` improvements into the active release merely because implementation makes them convenient.
+
 ## Required bindings
 
 Every execution binds:
@@ -18,17 +20,23 @@ Every execution binds:
 - authority/capabilities;
 - acceptance/evidence contract.
 
+When a frozen Launch Definition applies, the execution will additionally bind its release/Launch Definition identity once that machine-readable runtime contract is implemented.
+
 ## Preflight
 
 Validate bindings and runtime before altering project state. Wrong root/project is a hard fail-closed condition.
 
 ## Consistency before build
 
-Worker validates that the planned implementation and acceptance contract do not contradict the accepted Definition. Execution Agent may choose implementation details inside that contract.
+Worker validates that the planned implementation and acceptance contract do not contradict the accepted Definition. For release-scoped work it also validates that planned work is inside the frozen Launch Definition.
+
+Execution Agent may choose implementation details inside that contract.
 
 ## Technical loop
 
 Execution Agent owns the ordinary inspect/implement/test/diagnose/repair loop. Do not create GPT handoffs for milestones that are not terminal.
+
+A newly discovered improvement outside frozen release scope is not an execution task. Report evidence through the normal handoff so Worker can classify it under `protocols/LAUNCH_PROTOCOL.md`.
 
 ## Long-running work
 
