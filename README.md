@@ -94,8 +94,21 @@ Chats and Codex sessions are disposable reasoning contexts. They are never the o
 
 Each integrated project stores its own AIDOS state in the project repository, including accepted definitions, executions, current state and an append-only event history. This allows Conversation/Worker/Codex sessions to be rotated or recovered without reconstructing truth from old chat history.
 
-## Status
+## Repository map
 
-AIDOS is being built from a proven manual GPT ↔ Codex workflow. The first implementation target is a Windows-based multi-project bridge using normal ChatGPT chats for reasoning and Codex with a lightweight execution model for implementation.
+- `agents/` — generic AIDOS agents.
+- `protocols/` — definition, execution, review, interruption and learning protocols.
+- `schemas/` — machine-readable project/state/event/Definition/execution/learning contracts.
+- `knowledge/` — generic reusable knowledge, selected by capability/goal.
+- `bridge/` — local Windows orchestration layer and bridge module.
+- `tools/` — project bootstrap and future validation/maintenance tooling.
+- `templates/` — project-local integration templates.
+- `docs/` — architecture, security, state, recovery, telemetry and implementation roadmap.
 
-Initial design documentation and machine-readable contracts live in this repository. The existing Workflow V2 remains separate as a fallback and is not modified by AIDOS.
+## Current implementation status
+
+The initial AIDOS foundation is now present in this repository. It includes the generic agent/protocol architecture, machine-readable contracts, project bootstrap format, state-transition model, first PowerShell bridge primitives and an implementation roadmap.
+
+The bridge is **not yet an unattended production runner**. Codex CLI lifecycle, leases/scheduler, ephemeral review-ref automation, desktop ChatGPT triggering and crash reconciliation are the next implementation tranche. See `docs/IMPLEMENTATION_ROADMAP.md`.
+
+AIDOS is being built from a proven manual GPT ↔ Codex workflow. The existing Workflow V2 remains separate as a fallback and is not modified by AIDOS.
