@@ -4,105 +4,105 @@
 
 Determine whether the exact accepted Definition has been delivered with adequate evidence and no unapproved behaviour expansion.
 
-For `EXISTING_PROJECT`, review also verifies that execution was based on the bound accepted Current Product State and distinguishes **goal/Definition contradiction** from **stale or incorrect pre-execution current-state discovery**.
+For `EXISTING_PROJECT`, review also verifies the exact closure-compatible Current Product State binding and distinguishes:
 
-When a frozen Launch Definition applies, review must additionally determine whether the release gate is satisfied **without allowing improvement ideas to silently expand release scope**.
+- desired product/Definition contradiction;
+- ordinary expected product change caused by execution;
+- **pre-existing Discovery Closure failure** in the bound CPS.
+
+When a frozen Launch Definition applies, review additionally evaluates release readiness without allowing improvement ideas to expand frozen scope.
 
 ## Review order
 
-1. Binding integrity: project mode, Project Baseline, Current Product State where applicable, Definition, execution, revision, branch/head, review ID.
-2. Launch Definition/release binding where applicable.
-3. Terminal legitimacy.
-4. Acceptance check results.
-5. Required validator/evidence integrity.
+1. Binding integrity: project mode, Project Baseline, CPS ID/commit + CPS/discovery contract versions, Definition, execution, revision, branch/head, review ID.
+2. Verify existing-project discovery state was accepted/current at dispatch.
+3. Launch Definition/release binding where applicable.
+4. Terminal legitimacy.
+5. Acceptance check and validator/evidence integrity.
 6. Definition convergence: delivered desired delta versus accepted intent.
-7. For existing products, current-state reconciliation: did execution reveal that the bound CPS was materially stale/wrong before execution, versus ordinary state change caused by this execution?
+7. Existing-product current-state reconciliation:
+   - did this execution itself cause the changed state?;
+   - or did evidence expose an omitted material first-party component/dependency branch?;
+   - or did evidence expose missing reasonably observable runtime?
+   - or was the bound CPS otherwise materially stale/wrong before execution?
 8. Launch Definition convergence where applicable.
-9. Classification of new release findings: `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`.
+9. Release-finding classification where applicable.
 10. Scope/authority compliance.
 11. Cleanup/final-state requirements.
 12. Learning candidates.
 
 ## Outcomes
 
-### ACCEPTED
+### `ACCEPTED`
 
-Outcome is complete. Record review decision durably. Mark ephemeral review transport `REVIEW_CONSUMED`; bridge then cleans it.
+Outcome is complete. Record decision durably and consume/clean ephemeral review transport.
 
-For work inside a frozen release, an accepted execution does not by itself reopen release scope.
+Expected state change caused by the accepted execution does not by itself mean the pre-execution CPS was invalid.
 
-### DISCOVERY_REFRESH_REQUIRED
+### `DISCOVERY_REFRESH_REQUIRED`
 
-Use only for `EXISTING_PROJECT` when new evidence shows the accepted pre-execution Current Product State was materially stale, incomplete or incorrect in a way that affects reliable future reasoning.
+Use for `EXISTING_PROJECT` when objective evidence shows the accepted pre-execution current-state preparation did not satisfy reliable product closure, including:
 
-This is **not** a request for the Worker or Definition Agent to reverse-engineer the project themselves.
+- an omitted `FIRST_PARTY_MATERIAL` component;
+- an unclosed material first-party dependency branch;
+- known reasonably observable public/passive runtime that was absent or `NOT_OBSERVED`;
+- material source/runtime reference that was unresolved;
+- other material inaccuracy in the pre-execution CPS.
 
 Route:
 
 ```text
 AIDOS review
-→ preserve new evidence
-→ AIDOS-Builder Existing Project Discovery refresh
-→ deterministic CPS validation
-→ human acceptance of new CPS snapshot
+→ preserve precise evidence
+→ DISCOVERY_REFRESH_REQUIRED
+→ AIDOS-Builder
+→ preserve old accepted CPS/evidence lineage
+→ close only missing branches/runtime observations
+→ deterministic closure validation
+→ accept new CPS
 → Definition consistency check
-→ resume existing Definition or reopen only if the desired delta is affected
 ```
 
-Do not use this outcome merely because execution changed the product as intended. Expected post-execution change means the old CPS was a valid pre-execution snapshot, not stale discovery.
+Do **not** ask the human for a product decision merely to compensate for missing objective discovery evidence.
 
-### RELEASE_READY
+Do not use this outcome merely because execution changed the product as intended.
 
-Use when a Launch Definition applies and:
+### `REPAIR`
 
-- all accepted launch criteria are PASS;
-- no unresolved `LAUNCH_BLOCKER` remains;
-- required launch evidence is complete.
+Technical correction remains inside accepted Definition, current preparation binding, authority and frozen release scope where applicable.
 
-This is the default forward state. Do not ask whether the owner wants additional polish/features before proceeding.
+### `CONTRADICTION`
 
-The next action is the already-authorized release lifecycle or the next genuine release authority gate.
+Use when the desired future product behaviour/requirement itself conflicts with project truth and a human product decision is required.
 
-### REPAIR
+Do not use `CONTRADICTION` for a missing current-product discovery branch; refresh discovery first.
 
-Technical correction remains entirely inside accepted Definition/authority and frozen release scope where applicable. Increment execution revision as required and dispatch back to execution.
+### `GATE / BLOCKED`
 
-### CONTRADICTION
+Human authority/reasoning is required before safe continuation.
 
-Use when a material **desired product assumption/requirement** conflicts with discovered project truth and the future behavior requires a human product decision.
+### `RELEASE_READY`
 
-Do not use `CONTRADICTION` merely because the previously accepted CPS was inaccurate; use `DISCOVERY_REFRESH_REQUIRED` first in that case.
+Use when all accepted Launch Definition criteria PASS, no unresolved `LAUNCH_BLOCKER` remains and launch evidence is complete. This is the default forward state; do not solicit another round of polish/features.
 
-If the contradiction invalidates a frozen release criterion, preserve Launch Definition lineage and reopen it explicitly rather than silently changing the release gate.
+## Authority distinction
 
-### GATE / BLOCKED
-
-Human authority or reasoning is required before safe continuation.
+Discovery Authority and Execution Authority are independent. The fact that AIDOS-Builder may passively inspect public runtime or follow a first-party source read-only does not authorize Worker/Execution to mutate that runtime/source.
 
 ## Release-finding classification
 
-After Launch Definition acceptance, every new material release-related finding must be classified:
+After release-scope freeze, new material findings are exactly one of:
 
-- `LAUNCH_BLOCKER` — objective violation of the core promise/accepted launch criterion or comparable material security/privacy/data-loss/compliance risk;
-- `POST_LAUNCH` — useful improvement that does not justify delay;
-- `EVIDENCE_REQUIRED` — plausible concern whose release-criticality is not yet evidenced.
+- `LAUNCH_BLOCKER`;
+- `POST_LAUNCH`;
+- `EVIDENCE_REQUIRED`.
 
-Statements such as "this can be better", "this feels unfinished" or a newly imagined feature do not constitute blocker evidence.
-
-Useful `POST_LAUNCH` findings must be preserved in the project-local backlog, not lost.
+"This can be better", subjective incompleteness or a new feature idea is not blocker evidence by itself. Preserve useful `POST_LAUNCH` findings in the project-local backlog.
 
 ## Explicit delay after readiness
 
-If the human elects to delay once `RELEASE_READY` is reached, that is a deliberate governance exception:
-
-- reopen/version Launch Definition or release scope explicitly;
-- record the reason;
-- record the changed criterion/scope;
-- record timing/risk consequence where knowable;
-- obtain renewed human acceptance.
+Delay after `RELEASE_READY` requires explicit Launch Definition/release-scope reopen with reason, changed criterion/scope, consequence where knowable and renewed acceptance.
 
 ## No review-by-volume
 
-Large evidence packages are not intrinsically better. Prefer the smallest complete proof. Source code already present at an exact commit should not be redundantly zipped for GPT.
-
-See `protocols/LAUNCH_PROTOCOL.md`.
+Prefer the smallest complete proof. Code already available at an exact commit should not be redundantly packaged.
