@@ -1,17 +1,22 @@
 {
   "schema_version": "0.1",
   "project_id": "REPLACE_ME",
+  "project_mode": "EXISTING_PROJECT",
   "repository": "owner/repository",
   "official_root": "C:\\Projects\\Code\\REPLACE_ME",
   "default_branch": "main",
   "canonical_sources": [
     "AGENTS.md",
     "docs/",
-    ".aidos/documentation/PROJECT_BASELINE.json"
+    ".aidos/documentation/PROJECT_BASELINE.json",
+    ".aidos/evidence/EVIDENCE_INVENTORY.json",
+    ".aidos/discovery/CURRENT_PRODUCT_STATE.json"
   ],
   "agent_profile": ".aidos/AGENT_PROFILE.json",
   "project_baseline": ".aidos/documentation/PROJECT_BASELINE.json",
   "project_access": ".aidos/documentation/PROJECT_ACCESS.json",
+  "evidence_inventory": ".aidos/evidence/EVIDENCE_INVENTORY.json",
+  "current_product_state": ".aidos/discovery/CURRENT_PRODUCT_STATE.json",
   "contracts_repository": "qvdmeer-cyber/AIDOS-Contracts",
   "capabilities": [],
   "project_validators": [],
