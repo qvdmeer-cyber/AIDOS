@@ -20,6 +20,41 @@ ACCEPTED
 
 Only `ACCEPTED` may authorize creation of a new execution for that Definition version.
 
+## Launch Definition states
+
+A product/material release may additionally have a release-scoped Launch Definition:
+
+```text
+LAUNCH_DISCOVERY
+→ LAUNCH_PROPOSED
+→ LAUNCH_USER_REVIEW
+→ LAUNCH_ACCEPTED
+→ RELEASE_SCOPE_FROZEN
+```
+
+After freeze, new findings do not implicitly change the release. They are classified:
+
+```text
+LAUNCH_BLOCKER
+POST_LAUNCH
+EVIDENCE_REQUIRED
+```
+
+`POST_LAUNCH` does not leave the frozen release state. `EVIDENCE_REQUIRED` requests bounded evidence, not automatic scope expansion.
+
+A proven blocker or deliberate human delay may explicitly reopen the release gate:
+
+```text
+RELEASE_SCOPE_FROZEN / RELEASE_READY
+→ LAUNCH_REOPEN_REQUESTED
+→ LAUNCH_REOPENED
+→ LAUNCH_USER_REVIEW
+→ LAUNCH_ACCEPTED
+→ RELEASE_SCOPE_FROZEN
+```
+
+The prior Launch Definition version remains durable lineage.
+
 ## Project/execution states
 
 ```text
@@ -35,10 +70,25 @@ GPT_REVIEWING
 ├─ REPAIR        → TASK_READY (same goal, revised execution)
 ├─ CONTRADICTION → WAITING_DEFINITION
 ├─ GATE          → WAITING_USER
-└─ BLOCKED       → WAITING_USER
+├─ BLOCKED       → WAITING_USER
+└─ RELEASE_READY → release lifecycle / genuine release authority gate
 ```
 
-Additional infrastructure states:
+When a frozen Launch Definition exists, ordinary accepted goals within that release do not authorize extra release scope.
+
+## Release-ready invariant
+
+When all accepted Launch Definition criteria are PASS and no unresolved `LAUNCH_BLOCKER` remains:
+
+```text
+RELEASE_READY
+```
+
+is the default forward state.
+
+AIDOS must not transition from `RELEASE_READY` back to feature discovery merely because a new improvement is imaginable. Additional improvement is routed to `POST_LAUNCH` unless an explicit Launch Definition reopen is accepted.
+
+## Additional infrastructure states
 
 - `QUEUED` — task valid but waiting for a local execution slot;
 - `WAITING_INTERACTIVE_SESSION` — review/work is ready but supervised policy blocks desktop GPT activation;
@@ -57,12 +107,18 @@ Execution Agent may terminate only as:
 
 Ordinary build/test/runtime failures are not terminal while safe useful technical steps remain.
 
+`RELEASE_READY` is a Worker/review state, not an Execution Agent self-declared terminal result.
+
 ## Success stop
 
 Once acceptance and required evidence are complete, Execution Agent stops. It never starts a new goal because the roadmap makes it obvious.
 
-Only Worker may dispatch another already-accepted goal; only the human/Definition Agent may accept new product intent.
+Only Worker may dispatch another already-accepted goal; only the human/Definition Agent may accept new product intent or reopen frozen release scope.
 
 ## Fail-closed transitions
 
 A transition is rejected when project, definition version, execution ID/revision, root, branch or required commit binding does not match current canonical state.
+
+For release-scoped work, Launch Definition/release identity must also match once runtime contracts implement that binding.
+
+See `protocols/LAUNCH_PROTOCOL.md`.
