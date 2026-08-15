@@ -18,6 +18,8 @@
     "project_access": {"type": "string", "minLength": 1},
     "evidence_inventory": {"type": "string", "minLength": 1},
     "current_product_state": {"type": ["string", "null"]},
+    "discovery_state": {"type": ["string", "null"]},
+    "discovery_authority": {"type": ["string", "null"]},
     "contracts_repository": {"type": "string", "minLength": 1},
     "capabilities": {"type": "array", "items": {"type": "string"}},
     "project_validators": {"type": "array", "items": {"type": "string"}},
@@ -27,8 +29,12 @@
     {
       "if": {"properties": {"project_mode": {"const": "EXISTING_PROJECT"}}},
       "then": {
-        "required": ["current_product_state"],
-        "properties": {"current_product_state": {"type": "string", "minLength": 1}}
+        "required": ["current_product_state", "discovery_state", "discovery_authority"],
+        "properties": {
+          "current_product_state": {"type": "string", "minLength": 1},
+          "discovery_state": {"type": "string", "minLength": 1},
+          "discovery_authority": {"type": "string", "minLength": 1}
+        }
       }
     }
   ]
