@@ -4,10 +4,11 @@
   "title": "AIDOS Project Profile",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "project_id", "repository", "official_root", "canonical_sources", "agent_profile", "project_baseline", "project_access", "contracts_repository"],
+  "required": ["schema_version", "project_id", "project_mode", "repository", "official_root", "canonical_sources", "agent_profile", "project_baseline", "project_access", "evidence_inventory", "contracts_repository"],
   "properties": {
     "schema_version": {"type": "string", "const": "0.1"},
     "project_id": {"type": "string", "minLength": 1},
+    "project_mode": {"type": "string", "enum": ["NEW_PROJECT", "EXISTING_PROJECT"]},
     "repository": {"type": "string", "minLength": 1},
     "official_root": {"type": "string", "minLength": 3},
     "default_branch": {"type": "string"},
@@ -15,9 +16,20 @@
     "agent_profile": {"type": "string", "minLength": 1},
     "project_baseline": {"type": "string", "minLength": 1},
     "project_access": {"type": "string", "minLength": 1},
+    "evidence_inventory": {"type": "string", "minLength": 1},
+    "current_product_state": {"type": ["string", "null"]},
     "contracts_repository": {"type": "string", "minLength": 1},
     "capabilities": {"type": "array", "items": {"type": "string"}},
     "project_validators": {"type": "array", "items": {"type": "string"}},
     "runner_policy": {"type": "string"}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"project_mode": {"const": "EXISTING_PROJECT"}}},
+      "then": {
+        "required": ["current_product_state"],
+        "properties": {"current_product_state": {"type": "string", "minLength": 1}}
+      }
+    }
+  ]
 }
