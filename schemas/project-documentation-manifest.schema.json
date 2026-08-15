@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/project-documentation-manifest.schema.json",
+  "title": "AIDOS Project Documentation Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "baseline_revision", "status", "concerns"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "project_id": {"type": "string", "minLength": 1},
+    "baseline_revision": {"type": "integer", "minimum": 0},
+    "status": {"enum": ["UNINITIALIZED", "INVENTORY", "GAP_ANALYSIS", "INTERVIEW", "PROPOSED_BASELINE", "ACCEPTED", "MAINTENANCE", "STALE"]},
+    "accepted_at": {"type": ["string", "null"], "format": "date-time"},
+    "accepted_commit": {"type": ["string", "null"]},
+    "concerns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "coverage", "provenance"],
+        "properties": {
+          "id": {
+            "enum": [
+              "identity",
+              "product",
+              "architecture",
+              "runtime",
+              "data",
+              "interfaces",
+              "development",
+              "validation",
+              "deployment",
+              "security_privacy",
+              "operations",
+              "decisions",
+              "constraints"
+            ]
+          },
+          "coverage": {"enum": ["COVERED", "PARTIAL", "MISSING", "CONFLICT", "NOT_APPLICABLE", "STALE"]},
+          "canonical_source": {"type": ["string", "null"]},
+          "supporting_sources": {"type": "array", "items": {"type": "string"}},
+          "provenance": {"enum": ["REPO_VERIFIED", "HUMAN_ACCEPTED", "INFERRED", "UNKNOWN", "CONFLICT"]},
+          "notes": {"type": "string"},
+          "last_verified_commit": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "known_conflicts": {"type": "array", "items": {"type": "string"}},
+    "open_material_gaps": {"type": "array", "items": {"type": "string"}}
+  }
+}
