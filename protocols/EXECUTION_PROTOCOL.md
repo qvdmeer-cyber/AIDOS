@@ -4,27 +4,29 @@
 
 An Execution exists to deliver one accepted development goal. Technical subtasks and repair loops do not become separate product goals merely because they require multiple steps.
 
-For `EXISTING_PROJECT`, execution implements an accepted Definition **against a specific accepted Current Product State snapshot**. The Execution Agent may inspect current code to do the work, but it does not silently redefine the pre-execution product state.
+For `EXISTING_PROJECT`, execution implements an accepted Definition **against a specific closure-compatible accepted Current Product State**. The Execution Agent may inspect current code to perform the work, but it does not silently redefine pre-execution product state.
 
-For work inside a frozen release, execution is also bounded by the accepted Launch Definition/release scope. Execution Agent may not pull attractive `POST_LAUNCH` improvements into the active release merely because implementation makes them convenient.
+For frozen releases, execution is additionally bounded by the accepted Launch Definition/release scope.
 
 ## Required bindings
 
 Every execution binds:
 
 - `project_id` and `project_mode`;
-- repository and official local root;
-- branch/ref policy;
+- repository, official local root and branch/ref policy;
 - accepted Project Baseline commit;
-- for `EXISTING_PROJECT`: accepted Current Product State ID + accepted commit;
+- for `EXISTING_PROJECT`:
+  - accepted CPS ID + commit;
+  - CPS contract version;
+  - discovery catalog version;
 - `definition_id` + version;
 - `execution_id` + revision;
-- selected AIDOS core/capability/goal knowledge IDs/versions;
+- selected relevant AIDOS knowledge;
 - execution model/profile;
 - authority/capabilities;
 - acceptance/evidence contract.
 
-When a frozen Launch Definition applies, the execution additionally binds its release/Launch Definition identity once that machine-readable runtime contract is implemented.
+Current existing-project execution requires CPS contract `0.2.0` and discovery catalog `0.2.0`.
 
 ## Preflight
 
@@ -34,48 +36,56 @@ Fail closed when:
 
 - project/root/branch does not match;
 - accepted baseline binding differs;
-- an existing project has no accepted CPS binding;
-- the requested CPS identity differs from the execution binding;
+- existing project has no current accepted Discovery Closure/CPS binding;
+- discovery state is `DISCOVERY_REFRESH_REQUIRED`/not `ACCEPTED`;
+- CPS contract/catalog versions differ from required versions;
+- CPS identity/commit differs from execution binding;
 - other required execution authority is absent.
 
 Wrong/stale preparation context must not be repaired by guessing.
 
 ## Consistency before build
 
-Worker validates that the planned implementation and acceptance contract do not contradict:
+Worker verifies the implementation plan/acceptance contract against:
 
 - accepted Project Baseline;
-- accepted Current Product State for an existing product;
+- accepted closure-compatible CPS for existing products;
 - accepted Definition;
 - frozen Launch Definition where applicable.
 
-Execution Agent may choose implementation details inside that contract.
+Execution Agent chooses implementation details only inside that contract.
 
 ## Technical loop
 
-Execution Agent owns the ordinary inspect/implement/test/diagnose/repair loop. Do not create GPT handoffs for milestones that are not terminal.
+Execution Agent owns ordinary inspect/implement/test/diagnose/repair work. Do not create GPT handoffs for non-terminal milestones.
 
-A newly discovered improvement outside frozen release scope is not an execution task. Report evidence through the normal handoff so Worker can classify it under `protocols/LAUNCH_PROTOCOL.md`.
+A newly discovered improvement outside frozen release scope is not an execution task; report it for Worker classification.
 
-## Current-state drift discovered during execution
+## Discovery Closure gaps discovered during execution
 
-Execution may uncover evidence that the accepted CPS was materially incomplete or stale before this execution began.
+Execution may reveal that the pre-execution CPS omitted objective current-product state, for example:
+
+- an unmodeled material first-party codebase/service;
+- a first-party material dependency chain not closed;
+- a known public runtime branch absent/unobserved;
+- material source/runtime reference not represented in CPS.
 
 The Execution Agent should:
 
-- preserve the evidence;
-- continue technical work only when the accepted Definition remains unambiguous and safe;
-- flag the discrepancy in the terminal handoff;
-- not rewrite the CPS itself.
+- preserve precise evidence;
+- not update/rewrite CPS itself;
+- not interpret the gap as a new product requirement;
+- continue only when the accepted Definition remains unambiguous and safe;
+- flag the closure discrepancy in terminal evidence.
 
-Worker decides whether the result is ordinary expected change caused by this execution or requires `DISCOVERY_REFRESH_REQUIRED` through AIDOS-Builder.
+Worker determines whether the evidence is an expected change caused by this execution or requires `DISCOVERY_REFRESH_REQUIRED` through AIDOS-Builder.
+
+Discovery/read authority does not grant Execution Agent mutation authority beyond the Execution envelope.
 
 ## Long-running work
 
-Duration alone is not failure. A useful execution may run for hours. AIDOS tracks progress/evidence and repeated failure signatures rather than enforcing arbitrary wall-clock termination.
+Duration alone is not failure. Track objective progress/evidence and repeated failure signatures rather than arbitrary wall-clock timeouts.
 
 ## Context-stuck handling
 
-Initial thresholds are intentionally generous. Signals include repeated identical failures, oscillating fixes, repeatedly rejected hypotheses or persistent stale-instruction behaviour.
-
-A fresh Codex session may retry the same accepted Execution when context failure is the plausible cause. Repeated fresh-context failure escalates to Worker reasoning/blocker handling rather than spawning endless sessions.
+Thresholds are initially generous. A fresh Codex session may retry the same accepted Execution when context failure is plausible; repeated fresh-context failure escalates rather than spawning unlimited sessions.
