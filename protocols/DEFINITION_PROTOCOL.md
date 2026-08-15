@@ -4,18 +4,37 @@
 
 Make foreseeable product acceptance explicit before implementation cost is incurred.
 
+For an existing product, Definition specifies the **desired delta from an accepted Current Product State**, not a fresh reconstruction of what already exists.
+
 For release-bound work, also establish the quality threshold for going to real users **before launch pressure exists**.
+
+## Preparation gate
+
+```text
+NEW_PROJECT
+accepted Project Baseline
+→ Definition
+
+EXISTING_PROJECT
+accepted Project Baseline
++ accepted Current Product State
+→ Definition
+```
+
+If existing-product discovery is missing/stale or materially contradicted by evidence, refresh AIDOS-Builder discovery rather than absorbing that discovery into goal Definition.
 
 ## Minimum Definition content
 
 A Definition should contain, as relevant:
 
 - goal/problem statement;
-- user-visible/product behaviour;
+- current-state references relevant to the goal;
+- explicit desired change/delta;
+- user-visible/product behaviour after the change;
 - actors/permissions;
-- main flows;
+- main changed/new flows;
 - edge/error/empty states;
-- data behaviour/lifecycle;
+- data behaviour/lifecycle change;
 - security/privacy constraints;
 - compatibility/performance/runtime constraints;
 - observability/recovery expectations;
@@ -29,18 +48,32 @@ A Definition should contain, as relevant:
 
 The Definition Agent asks one material decision at a time. The next question may depend on the answer. The objective is decision quality, not questionnaire throughput.
 
-Questions should be skipped when canonical project sources already settle the answer reliably.
+Questions must be skipped when the accepted Project Baseline/Current Product State or other canonical project truth already settles the answer reliably.
+
+Existing capability discovery is not a Definition question. Definition asks only what should change.
+
+## Current-state conflict/drift
+
+Accepted Current Product State may contain known `CONFLICT` or `DRIFT` because that discrepancy is itself current truth.
+
+If the goal touches that area:
+
+- surface the known evidence/state;
+- distinguish current uncertainty from desired future behaviour;
+- ask only the product decision needed for the future state;
+- route a materially incomplete/incorrect current-state snapshot back to Existing Project Discovery.
 
 ## Consistency gate
 
 Before `ACCEPTED`, check:
 
 - internal Definition contradictions;
-- contradictions with canonical project truth;
+- contradictions with accepted Project Baseline/current-state evidence;
 - required behaviour without acceptance coverage;
 - acceptance checks for behaviour not requested;
 - hidden material assumptions;
-- non-functional constraints that can invalidate the chosen behaviour.
+- non-functional constraints that can invalidate the chosen behaviour;
+- accidental re-specification of unchanged existing functionality.
 
 ## Launch Definition / Release Gate
 
@@ -67,5 +100,7 @@ After acceptance, new findings are governed by `protocols/LAUNCH_PROTOCOL.md` an
 ## Reopen
 
 A Definition is immutable once accepted except through a new version. Implementation contradiction produces `REOPENED`, preserving prior accepted lineage and evidence for why it changed.
+
+If the contradiction actually means the accepted Current Product State is stale/wrong, refresh discovery instead of rewriting history through Definition.
 
 An accepted Launch Definition is similarly immutable for that release. Reopening after scope freeze requires an explicit reason and new accepted version; subjective desire for further improvement is not an implicit reopen.
