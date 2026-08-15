@@ -4,23 +4,35 @@ This roadmap is implementation sequencing for the private AIDOS runtime.
 
 ## External project-preparation prerequisite
 
-Project-baseline preparation is now intentionally outside this repository:
+Project preparation is intentionally outside this repository:
 
-- `qvdmeer-cyber/AIDOS-Contracts` owns the deterministic baseline/access contracts;
-- `qvdmeer-cyber/AIDOS-Builder` owns the distributable Project Documentation Builder;
-- accepted baseline/project truth remains in each project repository.
+- `qvdmeer-cyber/AIDOS-Contracts` owns deterministic Project Baseline/access and Existing Project Discovery/Current Product State contracts;
+- `qvdmeer-cyber/AIDOS-Builder` owns the distributable Project Documentation Builder + Existing Project Discovery procedure;
+- accepted baseline/evidence/current-product-state truth remains in each project repository.
 
-AIDOS runtime onboarding requires an accepted compatible project baseline.
+AIDOS runtime onboarding requires:
+
+```text
+NEW_PROJECT
+→ accepted compatible Project Baseline
+
+EXISTING_PROJECT
+→ accepted compatible Project Baseline
+→ accepted compatible Current Product State
+```
 
 ## Foundation — current
 
 - [x] repository responsibility and architectural boundaries;
 - [x] generic Definition/Worker/Execution agent contracts;
 - [x] Definition, execution, review, interruption and learning protocols;
+- [x] existing-project Current Product State gate before Definition;
+- [x] delta-based Definition rule for existing products;
+- [x] shared Evidence Inventory recognised as external project-preparation source;
 - [x] launch/release governance principle and frozen-scope protocol;
 - [x] `RELEASE_READY` conceptual state and explicit Launch Definition reopen rule;
 - [x] state/event/project/Definition/execution/learning schemas;
-- [x] project bootstrap bound to an existing project baseline;
+- [x] project bootstrap differentiating `NEW_PROJECT` / `EXISTING_PROJECT`;
 - [x] first PowerShell state/project-binding module;
 - [x] review artefact lifecycle design;
 - [x] security/session/concurrency/recovery principles.
@@ -28,6 +40,9 @@ AIDOS runtime onboarding requires an accepted compatible project baseline.
 ## Bridge MVP
 
 - [ ] validate accepted AIDOS-Contracts baseline/access before project registration;
+- [ ] for `EXISTING_PROJECT`, validate accepted Current Product State + Evidence Inventory binding before registration;
+- [ ] persist preparation snapshot identity (baseline/CPS commits) in runtime project binding;
+- [ ] detect materially stale CPS and transition to `DISCOVERY_REFRESH_REQUIRED` instead of improvising discovery inside Definition/Worker;
 - [ ] robust atomic state writes + append-only event locking;
 - [ ] execution lease acquire/renew/reconcile;
 - [ ] project registry on dedicated runner;
@@ -52,11 +67,13 @@ AIDOS runtime onboarding requires an accepted compatible project baseline.
 
 ## Definition Agent integration
 
-- [ ] consume accepted project baseline as bounded source context;
+- [ ] consume accepted Project Baseline as bounded source context;
+- [ ] consume accepted Current Product State for `EXISTING_PROJECT`;
+- [ ] prove Definition asks only for desired delta and does not rediscover accepted existing capabilities;
 - [ ] project-local Definition persistence workflow;
 - [ ] one-question interactive protocol proof on desktop/mobile;
 - [ ] explicit acceptance write path;
-- [ ] contradiction → reopen → reaccept → execution continuation proof;
+- [ ] contradiction → distinguish Definition issue vs stale CPS → correct reopen/refresh route;
 - [ ] consistency/convergence checks.
 
 ## Launch / release governance runtime
