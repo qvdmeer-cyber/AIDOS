@@ -23,11 +23,11 @@ This roadmap is implementation sequencing, not product truth for an integrated p
 - [x] persistent project-local documentation manifest/session schemas;
 - [x] documentation bootstrap tool;
 - [x] accepted-baseline validator;
+- [x] repository candidate-source inventory tooling;
 - [x] normal ChatGPT start entrypoint;
 - [ ] run first real existing-project pilot;
 - [ ] run first new-project pilot;
-- [ ] refine concern taxonomy/questions from pilot evidence;
-- [ ] add repository inventory/coverage assistance tooling where automation proves useful;
+- [ ] refine concern taxonomy/questions from pilot evidence.
 
 ## Bridge MVP
 
