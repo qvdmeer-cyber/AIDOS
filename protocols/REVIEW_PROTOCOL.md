@@ -4,21 +4,24 @@
 
 Determine whether the exact accepted Definition has been delivered with adequate evidence and no unapproved behaviour expansion.
 
-When a frozen Launch Definition applies, review must also determine whether the release gate is satisfied **without allowing improvement ideas to silently expand release scope**.
+For `EXISTING_PROJECT`, review also verifies that execution was based on the bound accepted Current Product State and distinguishes **goal/Definition contradiction** from **stale or incorrect pre-execution current-state discovery**.
+
+When a frozen Launch Definition applies, review must additionally determine whether the release gate is satisfied **without allowing improvement ideas to silently expand release scope**.
 
 ## Review order
 
-1. Binding integrity: project, Definition, execution, revision, branch/head, review ID.
+1. Binding integrity: project mode, Project Baseline, Current Product State where applicable, Definition, execution, revision, branch/head, review ID.
 2. Launch Definition/release binding where applicable.
 3. Terminal legitimacy.
 4. Acceptance check results.
 5. Required validator/evidence integrity.
-6. Definition convergence: delivered intent versus accepted intent.
-7. Launch Definition convergence where applicable.
-8. Classification of new release findings: `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`.
-9. Scope/authority compliance.
-10. Cleanup/final-state requirements.
-11. Learning candidates.
+6. Definition convergence: delivered desired delta versus accepted intent.
+7. For existing products, current-state reconciliation: did execution reveal that the bound CPS was materially stale/wrong before execution, versus ordinary state change caused by this execution?
+8. Launch Definition convergence where applicable.
+9. Classification of new release findings: `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`.
+10. Scope/authority compliance.
+11. Cleanup/final-state requirements.
+12. Learning candidates.
 
 ## Outcomes
 
@@ -27,6 +30,26 @@ When a frozen Launch Definition applies, review must also determine whether the 
 Outcome is complete. Record review decision durably. Mark ephemeral review transport `REVIEW_CONSUMED`; bridge then cleans it.
 
 For work inside a frozen release, an accepted execution does not by itself reopen release scope.
+
+### DISCOVERY_REFRESH_REQUIRED
+
+Use only for `EXISTING_PROJECT` when new evidence shows the accepted pre-execution Current Product State was materially stale, incomplete or incorrect in a way that affects reliable future reasoning.
+
+This is **not** a request for the Worker or Definition Agent to reverse-engineer the project themselves.
+
+Route:
+
+```text
+AIDOS review
+→ preserve new evidence
+→ AIDOS-Builder Existing Project Discovery refresh
+→ deterministic CPS validation
+→ human acceptance of new CPS snapshot
+→ Definition consistency check
+→ resume existing Definition or reopen only if the desired delta is affected
+```
+
+Do not use this outcome merely because execution changed the product as intended. Expected post-execution change means the old CPS was a valid pre-execution snapshot, not stale discovery.
 
 ### RELEASE_READY
 
@@ -46,7 +69,9 @@ Technical correction remains entirely inside accepted Definition/authority and f
 
 ### CONTRADICTION
 
-A material product assumption/requirement conflicts with discovered project truth. Stop implementation decision-making and reopen Definition with the human.
+Use when a material **desired product assumption/requirement** conflicts with discovered project truth and the future behavior requires a human product decision.
+
+Do not use `CONTRADICTION` merely because the previously accepted CPS was inaccurate; use `DISCOVERY_REFRESH_REQUIRED` first in that case.
 
 If the contradiction invalidates a frozen release criterion, preserve Launch Definition lineage and reopen it explicitly rather than silently changing the release gate.
 
