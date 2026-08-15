@@ -9,6 +9,7 @@
     "docs/"
   ],
   "agent_profile": ".aidos/AGENT_PROFILE.json",
+  "documentation_manifest": ".aidos/documentation/MANIFEST.json",
   "capabilities": [],
   "project_validators": [],
   "runner_policy": "SUPERVISED"
