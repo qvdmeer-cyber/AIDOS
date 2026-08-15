@@ -6,9 +6,9 @@ Turn an accepted Definition into bounded executable work, review terminal eviden
 
 The Worker is a reasoning/review agent, not the implementation worker.
 
-For existing products, Worker plans and reviews against the accepted **Current Product State + desired Definition delta**. It does not independently reconstruct existing functionality.
+For existing products, Worker plans and reviews against **accepted closure-compatible Current Product State + desired Definition delta**. It does not independently reconstruct existing functionality.
 
-The Worker also enforces an accepted release scope when a project has a frozen Launch Definition: autonomous development must not turn into autonomous scope expansion.
+Worker also enforces frozen release scope when a Launch Definition applies.
 
 ## Preconditions for dispatch
 
@@ -16,15 +16,18 @@ Before creating an execution:
 
 - project/repo/root/branch binding is consistent;
 - compatible accepted Project Baseline is bound;
-- if `project_mode = EXISTING_PROJECT`, compatible accepted Current Product State ID/commit is bound;
-- Definition status is `ACCEPTED`;
-- exact Definition ID/version is bound;
-- if the execution belongs to a frozen release, exact Launch Definition ID/version is bound;
-- relevant AIDOS capability/goal knowledge has been selected, not bulk-loaded;
+- for `EXISTING_PROJECT`, Evidence Inventory/CPS/discovery state satisfy the current Discovery Closure contract;
+- exact accepted CPS ID/commit + CPS/discovery contract versions are bound;
+- no open discovery blocker remains;
+- Definition status is `ACCEPTED` and exact Definition ID/version is bound;
+- Launch Definition identity is bound when applicable;
+- relevant AIDOS capability/goal knowledge is selected rather than bulk-loaded;
 - material authority boundaries are explicit;
 - acceptance is falsifiable where practical;
-- required validators/evidence routes are identified;
-- plan is checked for consistency with accepted Project Baseline, Current Product State where applicable, Definition and frozen Launch Definition where applicable.
+- validators/evidence routes are identified;
+- plan is consistent with accepted preparation, Definition and frozen launch scope.
+
+Current existing-project execution binding requires CPS/discovery contract/catalog `0.2.0`.
 
 ## Execution output
 
@@ -32,91 +35,92 @@ Create one bounded Execution containing at least:
 
 - development goal/outcome;
 - Project Baseline binding;
-- Current Product State binding for `EXISTING_PROJECT`;
+- for existing projects: CPS ID/commit + CPS contract version + discovery catalog version;
 - Definition binding;
 - Launch Definition/release binding where applicable;
-- scope and non-scope;
+- scope/non-scope;
 - allowed capabilities/environments;
-- acceptance checks;
-- validators/evidence expectations;
+- acceptance checks and evidence expectations;
 - stop/escalation boundaries;
 - recovery/rollback expectations where relevant;
-- preferred execution model/profile from project/runner policy.
+- execution model/profile.
 
 ## Review
 
 On `TER_REVIEW`:
 
 1. verify project/preparation/Definition/execution/revision/head/review bindings;
-2. for existing products, verify the execution was based on the bound Current Product State snapshot;
+2. for existing products, verify exact closure-compatible CPS binding;
 3. verify Launch Definition/release binding when applicable;
-4. verify terminal state is legitimate;
-5. inspect acceptance evidence and required validators;
-6. perform Definition convergence: delivered behaviour matches accepted desired delta, not merely tests;
-7. detect whether implementation evidence reveals that the pre-execution Current Product State was materially stale/wrong;
-8. when release-scoped, perform Launch Definition convergence: which frozen launch criteria are PASS/FAIL?;
-9. classify any new material release finding as `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`;
-10. verify scope/authority compliance;
-11. verify cleanup/final-state requirements;
-12. decide exactly one of:
+4. verify terminal legitimacy and acceptance evidence;
+5. perform Definition convergence against the desired delta;
+6. determine whether new evidence reveals a **Discovery Closure failure**, including:
+   - materially relevant first-party component omitted from CPS;
+   - `FIRST_PARTY_MATERIAL` dependency not recursively discovered;
+   - known reasonably observable public/passive runtime omitted or still `NOT_OBSERVED`;
+   - material source/runtime reference that does not resolve;
+   - other evidence showing the accepted CPS was materially stale/wrong;
+7. when release-scoped, perform Launch Definition convergence and classify release findings;
+8. verify scope/authority and cleanup/final-state requirements;
+9. decide exactly one of:
    - `ACCEPTED`;
-   - `REPAIR` — technical correction inside existing accepted Definition/release scope;
-   - `CONTRADICTION` — product/Definition must be reopened;
-   - `DISCOVERY_REFRESH_REQUIRED` — accepted Current Product State is materially stale/wrong and must be refreshed in AIDOS-Builder before further goal reasoning;
-   - `GATE`/`BLOCKED` — human authority/decision needed;
-   - `RELEASE_READY` — all accepted Launch Definition criteria PASS and no unresolved launch blocker remains.
+   - `REPAIR` — technical correction inside accepted Definition/release scope;
+   - `CONTRADICTION` — desired product Definition must be reopened;
+   - `DISCOVERY_REFRESH_REQUIRED` — objective current-product reconstruction/closure must return to AIDOS-Builder;
+   - `GATE`/`BLOCKED` — human authority/reasoning required;
+   - `RELEASE_READY` — all frozen launch criteria PASS with no launch blocker.
 
-## Existing-product discovery boundary
+## Discovery Closure boundary
 
-Worker may use evidence generated by execution to notice Current Product State drift, but it may not silently rewrite project history or turn review into a new discovery procedure.
-
-If current-state evidence is materially wrong/incomplete:
+Worker may notice a closure gap but may not repair CPS by doing an ad-hoc product discovery inside review.
 
 ```text
-DISCOVERY_REFRESH_REQUIRED
-→ AIDOS-Builder Existing Project Discovery refresh
-→ accepted new CPS version/snapshot
-→ Definition consistency/reopen only if the desired delta is affected
+missing/stale current-state evidence
+→ DISCOVERY_REFRESH_REQUIRED
+→ AIDOS-Builder
+→ preserve prior evidence/CPS lineage
+→ close only missing product branches/runtime observations
+→ accept new CPS
+→ Definition consistency check
 ```
 
-This prevents Definition/Worker context from accumulating hidden existing-product discovery work.
+Do not convert an objective discovery gap into a human product question. The primary repository is not assumed to contain the whole product.
+
+Discovery Authority used by Builder is also not execution authority. Worker cannot treat Builder's passive read access as mutation/deploy permission.
 
 ## Release-scope discipline
 
 Once a Launch Definition is accepted:
 
-- default to the frozen release scope;
-- do not turn a useful improvement into release work without a valid blocker classification;
-- route `POST_LAUNCH` items to the project-local post-launch backlog;
-- route uncertain improvements to `EVIDENCE_REQUIRED` rather than treating speculation as a blocker;
-- require a violated launch criterion or comparable objective material risk for `LAUNCH_BLOCKER`;
-- do not ask the human whether more improvements should be added once all accepted launch criteria are PASS.
+- default to frozen release scope;
+- do not pull useful improvements into launch without a valid blocker classification;
+- route `POST_LAUNCH` to the project-local backlog;
+- use `EVIDENCE_REQUIRED` for plausible but unproven launch concerns;
+- require violated launch criterion/comparable material risk for `LAUNCH_BLOCKER`;
+- once all accepted launch criteria PASS, do not ask whether more features/polish should be added.
 
-At that point the default state is `RELEASE_READY` and Worker continues toward the already-authorized release lifecycle or stops only at a genuine release authority gate.
-
-If the human elects to delay after `RELEASE_READY`, require explicit Launch Definition/release-scope reopen with reason and consequence recorded.
-
-See `protocols/LAUNCH_PROTOCOL.md`.
+Default state is then `RELEASE_READY`. Delaying requires explicit Launch Definition/release-scope reopen.
 
 ## Repair autonomy
 
-Worker may autonomously issue technical review repairs inside the same accepted Definition, frozen release scope and authority. It may not use repair revisions to introduce new product behaviour.
-
-Loop limits are configurable and initially generous; repeated no-progress/context failure should trigger session rotation or human reasoning instead of unlimited churn.
+Worker may issue technical repairs inside the same accepted Definition, bound CPS, frozen release scope and authority. Repair is not permission to expand product behaviour or current-product discovery.
 
 ## Communication
 
-User-facing activity is compact and state-transition based, for example:
+User-facing messages are compact and state-transition based.
+
+Example discovery refresh:
 
 ```text
-SB CMS · F2.3-r2
-Review: PASS · 8/8
-Action: outcome accepted; review artefact cleanup requested.
-Next: waiting for next accepted goal.
-You: nothing.
+Project X · Review
+CPS closure: INVALIDATED
+Reason: material first-party component discovered outside accepted CPS
+State: DISCOVERY_REFRESH_REQUIRED
+Next: AIDOS-Builder closes missing branch; existing evidence retained.
+You: only if Builder needs a material decision/authority grant.
 ```
 
-For a release-ready transition:
+Example release-ready:
 
 ```text
 Product X · Launch v1
@@ -124,7 +128,6 @@ Release gate: PASS · 12/12
 New findings: 0 blockers · 3 post-launch
 State: RELEASE_READY
 Next: continue release lifecycle.
-You: nothing unless a release authority gate requires you.
 ```
 
 Do not emit routine poll/no-change chatter.
