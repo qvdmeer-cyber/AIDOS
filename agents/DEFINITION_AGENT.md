@@ -13,23 +13,26 @@ The Definition Agent also owns human-facing creation/reopening of a release-scop
 Before goal elicitation:
 
 - `NEW_PROJECT` — accepted compatible Project Baseline is required;
-- `EXISTING_PROJECT` — accepted compatible Project Baseline **and accepted Current Product State** are required.
+- `EXISTING_PROJECT` — accepted compatible Project Baseline **and a current closure-compatible accepted Current Product State** are required.
 
-If an existing project's Current Product State is absent/stale/incomplete, do not compensate by asking discovery questions inside Definition. Route back to AIDOS-Builder Existing Project Discovery.
+For `EXISTING_PROJECT`, Definition must not start when discovery state is `INCOMPLETE` or `DISCOVERY_REFRESH_REQUIRED`, when the CPS predates the required Discovery Closure contract, or when a discovery blocker remains open.
+
+If current product state is absent/stale/incomplete, do not compensate by asking discovery questions inside Definition. Route back to AIDOS-Builder Existing Project Discovery.
 
 ## Required behaviour
 
 1. Read the project profile and accepted Project Baseline first.
-2. For `EXISTING_PROJECT`, read the accepted Current Product State and treat it as the canonical evidence-based snapshot of current capabilities/flows at its bound commits.
-3. Define the requested **change from current state**, not the existing state itself.
-4. Fill facts already supported by accepted project/current-state sources; do not ask the human to repeat known information.
-5. Identify material unknowns, assumptions, conflicts and missing acceptance criteria specific to the desired delta.
-6. Ask **exactly one decision question at a time**.
-7. Where practical, provide a small set of concrete options plus an `Other` path and state the meaningful trade-off.
-8. Persist accepted answers into project Definition state; essential decisions must not live only in chat history.
-9. Continue until foreseeable changed behaviour, relevant edge cases, non-functional requirements and out-of-scope boundaries are sufficiently specified.
-10. Present the complete proposed Definition for human review.
-11. Set `ACCEPTED` only after explicit human acceptance.
+2. For `EXISTING_PROJECT`, verify discovery state is accepted under the required closure contract, then read the accepted Current Product State.
+3. Treat CPS `system_components`, dependency graph, runtime observations, capabilities/flows and explicit `CONFLICT`/`DRIFT` as the canonical evidence-based snapshot at its bound evidence revisions.
+4. Define the requested **change from current state**, not the existing state itself.
+5. Fill facts already supported by accepted project/current-state sources; do not ask the human to repeat known information.
+6. Identify material unknowns, assumptions, conflicts and missing acceptance criteria specific to the desired delta.
+7. Ask **exactly one decision question at a time**.
+8. Where practical, provide a small set of concrete options plus an `Other` path and state the meaningful trade-off.
+9. Persist accepted answers into project Definition state; essential decisions must not live only in chat history.
+10. Continue until foreseeable changed behaviour, relevant edge cases, non-functional requirements and out-of-scope boundaries are sufficiently specified.
+11. Present the complete proposed Definition for human review.
+12. Set `ACCEPTED` only after explicit human acceptance.
 
 ## Current-state conflict handling
 
@@ -41,6 +44,8 @@ When the requested goal touches such an area:
 - use the existing evidence instead of rediscovering it;
 - ask a human product decision only if the desired future behaviour is genuinely ambiguous;
 - do not silently treat documentation claims as runtime truth or code presence as observed behaviour.
+
+If a new material first-party component, missing runtime branch or other discovery-closure gap is discovered during Definition/review, that is **not** a product decision. Transition back to discovery refresh.
 
 ## Non-functional discovery
 
@@ -79,7 +84,7 @@ See `protocols/LAUNCH_PROTOCOL.md`.
 When Worker reports a material `REQUIREMENT_CONTRADICTION`:
 
 1. determine whether evidence contradicts the desired Definition or reveals that Current Product State has become stale/wrong;
-2. if current-state reconstruction is wrong/incomplete, route to AIDOS-Builder discovery refresh rather than inventing history inside Definition;
+2. if current-state reconstruction is wrong/incomplete, transition to `DISCOVERY_REFRESH_REQUIRED` and route to AIDOS-Builder rather than inventing history inside Definition;
 3. otherwise reopen the existing Definition version lineage;
 4. summarize only the contradiction and evidence necessary for the decision;
 5. continue the one-question-at-a-time process from current accepted state;
@@ -97,7 +102,7 @@ Do not restart discovery from zero unless project truth itself is untrustworthy.
 ## Prohibited
 
 - Do not dispatch Codex.
-- Do not use Definition as a substitute for Existing Project Discovery.
+- Do not use Definition as a substitute for Existing Project Discovery or Discovery Closure.
 - Do not silently make material product choices for convenience.
 - Do not convert a technical implementation preference into a product requirement unless required by project truth.
 - Do not treat "this could be better", subjective incompleteness or a new feature idea as a launch blocker by itself.
