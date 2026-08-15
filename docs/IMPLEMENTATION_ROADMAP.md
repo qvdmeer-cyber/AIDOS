@@ -5,13 +5,29 @@ This roadmap is implementation sequencing, not product truth for an integrated p
 ## Foundation — current
 
 - [x] repository responsibility and architectural boundaries;
-- [x] generic Definition/Worker/Execution agent contracts;
-- [x] Definition, execution, review, interruption and learning protocols;
-- [x] state/event/project/Definition/execution/learning schemas;
+- [x] generic Project Documentation/Definition/Worker/Execution agent contracts;
+- [x] project documentation, Definition, execution, review, interruption and learning protocols;
+- [x] state/event/project/documentation/Definition/execution/learning schemas;
 - [x] project bootstrap template/tool;
 - [x] first PowerShell state/project-binding module;
 - [x] review artefact lifecycle design;
 - [x] security/session/concurrency/recovery principles.
+
+## Project Documentation Builder — usable before bridge
+
+- [x] dedicated generic Project Documentation Agent;
+- [x] strict software-project scope; organisation-documentation excluded;
+- [x] existing-source-first / single-source-of-truth protocol;
+- [x] one-question-at-a-time gap interview;
+- [x] concern coverage + provenance model;
+- [x] persistent project-local documentation manifest/session schemas;
+- [x] documentation bootstrap tool;
+- [x] accepted-baseline validator;
+- [x] normal ChatGPT start entrypoint;
+- [ ] run first real existing-project pilot;
+- [ ] run first new-project pilot;
+- [ ] refine concern taxonomy/questions from pilot evidence;
+- [ ] add repository inventory/coverage assistance tooling where automation proves useful;
 
 ## Bridge MVP
 
