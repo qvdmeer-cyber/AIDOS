@@ -19,6 +19,8 @@ $baselinePath = Join-Path $aidos 'documentation\PROJECT_BASELINE.json'
 $accessPath = Join-Path $aidos 'documentation\PROJECT_ACCESS.json'
 $evidencePath = Join-Path $aidos 'evidence\EVIDENCE_INVENTORY.json'
 $cpsPath = Join-Path $aidos 'discovery\CURRENT_PRODUCT_STATE.json'
+$discoveryStatePath = Join-Path $aidos 'discovery\STATE.json'
+$discoveryAuthorityPath = Join-Path $aidos 'discovery\DISCOVERY_AUTHORITY.json'
 
 foreach ($path in @($baselinePath,$accessPath,$evidencePath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -27,19 +29,42 @@ foreach ($path in @($baselinePath,$accessPath,$evidencePath)) {
 }
 
 $baseline = Get-Content -LiteralPath $baselinePath -Raw | ConvertFrom-Json -Depth 100
+$evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json -Depth 100
 if ([string]::IsNullOrWhiteSpace([string]$baseline.accepted_at) -or [string]::IsNullOrWhiteSpace([string]$baseline.accepted_by) -or [string]::IsNullOrWhiteSpace([string]$baseline.accepted_commit)) {
     throw 'Project Baseline exists but is not accepted.'
 }
+if ($evidence.contract_version -ne '0.2.0') {
+    throw "Evidence Inventory contract '$($evidence.contract_version)' is not compatible with current AIDOS Discovery Closure. Upgrade with AIDOS-Builder first."
+}
 
+$cps = $null
+$discoveryState = $null
 if ($ProjectMode -eq 'EXISTING_PROJECT') {
-    if (-not (Test-Path -LiteralPath $cpsPath -PathType Leaf)) {
-        throw "Existing project requires accepted Current Product State at '$cpsPath'. Run AIDOS-Builder Existing Project Discovery first."
+    foreach ($path in @($cpsPath,$discoveryStatePath,$discoveryAuthorityPath)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Existing project requires current Discovery Closure artifact '$path'. Run AIDOS-Builder Existing Project Discovery first."
+        }
     }
+
     $cps = Get-Content -LiteralPath $cpsPath -Raw | ConvertFrom-Json -Depth 100
+    $discoveryState = Get-Content -LiteralPath $discoveryStatePath -Raw | ConvertFrom-Json -Depth 100
+    $discoveryAuthority = Get-Content -LiteralPath $discoveryAuthorityPath -Raw | ConvertFrom-Json -Depth 100
+
+    if ($cps.contract_version -ne '0.2.0' -or $cps.discovery_catalog_version -ne '0.2.0') {
+        throw "Current Product State uses discovery contract/catalog '$($cps.contract_version)/$($cps.discovery_catalog_version)'. Current AIDOS requires Discovery Closure 0.2.0/0.2.0."
+    }
+    if ($discoveryState.contract_version -ne '0.2.0' -or $discoveryState.discovery_catalog_version -ne '0.2.0') {
+        throw 'Discovery state is not compatible with current Discovery Closure contracts.'
+    }
+    if ($discoveryState.status -ne 'ACCEPTED') {
+        throw "Existing project discovery state is '$($discoveryState.status)'. Definition/runtime onboarding is blocked until Discovery Closure is ACCEPTED."
+    }
+    if ($discoveryAuthority.contract_version -ne '0.1.0') { throw 'Discovery Authority contract is not compatible.' }
     if ([string]::IsNullOrWhiteSpace([string]$cps.accepted_at) -or [string]::IsNullOrWhiteSpace([string]$cps.accepted_by) -or [string]::IsNullOrWhiteSpace([string]$cps.accepted_commit)) {
         throw 'Current Product State exists but is not accepted.'
     }
-    if ($cps.project_id -ne $ProjectId) { throw 'Current Product State project_id does not match requested project.' }
+    if ($cps.project_id -ne $ProjectId -or $discoveryState.project_id -ne $ProjectId) { throw 'Discovery project_id does not match requested project.' }
+    if (@($cps.discovery_blockers | Where-Object { $_.status -eq 'OPEN' }).Count -gt 0) { throw 'Accepted CPS contains an open discovery blocker; onboarding fails closed.' }
 }
 
 $projectPath = Join-Path $aidos 'PROJECT.json'
@@ -53,7 +78,11 @@ if ($PSCmdlet.ShouldProcess($aidos, 'Initialize private AIDOS runtime state agai
 
     $canonicalSources = [System.Collections.Generic.List[string]]::new()
     foreach ($source in @('AGENTS.md','docs/','.aidos/documentation/PROJECT_BASELINE.json','.aidos/evidence/EVIDENCE_INVENTORY.json')) { $canonicalSources.Add($source) }
-    if ($ProjectMode -eq 'EXISTING_PROJECT') { $canonicalSources.Add('.aidos/discovery/CURRENT_PRODUCT_STATE.json') }
+    if ($ProjectMode -eq 'EXISTING_PROJECT') {
+        $canonicalSources.Add('.aidos/discovery/CURRENT_PRODUCT_STATE.json')
+        $canonicalSources.Add('.aidos/discovery/STATE.json')
+        $canonicalSources.Add('.aidos/discovery/DISCOVERY_AUTHORITY.json')
+    }
 
     $project = [ordered]@{
         schema_version = '0.1'
@@ -68,6 +97,8 @@ if ($PSCmdlet.ShouldProcess($aidos, 'Initialize private AIDOS runtime state agai
         project_access = '.aidos/documentation/PROJECT_ACCESS.json'
         evidence_inventory = '.aidos/evidence/EVIDENCE_INVENTORY.json'
         current_product_state = if ($ProjectMode -eq 'EXISTING_PROJECT') { '.aidos/discovery/CURRENT_PRODUCT_STATE.json' } else { $null }
+        discovery_state = if ($ProjectMode -eq 'EXISTING_PROJECT') { '.aidos/discovery/STATE.json' } else { $null }
+        discovery_authority = if ($ProjectMode -eq 'EXISTING_PROJECT') { '.aidos/discovery/DISCOVERY_AUTHORITY.json' } else { $null }
         contracts_repository = 'qvdmeer-cyber/AIDOS-Contracts'
         capabilities = @()
         project_validators = @()
@@ -122,6 +153,7 @@ if ($PSCmdlet.ShouldProcess($aidos, 'Initialize private AIDOS runtime state agai
             project_mode = $ProjectMode
             baseline = '.aidos/documentation/PROJECT_BASELINE.json'
             current_product_state = if ($ProjectMode -eq 'EXISTING_PROJECT') { '.aidos/discovery/CURRENT_PRODUCT_STATE.json' } else { $null }
+            discovery_closure = if ($ProjectMode -eq 'EXISTING_PROJECT') { 'ACCEPTED' } else { $null }
         }
     }
     ($initialEvent | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath (Join-Path $aidos 'events\initial.jsonl') -Encoding UTF8
