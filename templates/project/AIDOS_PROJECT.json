@@ -10,13 +10,17 @@
     "docs/",
     ".aidos/documentation/PROJECT_BASELINE.json",
     ".aidos/evidence/EVIDENCE_INVENTORY.json",
-    ".aidos/discovery/CURRENT_PRODUCT_STATE.json"
+    ".aidos/discovery/CURRENT_PRODUCT_STATE.json",
+    ".aidos/discovery/STATE.json",
+    ".aidos/discovery/DISCOVERY_AUTHORITY.json"
   ],
   "agent_profile": ".aidos/AGENT_PROFILE.json",
   "project_baseline": ".aidos/documentation/PROJECT_BASELINE.json",
   "project_access": ".aidos/documentation/PROJECT_ACCESS.json",
   "evidence_inventory": ".aidos/evidence/EVIDENCE_INVENTORY.json",
   "current_product_state": ".aidos/discovery/CURRENT_PRODUCT_STATE.json",
+  "discovery_state": ".aidos/discovery/STATE.json",
+  "discovery_authority": ".aidos/discovery/DISCOVERY_AUTHORITY.json",
   "contracts_repository": "qvdmeer-cyber/AIDOS-Contracts",
   "capabilities": [],
   "project_validators": [],
