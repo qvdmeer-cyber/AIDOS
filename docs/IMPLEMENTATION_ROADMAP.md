@@ -1,40 +1,35 @@
 # Initial implementation roadmap
 
-This roadmap is implementation sequencing, not product truth for an integrated project.
+This roadmap is implementation sequencing for the private AIDOS runtime.
+
+## External project-preparation prerequisite
+
+Project-baseline preparation is now intentionally outside this repository:
+
+- `qvdmeer-cyber/AIDOS-Contracts` owns the deterministic baseline/access contracts;
+- `qvdmeer-cyber/AIDOS-Builder` owns the distributable Project Documentation Builder;
+- accepted baseline/project truth remains in each project repository.
+
+AIDOS runtime onboarding requires an accepted compatible project baseline.
 
 ## Foundation — current
 
 - [x] repository responsibility and architectural boundaries;
-- [x] generic Project Documentation/Definition/Worker/Execution agent contracts;
-- [x] project documentation, Definition, execution, review, interruption and learning protocols;
-- [x] state/event/project/documentation/Definition/execution/learning schemas;
-- [x] project bootstrap template/tool;
+- [x] generic Definition/Worker/Execution agent contracts;
+- [x] Definition, execution, review, interruption and learning protocols;
+- [x] state/event/project/Definition/execution/learning schemas;
+- [x] project bootstrap bound to an existing project baseline;
 - [x] first PowerShell state/project-binding module;
 - [x] review artefact lifecycle design;
 - [x] security/session/concurrency/recovery principles.
 
-## Project Documentation Builder — usable before bridge
-
-- [x] dedicated generic Project Documentation Agent;
-- [x] strict software-project scope; organisation-documentation excluded;
-- [x] existing-source-first / single-source-of-truth protocol;
-- [x] one-question-at-a-time gap interview;
-- [x] concern coverage + provenance model;
-- [x] persistent project-local documentation manifest/session schemas;
-- [x] documentation bootstrap tool;
-- [x] accepted-baseline validator;
-- [x] repository candidate-source inventory tooling;
-- [x] normal ChatGPT start entrypoint;
-- [ ] run first real existing-project pilot;
-- [ ] run first new-project pilot;
-- [ ] refine concern taxonomy/questions from pilot evidence.
-
 ## Bridge MVP
 
-- [ ] schema validation tooling;
+- [ ] validate accepted AIDOS-Contracts baseline/access before project registration;
 - [ ] robust atomic state writes + append-only event locking;
 - [ ] execution lease acquire/renew/reconcile;
 - [ ] project registry on dedicated runner;
+- [ ] per-project credential/access isolation;
 - [ ] Codex CLI start/resume wrapper and JSON event capture;
 - [ ] session-rotation implementation;
 - [ ] multi-project scheduler;
@@ -55,6 +50,7 @@ This roadmap is implementation sequencing, not product truth for an integrated p
 
 ## Definition Agent integration
 
+- [ ] consume accepted project baseline as bounded source context;
 - [ ] project-local Definition persistence workflow;
 - [ ] one-question interactive protocol proof on desktop/mobile;
 - [ ] explicit acceptance write path;
