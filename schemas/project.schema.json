@@ -4,7 +4,7 @@
   "title": "AIDOS Project Profile",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "project_id", "repository", "official_root", "canonical_sources", "agent_profile"],
+  "required": ["schema_version", "project_id", "repository", "official_root", "canonical_sources", "agent_profile", "project_baseline", "project_access", "contracts_repository"],
   "properties": {
     "schema_version": {"type": "string", "const": "0.1"},
     "project_id": {"type": "string", "minLength": 1},
@@ -13,7 +13,9 @@
     "default_branch": {"type": "string"},
     "canonical_sources": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     "agent_profile": {"type": "string", "minLength": 1},
-    "documentation_manifest": {"type": "string", "minLength": 1},
+    "project_baseline": {"type": "string", "minLength": 1},
+    "project_access": {"type": "string", "minLength": 1},
+    "contracts_repository": {"type": "string", "minLength": 1},
     "capabilities": {"type": "array", "items": {"type": "string"}},
     "project_validators": {"type": "array", "items": {"type": "string"}},
     "runner_policy": {"type": "string"}
