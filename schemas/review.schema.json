@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/review.schema.json",
+  "title": "AIDOS Review Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "review_id", "project_id", "project_root", "definition_id", "definition_version", "execution_id", "revision", "transport_state", "package_path", "package_manifest_path", "package_manifest_sha256", "evidence_refs", "published_at", "published_by", "updated_at"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1"},
+    "review_id": {"type": "string", "minLength": 1},
+    "project_id": {"type": "string", "minLength": 1},
+    "project_root": {"type": "string", "minLength": 1},
+    "definition_id": {"type": "string", "minLength": 1},
+    "definition_version": {"type": "integer", "minimum": 1},
+    "execution_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "transport_state": {"type": "string", "enum": ["PUBLISHED", "DECIDED", "CONSUMED", "CLEANED", "RECOVERY_REQUIRED"]},
+    "package_path": {"type": "string", "minLength": 1},
+    "package_manifest_path": {"type": "string", "minLength": 1},
+    "package_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "sha256"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "published_at": {"type": "string", "format": "date-time"},
+    "published_by": {"type": "string", "minLength": 1},
+    "decision": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["outcome", "target_state", "reason", "decided_by", "decided_at"],
+      "properties": {
+        "outcome": {"type": "string", "enum": ["PASS", "REPAIR", "BLOCKER", "DISCOVERY_REFRESH_REQUIRED", "WAITING_INTERACTIVE_SESSION"]},
+        "target_state": {"type": "string", "enum": ["IDLE", "TASK_READY", "WAITING_USER", "DISCOVERY_REFRESH_REQUIRED", "WAITING_INTERACTIVE_SESSION"]},
+        "reason": {"type": "string"},
+        "decided_by": {"type": "string", "minLength": 1},
+        "decided_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "consume_ack": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["acknowledged_at", "acknowledged_by", "review_id", "package_path", "manifest_sha256"],
+      "properties": {
+        "acknowledged_at": {"type": "string", "format": "date-time"},
+        "acknowledged_by": {"type": "string", "minLength": 1},
+        "review_id": {"type": "string", "minLength": 1},
+        "package_path": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "consumed_at": {"type": ["string", "null"], "format": "date-time"},
+    "consumed_by": {"type": ["string", "null"]},
+    "cleaned_at": {"type": ["string", "null"], "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

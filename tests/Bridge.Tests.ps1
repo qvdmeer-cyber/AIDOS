@@ -165,6 +165,69 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         Remove-Item -LiteralPath $windowsLaunch.Root -Recurse -Force
     }
 
+    $reviewProject=New-TestProject
+    try {
+        $reviewRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$reviewProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $reviewExecution=Invoke-AidosCodexExecution $reviewProject.Root $reviewProject.ExecutionPath $reviewRuntime 'review transport smoke'
+        Assert-True ($reviewExecution.validation_status -eq 'PASS' -and (Get-AidosState $reviewProject.Root).state -eq 'REVIEW_READY') 'review smoke reaches REVIEW_READY before publication'
+        $published=Publish-AidosReviewPackage $reviewProject.Root $reviewProject.ExecutionPath
+        $reviewState=Get-AidosState $reviewProject.Root
+        Assert-True ($reviewState.state -eq 'GPT_REVIEWING' -and $reviewState.review_id -eq $published.review_id) 'publish binds review_id and moves to GPT_REVIEWING'
+        $manifest=Read-AidosJson (Join-Path $reviewProject.Root $published.manifest_path)
+        Assert-True ($manifest.package_type -eq 'REVIEW_PACKAGE' -and $manifest.review_id -eq $published.review_id -and @($manifest.evidence_refs).Count -ge 4) 'review manifest is secret-free and points at durable evidence'
+        $consumer=Invoke-AidosReviewConsumer -ProjectRoot $reviewProject.Root -ReviewId $published.review_id -Outcome PASS -Reason 'approved'
+        $cleanState=Get-AidosState $reviewProject.Root
+        Assert-True ($cleanState.state -eq 'IDLE' -and $cleanState.review_id -eq $null) 'PASS deterministically returns project to IDLE'
+        Assert-True ($cleanState.lease_id -ne $null -and -not(Test-Path (Join-Path $reviewProject.Root '.aidos/runtime/lease.json'))) 'IDLE keeps last execution lease_id as historical context after the physical lease is removed'
+        $reviewRecord=Read-AidosJson (Join-Path $reviewProject.Root ".aidos/reviews/$($published.review_id)/REVIEW.json")
+        Assert-True ($reviewRecord.transport_state -eq 'CLEANED' -and $reviewRecord.decision.outcome -eq 'PASS' -and $reviewRecord.consume_ack.review_id -eq $published.review_id) 'durable review record keeps decision, consume ack, and cleanup evidence'
+        Assert-True (-not(Test-Path (Join-Path $reviewProject.Root $published.package_path))) 'ephemeral review package is cleaned after durable consume'
+        $reviewEvents=@(Get-ChildItem (Join-Path $reviewProject.Root '.aidos/events') -Filter '*.jsonl' | ForEach-Object { Get-Content $_.FullName } | ForEach-Object { ($_ | ConvertFrom-Json).event_type })
+        Assert-True ($reviewEvents -contains 'REVIEW_PACKAGE_PUBLISHED' -and $reviewEvents -contains 'REVIEW_DECISION_RECORDED' -and $reviewEvents -contains 'REVIEW_PACKAGE_CONSUMED' -and $reviewEvents -contains 'REVIEW_CLEANUP_CONFIRMED') 'review lifecycle events are emitted'
+    } finally { Remove-Item -LiteralPath $reviewProject.Root -Recurse -Force }
+
+    $repairProject=New-TestProject
+    try {
+        $repairRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$repairProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $repairExecution=Invoke-AidosCodexExecution $repairProject.Root $repairProject.ExecutionPath $repairRuntime 'repair review smoke'
+        Assert-True ($repairExecution.validation_status -eq 'PASS') 'repair review smoke reaches publishable evidence'
+        $repairPublished=Publish-AidosReviewPackage $repairProject.Root $repairProject.ExecutionPath
+        $repairOutcome=Invoke-AidosReviewConsumer -ProjectRoot $repairProject.Root -ReviewId $repairPublished.review_id -Outcome REPAIR -Reason 'needs follow-up'
+        $repairState=Get-AidosState $repairProject.Root
+        Assert-True ($repairState.state -eq 'TASK_READY' -and $repairState.revision -eq 1 -and $repairState.review_id -eq $null) 'REPAIR returns TASK_READY without inventing a new revision'
+        $repairRecord=Read-AidosJson (Join-Path $repairProject.Root ".aidos/reviews/$($repairPublished.review_id)/REVIEW.json")
+        Assert-True ($repairRecord.decision.target_state -eq 'TASK_READY' -and $repairRecord.transport_state -eq 'CLEANED') 'repair review decision is durable and cleaned'
+    } finally { Remove-Item -LiteralPath $repairProject.Root -Recurse -Force }
+
+    $reconcileProject=New-TestProject
+    try {
+        $reconcileRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$reconcileProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $reconcileExecution=Invoke-AidosCodexExecution $reconcileProject.Root $reconcileProject.ExecutionPath $reconcileRuntime 'reconcile review smoke'
+        Assert-True ($reconcileExecution.validation_status -eq 'PASS') 'reconciliation smoke reaches publishable evidence'
+        $reconcilePublished=Publish-AidosReviewPackage $reconcileProject.Root $reconcileProject.ExecutionPath
+        $null=Set-AidosReviewDecision -ProjectRoot $reconcileProject.Root -ReviewId $reconcilePublished.review_id -Outcome PASS -Reason 'approved'
+        $beforeReconcile=Get-AidosState $reconcileProject.Root
+        Assert-True ($beforeReconcile.state -eq 'IDLE' -and $beforeReconcile.review_id -eq $null) 'decision recorded before reconciliation still leaves project in target state'
+        $reconciled=Invoke-AidosReviewReconciliation $reconcileProject.Root
+        Assert-True ($reconciled.status -eq 'CLEANED') 'reconciliation completes consume and cleanup after an interrupted review'
+        $reconciledRecord=Read-AidosJson (Join-Path $reconcileProject.Root ".aidos/reviews/$($reconcilePublished.review_id)/REVIEW.json")
+        Assert-True ($reconciledRecord.transport_state -eq 'CLEANED' -and $reconciledRecord.consume_ack.review_id -eq $reconcilePublished.review_id) 'reconciled review record is canonical after restart'
+    } finally { Remove-Item -LiteralPath $reconcileProject.Root -Recurse -Force }
+
+    $tamperProject=New-TestProject
+    try {
+        $tamperRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$tamperProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $tamperExecution=Invoke-AidosCodexExecution $tamperProject.Root $tamperProject.ExecutionPath $tamperRuntime 'tamper review smoke'
+        Assert-True ($tamperExecution.validation_status -eq 'PASS') 'tamper review smoke reaches publishable evidence'
+        $tamperPublished=Publish-AidosReviewPackage $tamperProject.Root $tamperProject.ExecutionPath
+        $tamperedRecord=Read-AidosJson (Join-Path $tamperProject.Root ".aidos/reviews/$($tamperPublished.review_id)/REVIEW.json")
+        $tamperedRecord.review_id='WRONG-REVIEW-ID'
+        Write-AidosReviewRecordAtomic $tamperProject.Root $tamperPublished.review_id $tamperedRecord
+        Assert-Throws { Invoke-AidosReviewConsumer -ProjectRoot $tamperProject.Root -ReviewId $tamperPublished.review_id -Outcome PASS -Reason 'tampered' } 'stale or mismatched|hash mismatch'
+        $tamperRecovery=Invoke-AidosReviewReconciliation $tamperProject.Root
+        Assert-True ($tamperRecovery.status -eq 'RECOVERY_REQUIRED') 'tampered review binding fails closed to recovery'
+    } finally { Remove-Item -LiteralPath $tamperProject.Root -Recurse -Force }
+
     $blockedProject=New-TestProject
     try {
         $blockedExecution=$blockedProject.Execution|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100

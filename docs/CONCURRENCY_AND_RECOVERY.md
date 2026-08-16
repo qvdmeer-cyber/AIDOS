@@ -32,6 +32,12 @@ A second worker must not launch the same execution while a valid lease exists.
 
 Lease reconciliation after crash/restart checks actual process/session state plus canonical events instead of blindly assuming the old worker is alive or dead.
 
+`STATE.json` may keep the last execution context after the lease is released, including
+`lease_id`, `terminal_result`, `git_head`, `validation_result`, `codex_session_id` and the
+execution/revision binding, as historical provenance. That context must not be treated as an
+active lease. The active-lease truth source is the presence and contents of
+`.aidos/runtime/lease.json`.
+
 ## Recovery principle
 
 After power loss, reboot, bridge crash, Codex crash or interrupted Git operation:
@@ -41,7 +47,7 @@ After power loss, reboot, bridge crash, Codex crash or interrupted Git operation
 3. replay/inspect append-only events;
 4. verify Git head/ref bindings;
 5. verify local running process/session if claimed;
-6. reconcile ephemeral review refs;
+6. reconcile ephemeral review packages/refs;
 7. derive one safe next state;
 8. record a recovery event before resuming.
 

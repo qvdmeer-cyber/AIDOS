@@ -39,9 +39,10 @@ A direct supported ChatGPT event/deep-link API is not assumed. Windows desktop a
 2. Codex launch/resume/session rotation;
 3. execution leases + multi-project scheduler;
 4. review-ref lifecycle;
-5. ChatGPT desktop trigger prototype;
-6. supervised lock gate;
-7. crash/restart reconciliation;
+5. single-project review package publish/consume/cleanup;
+6. ChatGPT desktop trigger prototype;
+7. supervised lock gate;
+8. crash/restart reconciliation;
 8. telemetry + tuning;
 9. optional isolated per-project runtimes.
 
@@ -64,5 +65,10 @@ preserving the session and terminal evidence for repair. Revision changes while 
 `TASK_READY` use a dedicated dispatch-binding event before the lease is acquired; the bridge never
 uses `TASK_READY -> TASK_READY` as a generic metadata patch. `Invoke-AidosStartupReconciliation`
 fails interrupted work to `RECOVERY_REQUIRED`; it never infers completion.
+
+Review transport is explicit and ephemeral: `Publish-AidosReviewPackage` creates a secret-free
+package and durable review record, `Invoke-AidosReviewConsumer` records the decision and consume
+acknowledgement, and `Invoke-AidosReviewCleanup` removes the ephemeral package only after the
+durable record is complete.
 
 Entry point: `bridge/Invoke-AidosCodex.ps1` (PowerShell 7 only).

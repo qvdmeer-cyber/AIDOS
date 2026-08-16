@@ -76,12 +76,12 @@ IDLE
 → GPT_REVIEWING
 
 GPT_REVIEWING
-├─ ACCEPTED                   → IDLE / next accepted goal
+├─ PASS                       → IDLE / next accepted goal
 ├─ REPAIR                     → TASK_READY
+├─ BLOCKER                    → WAITING_USER
+├─ DISCOVERY_REFRESH_REQUIRED → DISCOVERY_REFRESH_REQUIRED
+├─ WAITING_INTERACTIVE_SESSION→ WAITING_INTERACTIVE_SESSION
 ├─ CONTRADICTION              → WAITING_DEFINITION
-├─ DISCOVERY_REFRESH_REQUIRED → external AIDOS-Builder refresh
-├─ GATE                       → WAITING_USER
-├─ BLOCKED                    → WAITING_USER
 └─ RELEASE_READY              → release lifecycle / genuine release authority gate
 ```
 
@@ -136,6 +136,8 @@ AIDOS must not return to feature discovery merely because another improvement is
 - `WAITING_INTERACTIVE_SESSION` — work ready but supervised policy blocks desktop GPT activation;
 - `CONTEXT_ROTATION_REQUIRED` — current GPT/Codex context must not resume;
 - `RECOVERY_REQUIRED` — durable state requires reconciliation.
+- `REVIEW_READY` — execution evidence passed; review transport has not yet been published.
+- `GPT_REVIEWING` — review transport is published and a Worker/GPT consumer is permitted to decide.
 - `EXECUTION_VALIDATION_FAILED` — Codex terminated, but declared deterministic execution evidence is absent or failed; session and terminal evidence remain available for a bounded repair revision.
 - `EXECUTION_DISPATCH_BOUND` — revision-scoped dispatch metadata rebound while the project remains in `TASK_READY`.
 
@@ -152,6 +154,16 @@ Execution Agent may terminate only as:
 Ordinary build/test/runtime failures are not terminal while safe useful technical steps remain.
 
 `DISCOVERY_REFRESH_REQUIRED` and `RELEASE_READY` are Worker/review transitions, not self-declared Execution Agent outcomes.
+
+Review outcomes are distinct from top-level project states. The durable review record stores the outcome, while the project state is driven deterministically by that outcome:
+
+```text
+PASS                       → IDLE
+REPAIR                     → TASK_READY
+BLOCKER                    → WAITING_USER
+DISCOVERY_REFRESH_REQUIRED → DISCOVERY_REFRESH_REQUIRED
+WAITING_INTERACTIVE_SESSION→ WAITING_INTERACTIVE_SESSION
+```
 
 ## Fail-closed transitions
 

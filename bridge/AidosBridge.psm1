@@ -6,7 +6,7 @@ $script:AllowedTransitions = @{
     DISCOVERY_REFRESH_REQUIRED=@('WAITING_DEFINITION','TASK_READY','RECOVERY_REQUIRED'); TASK_READY=@('QUEUED','CODEX_RUNNING','RECOVERY_REQUIRED')
     QUEUED=@('CODEX_RUNNING','RECOVERY_REQUIRED'); CODEX_RUNNING=@('TERMINAL_PENDING','CONTEXT_ROTATION_REQUIRED','RECOVERY_REQUIRED')
     TERMINAL_PENDING=@('REVIEW_READY','EXECUTION_VALIDATION_FAILED','WAITING_USER','WAITING_DEFINITION','RECOVERY_REQUIRED'); EXECUTION_VALIDATION_FAILED=@('TASK_READY','RECOVERY_REQUIRED','WAITING_USER'); REVIEW_READY=@('GPT_REVIEWING','WAITING_INTERACTIVE_SESSION','RECOVERY_REQUIRED')
-    WAITING_INTERACTIVE_SESSION=@('GPT_REVIEWING','RECOVERY_REQUIRED'); GPT_REVIEWING=@('IDLE','TASK_READY','WAITING_DEFINITION','WAITING_USER','DISCOVERY_REFRESH_REQUIRED','RELEASE_READY','CONTEXT_ROTATION_REQUIRED','RECOVERY_REQUIRED')
+    WAITING_INTERACTIVE_SESSION=@('GPT_REVIEWING','RECOVERY_REQUIRED'); GPT_REVIEWING=@('IDLE','TASK_READY','WAITING_DEFINITION','WAITING_USER','DISCOVERY_REFRESH_REQUIRED','RELEASE_READY','CONTEXT_ROTATION_REQUIRED','WAITING_INTERACTIVE_SESSION','RECOVERY_REQUIRED')
     RELEASE_READY=@('RECOVERY_REQUIRED'); WAITING_USER=@('WAITING_DEFINITION','TASK_READY','IDLE','RECOVERY_REQUIRED')
     CONTEXT_ROTATION_REQUIRED=@('TASK_READY','REVIEW_READY','RECOVERY_REQUIRED'); RECOVERY_REQUIRED=@('IDLE','WAITING_DEFINITION','TASK_READY','QUEUED','CODEX_RUNNING','REVIEW_READY','WAITING_USER')
 }
@@ -150,6 +150,7 @@ function Set-AidosExecutionDispatchBinding { [CmdletBinding(SupportsShouldProces
         foreach($p in $s.PSObject.Properties){$o[$p.Name]=$p.Value}
         $o.execution_id=$ExecutionId
         $o.revision=$Revision
+        $o.review_id=$null
         $o.codex_session_id=$null
         $o.lease_id=$null
         $o.terminal_result=$null
@@ -220,10 +221,320 @@ function Invoke-AidosCodexExecution {
     } else {Write-AidosJsonAtomic $resultPath $result;$null=Set-AidosState $ProjectRoot 'RECOVERY_REQUIRED' 'BRIDGE' $statePatch;Release-AidosExecutionLease $ProjectRoot $lease.lease_id 'FAILED'}
     [pscustomobject]$result
 }
+function Get-AidosReviewRoot { param([string]$ProjectRoot) Join-Path $ProjectRoot '.aidos/reviews' }
+function Get-AidosReviewPackageRoot { param([string]$ProjectRoot,[string]$ReviewId) Join-Path $ProjectRoot ('.aidos/runtime/reviews/{0}' -f $ReviewId) }
+function Get-AidosReviewRecordPath { param([string]$ProjectRoot,[string]$ReviewId) Join-Path (Join-Path $ProjectRoot ('.aidos/reviews/{0}' -f $ReviewId)) 'REVIEW.json' }
+function Get-AidosReviewManifestPath { param([string]$ProjectRoot,[string]$ReviewId) Join-Path (Get-AidosReviewPackageRoot $ProjectRoot $ReviewId) 'MANIFEST.json' }
+function Get-AidosReviewAckPath { param([string]$ProjectRoot,[string]$ReviewId) Join-Path (Get-AidosReviewPackageRoot $ProjectRoot $ReviewId) 'ACK.json' }
+function Get-AidosReviewPackagePath { param([string]$ProjectRoot,[string]$ReviewId) Get-AidosReviewPackageRoot $ProjectRoot $ReviewId }
+function Get-AidosReviewDecisionState { param([string]$Outcome)
+    switch ($Outcome) {
+        'PASS' { 'IDLE' }
+        'REPAIR' { 'TASK_READY' }
+        'BLOCKER' { 'WAITING_USER' }
+        'DISCOVERY_REFRESH_REQUIRED' { 'DISCOVERY_REFRESH_REQUIRED' }
+        'WAITING_INTERACTIVE_SESSION' { 'WAITING_INTERACTIVE_SESSION' }
+        default { throw "Unsupported review outcome '$Outcome'." }
+    }
+}
+function Test-AidosReviewBinding { param([string]$ProjectRoot,$Review,$Manifest)
+    $binding=@(
+        @{name='project_id';actual=[string]$Review.project_id;expected=[string]$Manifest.project_id},
+        @{name='definition_id';actual=[string]$Review.definition_id;expected=[string]$Manifest.definition_id},
+        @{name='definition_version';actual=[int]$Review.definition_version;expected=[int]$Manifest.definition_version},
+        @{name='execution_id';actual=[string]$Review.execution_id;expected=[string]$Manifest.execution_id},
+        @{name='revision';actual=[int]$Review.revision;expected=[int]$Manifest.revision},
+        @{name='review_id';actual=[string]$Review.review_id;expected=[string]$Manifest.review_id}
+    )
+    foreach($item in $binding){if($item.actual-ne$item.expected){throw "Review binding '$($item.name)' is stale or mismatched."}}
+    $recordRoot=Resolve-AidosFileSystemPath (Get-AidosReviewRoot $ProjectRoot)
+    $expectedRecordRoot=Resolve-AidosFileSystemPath (Join-Path $ProjectRoot '.aidos/reviews')
+    $comparison=if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+    if(-not[string]::Equals($recordRoot,$expectedRecordRoot,$comparison)){throw "Review record root '$recordRoot' does not equal expected '$expectedRecordRoot'."}
+    [pscustomobject]@{Valid=$true}
+}
+function Get-AidosReviewEvidenceRefs { param([string]$ProjectRoot,$Execution,$State,$Result,$Validation,$ExecutionPath)
+    $items=@(
+        @{kind='EXECUTION';path=([IO.Path]::GetRelativePath($ProjectRoot,$ExecutionPath));source=$ExecutionPath},
+        @{kind='STATE';path='.aidos/STATE.json';source=(Join-Path $ProjectRoot '.aidos/STATE.json')},
+        @{kind='TERMINAL_RESULT';path=[string]($State.terminal_result);source=(Join-Path $ProjectRoot ([string]$State.terminal_result))},
+        @{kind='VALIDATION_RESULT';path=[string]($Result.validation_path);source=(Join-Path $ProjectRoot ([string]$Result.validation_path))},
+        @{kind='EVENTS_JSONL';path=[string]($Result.events_path);source=(Join-Path $ProjectRoot ([string]$Result.events_path))},
+        @{kind='STDERR_LOG';path=[string]($Result.stderr_path);source=(Join-Path $ProjectRoot ([string]$Result.stderr_path))}
+    )
+    $refs=@()
+    foreach($item in $items){
+        $source=[string]$item.source
+        if(-not(Test-Path -LiteralPath $source -PathType Leaf)){throw "Required review evidence not found: $source"}
+        $refs+=[ordered]@{kind=[string]$item.kind;path=[string]$item.path;sha256=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()}
+    }
+    $refs
+}
+function New-AidosReviewRecordObject { param([string]$ProjectRoot,[string]$ReviewId,$Execution,$State,$Result,[string]$PackagePath,[string]$ManifestPath,[string]$ManifestSha256,[object[]]$EvidenceRefs)
+    $p=Get-AidosProjectProfile $ProjectRoot
+    [ordered]@{
+        schema_version='0.1'
+        review_id=$ReviewId
+        project_id=[string]$p.project_id
+        project_root=(Resolve-AidosFileSystemPath $ProjectRoot)
+        definition_id=[string]($Execution.definition.id)
+        definition_version=[int]($Execution.definition.version)
+        execution_id=[string]$Execution.execution_id
+        revision=[int]$Execution.revision
+        transport_state='PUBLISHED'
+        package_path=$PackagePath
+        package_manifest_path=$ManifestPath
+        package_manifest_sha256=$ManifestSha256
+        evidence_refs=@($EvidenceRefs)
+        published_at=[DateTimeOffset]::UtcNow.ToString('o')
+        published_by='BRIDGE'
+        decision=$null
+        consume_ack=$null
+        consumed_at=$null
+        consumed_by=$null
+        cleaned_at=$null
+        updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    }
+}
+function Write-AidosReviewRecordAtomic { param([string]$ProjectRoot,[string]$ReviewId,$Value)
+    $recordDir=Join-Path (Get-AidosReviewRoot $ProjectRoot) $ReviewId
+    if(-not(Test-Path -LiteralPath $recordDir)){New-Item -ItemType Directory -Path $recordDir -Force|Out-Null}
+    Write-AidosJsonAtomic (Join-Path $recordDir 'REVIEW.json') $Value
+}
+function Read-AidosReviewRecord { param([string]$ProjectRoot,[string]$ReviewId) Read-AidosJson (Get-AidosReviewRecordPath $ProjectRoot $ReviewId) }
+function Resolve-AidosReviewDecisionTargetState { param([string]$Outcome)
+    Get-AidosReviewDecisionState $Outcome
+}
+function Publish-AidosReviewPackage {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$ProjectRoot,[string]$ExecutionPath,[string]$ReviewId)
+    $ProjectRoot=Resolve-AidosFileSystemPath $ProjectRoot
+    $ExecutionPath=Resolve-AidosFileSystemPath $ExecutionPath
+    $execution=Read-AidosJson $ExecutionPath
+    $state=Get-AidosState $ProjectRoot
+    $null=Assert-AidosExecutionBinding $ProjectRoot $execution
+    if($state.state-notin @('REVIEW_READY','GPT_REVIEWING')){throw "Review package publish requires REVIEW_READY or GPT_REVIEWING, not '$($state.state)'."}
+    if($state.state-eq'GPT_REVIEWING' -and [string]::IsNullOrWhiteSpace([string]($state.review_id))){throw 'GPT_REVIEWING review requires an existing review_id.'}
+    $effectiveReviewId=if([string]::IsNullOrWhiteSpace($ReviewId)){if([string]::IsNullOrWhiteSpace([string]($state.review_id))){[guid]::NewGuid().ToString()}else{[string]($state.review_id)}}else{[string]$ReviewId}
+    if(-not[string]::IsNullOrWhiteSpace([string]($state.review_id)) -and ([string]($state.review_id)-ne $effectiveReviewId)){throw "Review ID mismatch: state has '$($state.review_id)' but publish requested '$effectiveReviewId'."}
+    $resultPath=Join-Path $ProjectRoot ([string]($state.terminal_result))
+    $result=Read-AidosJson $resultPath
+    $validationPath=Join-Path $ProjectRoot ([string]($result.validation_path))
+    $validation=Read-AidosJson $validationPath
+    if($validation.status-ne'PASS'){throw "Review package publish requires PASS validation, not '$($validation.status)'."}
+    $packageRoot=Get-AidosReviewPackageRoot $ProjectRoot $effectiveReviewId
+    $manifestPath=Get-AidosReviewManifestPath $ProjectRoot $effectiveReviewId
+    $recordPath=Get-AidosReviewRecordPath $ProjectRoot $effectiveReviewId
+    $evidenceRefs=Get-AidosReviewEvidenceRefs $ProjectRoot $execution $state $result $validation $ExecutionPath
+    $manifest=[ordered]@{
+        schema_version='0.1'
+        package_type='REVIEW_PACKAGE'
+        review_id=$effectiveReviewId
+        project_id=[string]$execution.project_id
+        project_root=(Resolve-AidosFileSystemPath $ProjectRoot)
+        definition_id=[string]($execution.definition.id)
+        definition_version=[int]($execution.definition.version)
+        execution_id=[string]$execution.execution_id
+        revision=[int]$execution.revision
+        review_record_path=[IO.Path]::GetRelativePath($ProjectRoot,$recordPath)
+        terminal_result_path=[string]$state.terminal_result
+        validation_result_path=[string]$result.validation_path
+        events_path=[string]$result.events_path
+        stderr_path=[string]$result.stderr_path
+        git_head=[string]$state.git_head
+        evidence_refs=@($evidenceRefs)
+        published_at=[DateTimeOffset]::UtcNow.ToString('o')
+    }
+    if($PSCmdlet.ShouldProcess($packageRoot,'Publish AIDOS review package')){
+        if(-not(Test-Path -LiteralPath $packageRoot)){New-Item -ItemType Directory -Path $packageRoot -Force|Out-Null}
+        Write-AidosJsonAtomic $manifestPath $manifest
+        $manifestSha=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $record=New-AidosReviewRecordObject $ProjectRoot $effectiveReviewId $execution $state $result ([IO.Path]::GetRelativePath($ProjectRoot,$packageRoot)) ([IO.Path]::GetRelativePath($ProjectRoot,$manifestPath)) $manifestSha $evidenceRefs
+        Write-AidosReviewRecordAtomic $ProjectRoot $effectiveReviewId $record
+        $null=Set-AidosState $ProjectRoot 'GPT_REVIEWING' 'BRIDGE' @{review_id=$effectiveReviewId}
+        $null=Add-AidosEvent $ProjectRoot 'REVIEW_PACKAGE_PUBLISHED' 'BRIDGE' @{review_id=$effectiveReviewId;package_path=[IO.Path]::GetRelativePath($ProjectRoot,$packageRoot);manifest_path=[IO.Path]::GetRelativePath($ProjectRoot,$manifestPath);manifest_sha256=$manifestSha;evidence_refs=@($evidenceRefs)}
+        [pscustomobject]@{review_id=$effectiveReviewId;package_path=[IO.Path]::GetRelativePath($ProjectRoot,$packageRoot);manifest_path=[IO.Path]::GetRelativePath($ProjectRoot,$manifestPath);manifest_sha256=$manifestSha;record_path=[IO.Path]::GetRelativePath($ProjectRoot,$recordPath)}
+    }
+}
+function Set-AidosReviewDecision {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$ProjectRoot,[Parameter(Mandatory)][string]$ReviewId,[Parameter(Mandatory)][ValidateSet('PASS','REPAIR','BLOCKER','DISCOVERY_REFRESH_REQUIRED','WAITING_INTERACTIVE_SESSION')][string]$Outcome,[string]$Reason='',[ValidateSet('HUMAN','DEFINITION_AGENT','WORKER_AGENT','EXECUTION_AGENT','BRIDGE','SYSTEM')][string]$Actor='WORKER_AGENT')
+    $ProjectRoot=Resolve-AidosFileSystemPath $ProjectRoot
+    $state=Get-AidosState $ProjectRoot
+    if($state.review_id-ne$ReviewId){throw "Review ID mismatch: state has '$($state.review_id)' but decision targets '$ReviewId'."}
+    if($state.state-ne'GPT_REVIEWING'){throw "Review decision requires GPT_REVIEWING, not '$($state.state)'."}
+    $record=Read-AidosReviewRecord $ProjectRoot $ReviewId
+    $manifestPath=Join-Path $ProjectRoot ([string]($record.package_manifest_path))
+    if(-not(Test-Path -LiteralPath $manifestPath -PathType Leaf)){throw "Review manifest not found: $manifestPath"}
+    $manifest=Read-AidosJson $manifestPath
+    Test-AidosReviewBinding $ProjectRoot $record $manifest|Out-Null
+    $manifestSha=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if($manifestSha-ne[string]$record.package_manifest_sha256){throw 'Review manifest hash mismatch.'}
+    if($record.transport_state-ne'PUBLISHED' -and $record.transport_state-ne'DECIDED'){throw "Review transport is not publishable for decision (state: $($record.transport_state))."}
+    $targetState=Resolve-AidosReviewDecisionTargetState $Outcome
+    if($PSCmdlet.ShouldProcess((Join-Path $ProjectRoot '.aidos/STATE.json'),"Record review decision $Outcome -> $targetState")){
+        $updated=[ordered]@{}
+        foreach($p in $record.PSObject.Properties){$updated[$p.Name]=$p.Value}
+        $updated.transport_state='DECIDED'
+        $updated.decision=[ordered]@{outcome=$Outcome;target_state=$targetState;reason=$Reason;decided_by=$Actor;decided_at=[DateTimeOffset]::UtcNow.ToString('o')}
+        $updated.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosReviewRecordAtomic $ProjectRoot $ReviewId $updated
+        $null=Set-AidosState $ProjectRoot $targetState $Actor @{review_id=$null}
+        $null=Add-AidosEvent $ProjectRoot 'REVIEW_DECISION_RECORDED' $Actor @{review_id=$ReviewId;outcome=$Outcome;target_state=$targetState;reason=$Reason;package_manifest_sha256=$manifestSha}
+        [pscustomobject]$updated
+    }
+}
+function Confirm-AidosReviewConsumed {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$ProjectRoot,[Parameter(Mandatory)][string]$ReviewId,[ValidateSet('HUMAN','DEFINITION_AGENT','WORKER_AGENT','EXECUTION_AGENT','BRIDGE','SYSTEM')][string]$Actor='WORKER_AGENT')
+    $ProjectRoot=Resolve-AidosFileSystemPath $ProjectRoot
+    $record=Read-AidosReviewRecord $ProjectRoot $ReviewId
+    if($record.transport_state-ne'DECIDED' -and $record.transport_state-ne'CONSUMED'){throw "Review consumption requires a recorded decision, not '$($record.transport_state)'."}
+    if($PSCmdlet.ShouldProcess((Join-Path (Get-AidosReviewRoot $ProjectRoot) $ReviewId),'Confirm AIDOS review consumption')){
+        $updated=[ordered]@{}
+        foreach($p in $record.PSObject.Properties){$updated[$p.Name]=$p.Value}
+        $updated.transport_state='CONSUMED'
+        $updated.consumed_at=[DateTimeOffset]::UtcNow.ToString('o')
+        $updated.consumed_by=$Actor
+        $updated.consume_ack=[ordered]@{acknowledged_at=$updated.consumed_at;acknowledged_by=$Actor;review_id=$ReviewId;package_path=$updated.package_path;manifest_sha256=$updated.package_manifest_sha256}
+        $updated.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosReviewRecordAtomic $ProjectRoot $ReviewId $updated
+        $ackPath=Get-AidosReviewAckPath $ProjectRoot $ReviewId
+        Write-AidosJsonAtomic $ackPath $updated.consume_ack
+        $null=Add-AidosEvent $ProjectRoot 'REVIEW_PACKAGE_CONSUMED' $Actor @{review_id=$ReviewId;package_path=$updated.package_path;manifest_sha256=$updated.package_manifest_sha256}
+        [pscustomobject]$updated
+    }
+}
+function Invoke-AidosReviewCleanup {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$ProjectRoot,[Parameter(Mandatory)][string]$ReviewId,[ValidateSet('HUMAN','DEFINITION_AGENT','WORKER_AGENT','EXECUTION_AGENT','BRIDGE','SYSTEM')][string]$Actor='BRIDGE')
+    $ProjectRoot=Resolve-AidosFileSystemPath $ProjectRoot
+    $record=Read-AidosReviewRecord $ProjectRoot $ReviewId
+    if($record.transport_state-ne'CONSUMED'){throw "Review cleanup requires CONSUMED transport state, not '$($record.transport_state)'."}
+    $packagePath=Join-Path $ProjectRoot ([string]($record.package_path))
+    if($PSCmdlet.ShouldProcess($packagePath,'Cleanup AIDOS review package')){
+        if(Test-Path -LiteralPath $packagePath){Remove-Item -LiteralPath $packagePath -Recurse -Force}
+        $updated=[ordered]@{}
+        foreach($p in $record.PSObject.Properties){$updated[$p.Name]=$p.Value}
+        $updated.transport_state='CLEANED'
+        $updated.cleaned_at=[DateTimeOffset]::UtcNow.ToString('o')
+        $updated.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosReviewRecordAtomic $ProjectRoot $ReviewId $updated
+        $null=Add-AidosEvent $ProjectRoot 'REVIEW_CLEANUP_CONFIRMED' $Actor @{review_id=$ReviewId;package_path=$record.package_path}
+        [pscustomobject]$updated
+    }
+}
+function Invoke-AidosReviewConsumer {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$ProjectRoot,[Parameter(Mandatory)][string]$ReviewId,[Parameter(Mandatory)][ValidateSet('PASS','REPAIR','BLOCKER','DISCOVERY_REFRESH_REQUIRED','WAITING_INTERACTIVE_SESSION')][string]$Outcome,[string]$Reason='',[ValidateSet('HUMAN','DEFINITION_AGENT','WORKER_AGENT','EXECUTION_AGENT','BRIDGE','SYSTEM')][string]$Actor='WORKER_AGENT')
+    $decision=Set-AidosReviewDecision $ProjectRoot $ReviewId $Outcome $Reason -Actor $Actor
+    $consumed=Confirm-AidosReviewConsumed $ProjectRoot $ReviewId -Actor $Actor
+    Invoke-AidosReviewCleanup $ProjectRoot $ReviewId -Actor 'BRIDGE'|Out-Null
+    [pscustomobject]@{decision=$decision;consumed=$consumed;review_id=$ReviewId}
+}
+function Invoke-AidosReviewReconciliation {
+    [CmdletBinding()]
+    param([string]$ProjectRoot)
+    Test-AidosProjectBinding $ProjectRoot|Out-Null
+    Invoke-AidosExclusive $ProjectRoot {
+        $reviewRoot=Get-AidosReviewRoot $ProjectRoot
+        if(-not(Test-Path -LiteralPath $reviewRoot)){return [pscustomobject]@{status='CLEAN';review_id=$null}}
+        $state=Get-AidosState $ProjectRoot
+        $records=@()
+        foreach($dir in (Get-ChildItem -LiteralPath $reviewRoot -Directory -ErrorAction SilentlyContinue)){
+            $recordPath=Join-Path $dir.FullName 'REVIEW.json'
+            if(Test-Path -LiteralPath $recordPath -PathType Leaf){
+                try{$records+=Read-AidosReviewRecord $ProjectRoot $dir.Name}catch{throw "Invalid review record JSON in '$recordPath'."}
+            }
+        }
+        if(-not$records){
+            if($state.review_id){$o=[ordered]@{};foreach($p in $state.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o');Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o;Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_RECOVERY_REQUIRED' 'BRIDGE' @{review_id=$state.review_id;reason='REVIEW_RECORD_MISSING';next_state='RECOVERY_REQUIRED'});return [pscustomobject]@{status='RECOVERY_REQUIRED';review_id=$state.review_id}}
+            return [pscustomobject]@{status='CLEAN';review_id=$null}
+        }
+        $nonCleaned=@($records|Where-Object transport_state -ne 'CLEANED')
+        if($state.review_id){
+            $active=@($nonCleaned|Where-Object review_id -eq $state.review_id|Sort-Object updated_at -Descending|Select-Object -First 1)
+            if(-not$active){
+                $o=[ordered]@{};foreach($p in $state.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+                Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o
+                Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_RECOVERY_REQUIRED' 'BRIDGE' @{review_id=$state.review_id;reason='REVIEW_ID_RECORD_MISSING';next_state='RECOVERY_REQUIRED'})
+                return [pscustomobject]@{status='RECOVERY_REQUIRED';review_id=$state.review_id}
+            }
+        }else{
+            $active=@($nonCleaned|Sort-Object updated_at -Descending|Select-Object -First 1)
+            if(-not$active){return [pscustomobject]@{status='CLEAN';review_id=$null}}
+        }
+        $active=$active[0]
+        $manifestPath=Join-Path $ProjectRoot ([string]($active.package_manifest_path))
+        $packagePath=Join-Path $ProjectRoot ([string]($active.package_path))
+        if($state.review_id -and [string]($state.review_id) -ne [string]($active.review_id)){
+            $o=[ordered]@{};foreach($p in $state.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o
+            Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_RECOVERY_REQUIRED' 'BRIDGE' @{review_id=$active.review_id;reason='STATE_REVIEW_ID_MISMATCH';next_state='RECOVERY_REQUIRED'})
+            return [pscustomobject]@{status='RECOVERY_REQUIRED';review_id=$active.review_id}
+        }
+        if(-not(Test-Path -LiteralPath $manifestPath -PathType Leaf)){
+            if($active.transport_state -in @('PUBLISHED','DECIDED')){
+                $o=[ordered]@{};foreach($p in $state.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+                Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o
+                Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_RECOVERY_REQUIRED' 'BRIDGE' @{review_id=$active.review_id;reason='MANIFEST_MISSING';next_state='RECOVERY_REQUIRED'})
+                return [pscustomobject]@{status='RECOVERY_REQUIRED';review_id=$active.review_id}
+            }
+            return [pscustomobject]@{status='CLEAN';review_id=$active.review_id}
+        }
+        $manifest=Read-AidosJson $manifestPath
+        try{Test-AidosReviewBinding $ProjectRoot $active $manifest|Out-Null}catch{
+            $o=[ordered]@{};foreach($p in $state.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o
+            Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_RECOVERY_REQUIRED' 'BRIDGE' @{review_id=$active.review_id;reason=$_.Exception.Message;next_state='RECOVERY_REQUIRED'})
+            return [pscustomobject]@{status='RECOVERY_REQUIRED';review_id=$active.review_id}
+        }
+        $manifestSha=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if($manifestSha-ne[string]($active.package_manifest_sha256)){
+            $o=[ordered]@{};foreach($p in $state.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o
+            Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_RECOVERY_REQUIRED' 'BRIDGE' @{review_id=$active.review_id;reason='MANIFEST_HASH_MISMATCH';next_state='RECOVERY_REQUIRED'})
+            return [pscustomobject]@{status='RECOVERY_REQUIRED';review_id=$active.review_id}
+        }
+        if($active.decision){
+            $target=[string]$active.decision.target_state
+            if($state.state-ne$target -or [string]($state.review_id) -eq [string]($active.review_id)){
+                $o=[ordered]@{};foreach($p in $state.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state=$target;$o.review_id=$null;$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+                Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o
+                Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_RECONCILED' 'BRIDGE' @{review_id=$active.review_id;target_state=$target;action='STATE_APPLIED'})
+                $state=[pscustomobject]$o
+            }
+            if($active.transport_state-ne'CONSUMED' -and $active.transport_state-ne'CLEANED'){
+                $updated=[ordered]@{};foreach($p in $active.PSObject.Properties){$updated[$p.Name]=$p.Value};$updated.transport_state='CONSUMED';$updated.consumed_at=[DateTimeOffset]::UtcNow.ToString('o');$updated.consumed_by='BRIDGE';$updated.consume_ack=[ordered]@{acknowledged_at=$updated.consumed_at;acknowledged_by='BRIDGE';review_id=$active.review_id;package_path=$updated.package_path;manifest_sha256=$updated.package_manifest_sha256};$updated.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+                Write-AidosReviewRecordAtomic $ProjectRoot $active.review_id $updated
+                Write-AidosJsonAtomic (Get-AidosReviewAckPath $ProjectRoot $active.review_id) $updated.consume_ack
+                Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_PACKAGE_CONSUMED' 'BRIDGE' @{review_id=$active.review_id;package_path=$updated.package_path;manifest_sha256=$updated.package_manifest_sha256})
+                $active=[pscustomobject]$updated
+            }
+            if(Test-Path -LiteralPath $packagePath){Remove-Item -LiteralPath $packagePath -Recurse -Force}
+            if($active.transport_state-ne'CLEANED'){
+                $updated=[ordered]@{};foreach($p in $active.PSObject.Properties){$updated[$p.Name]=$p.Value};$updated.transport_state='CLEANED';$updated.cleaned_at=[DateTimeOffset]::UtcNow.ToString('o');$updated.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+                Write-AidosReviewRecordAtomic $ProjectRoot $active.review_id $updated
+                Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_CLEANUP_CONFIRMED' 'BRIDGE' @{review_id=$active.review_id;package_path=$updated.package_path})
+            }
+            return [pscustomobject]@{status='CLEANED';review_id=$active.review_id}
+        }
+        if($active.transport_state-eq'PUBLISHED'){return [pscustomobject]@{status='PUBLISHED';review_id=$active.review_id}}
+        if($active.transport_state-eq'DECIDED'){return [pscustomobject]@{status='DECIDED';review_id=$active.review_id}}
+        if($active.transport_state-eq'CONSUMED'){
+            if(Test-Path -LiteralPath $packagePath){Remove-Item -LiteralPath $packagePath -Recurse -Force}
+            $updated=[ordered]@{};foreach($p in $active.PSObject.Properties){$updated[$p.Name]=$p.Value};$updated.transport_state='CLEANED';$updated.cleaned_at=[DateTimeOffset]::UtcNow.ToString('o');$updated.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosReviewRecordAtomic $ProjectRoot $active.review_id $updated
+            Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'REVIEW_CLEANUP_CONFIRMED' 'BRIDGE' @{review_id=$active.review_id;package_path=$updated.package_path})
+            return [pscustomobject]@{status='CLEANED';review_id=$active.review_id}
+        }
+        [pscustomobject]@{status='CLEAN';review_id=$active.review_id}
+    }
+}
 function Repair-AidosStateProjection { param($ProjectRoot)
     $s=Get-AidosState $ProjectRoot;$last=$null;foreach($f in (Get-ChildItem (Join-Path $ProjectRoot '.aidos/events') -Filter '*.jsonl' -File -ErrorAction SilentlyContinue|Sort-Object Name)){foreach($line in (Get-Content $f.FullName)){try{$e=$line|ConvertFrom-Json -Depth 100;if($e.event_type-eq'STATE_TRANSITION'){$last=$e}}catch{throw "Invalid event JSONL in '$($f.FullName)'."}}};if($last-and$s.state-ne$last.payload.to){$o=[ordered]@{};foreach($p in $s.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state=$last.payload.to;$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o');Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o;return $true};$false
 }
 function Invoke-AidosStartupReconciliation { param([string]$ProjectRoot)
     Test-AidosProjectBinding $ProjectRoot|Out-Null;Invoke-AidosExclusive $ProjectRoot {$repaired=Repair-AidosStateProjection $ProjectRoot;$path=Join-Path $ProjectRoot '.aidos/runtime/lease.json';if(-not(Test-Path $path)){$s=Get-AidosState $ProjectRoot;if($s.state-eq'CODEX_RUNNING'){$o=[ordered]@{};foreach($p in $s.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o');Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'RECOVERY_RECONCILED' 'BRIDGE' @{reason='CODEX_RUNNING_WITHOUT_LEASE';next_state='RECOVERY_REQUIRED'});Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o;return [pscustomobject]@{status='RECOVERY_REQUIRED';projection_repaired=$repaired}};return [pscustomobject]@{status='CLEAN';projection_repaired=$repaired}};$l=Read-AidosJson $path;$alive=$false;if($l.codex_runtime-and$l.codex_runtime.supervisor_pid){$p=Get-Process -Id ([int]$l.codex_runtime.supervisor_pid) -ErrorAction SilentlyContinue;if($p){$alive=$p.StartTime.ToUniversalTime().ToString('o')-eq[string]$l.codex_runtime.started_at}};if($alive){return [pscustomobject]@{status='RUNNING';lease_id=$l.lease_id;projection_repaired=$repaired}};$s=Get-AidosState $ProjectRoot;if($s.state-eq'CODEX_RUNNING'){$o=[ordered]@{};foreach($p in $s.PSObject.Properties){$o[$p.Name]=$p.Value};$o.state='RECOVERY_REQUIRED';$o.updated_at=[DateTimeOffset]::UtcNow.ToString('o');Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'EXECUTION_INTERRUPTED' 'BRIDGE' @{lease_id=$l.lease_id;execution_id=$l.execution_id;revision=$l.revision});Write-AidosJsonAtomic (Join-Path $ProjectRoot '.aidos/STATE.json') $o};Remove-Item $path -Force;Add-AidosEventUnlocked $ProjectRoot (New-AidosEventObject $ProjectRoot 'RECOVERY_RECONCILED' 'BRIDGE' @{stale_lease_id=$l.lease_id;next_state=(Get-AidosState $ProjectRoot).state});[pscustomobject]@{status='RECOVERY_REQUIRED';stale_lease_id=$l.lease_id;projection_repaired=$repaired}}
 }
-Export-ModuleMember -Function Resolve-AidosFileSystemPath,Test-AidosSameFileSystemPath,Get-AidosProjectRoot,Read-AidosJson,Write-AidosJsonAtomic,Get-AidosProjectProfile,Get-AidosGitRuntime,Get-AidosGitCommand,Invoke-AidosGit,Register-AidosGitRuntime,Get-AidosCodexRuntimeCommand,Get-AidosCodexCliCapabilities,Assert-AidosCodexAuthorityRepresentable,Assert-AidosCodexCliSupport,Get-AidosCodexLaunchArguments,Test-AidosProjectBinding,Get-AidosPreparationSnapshot,Assert-AidosExecutionBinding,Get-AidosState,Add-AidosEvent,Set-AidosState,Set-AidosExecutionDispatchBinding,Acquire-AidosExecutionLease,Release-AidosExecutionLease,Get-AidosCodexCommand,Test-AidosExecutionEvidence,Invoke-AidosCodexExecution,Invoke-AidosStartupReconciliation
+Export-ModuleMember -Function Resolve-AidosFileSystemPath,Test-AidosSameFileSystemPath,Get-AidosProjectRoot,Read-AidosJson,Write-AidosJsonAtomic,Get-AidosProjectProfile,Get-AidosGitRuntime,Get-AidosGitCommand,Invoke-AidosGit,Register-AidosGitRuntime,Get-AidosCodexRuntimeCommand,Get-AidosCodexCliCapabilities,Assert-AidosCodexAuthorityRepresentable,Assert-AidosCodexCliSupport,Get-AidosCodexLaunchArguments,Test-AidosProjectBinding,Get-AidosPreparationSnapshot,Assert-AidosExecutionBinding,Get-AidosState,Add-AidosEvent,Set-AidosState,Set-AidosExecutionDispatchBinding,Acquire-AidosExecutionLease,Release-AidosExecutionLease,Get-AidosCodexCommand,Test-AidosExecutionEvidence,Invoke-AidosCodexExecution,Get-AidosReviewRoot,Get-AidosReviewPackageRoot,Get-AidosReviewRecordPath,Get-AidosReviewManifestPath,Get-AidosReviewAckPath,Get-AidosReviewDecisionState,Test-AidosReviewBinding,Get-AidosReviewEvidenceRefs,New-AidosReviewRecordObject,Write-AidosReviewRecordAtomic,Read-AidosReviewRecord,Resolve-AidosReviewDecisionTargetState,Publish-AidosReviewPackage,Set-AidosReviewDecision,Confirm-AidosReviewConsumed,Invoke-AidosReviewCleanup,Invoke-AidosReviewConsumer,Invoke-AidosReviewReconciliation,Invoke-AidosStartupReconciliation
