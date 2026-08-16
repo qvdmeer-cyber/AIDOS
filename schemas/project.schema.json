@@ -24,6 +24,17 @@
     "capabilities": {"type": "array", "items": {"type": "string"}},
     "project_validators": {"type": "array", "items": {"type": "string"}},
     "runner_policy": {"type": "string"}
+    ,"git_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "project_root", "git_path"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["NATIVE", "WINDOWS_WSL"]},
+        "distribution": {"type": "string"},
+        "project_root": {"type": "string", "minLength": 1},
+        "git_path": {"type": "string", "minLength": 1}
+      }
+    }
   },
   "allOf": [
     {

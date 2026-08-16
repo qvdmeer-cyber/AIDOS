@@ -24,5 +24,10 @@
   "contracts_repository": "qvdmeer-cyber/AIDOS-Contracts",
   "capabilities": [],
   "project_validators": [],
-  "runner_policy": "SUPERVISED"
+  "runner_policy": "SUPERVISED",
+  "git_runtime": {
+    "kind": "NATIVE",
+    "project_root": "C:\\Projects\\Code\\REPLACE_ME",
+    "git_path": "git"
+  }
 }

@@ -71,7 +71,8 @@ IDLE
 → TASK_READY
 → CODEX_RUNNING
 → TERMINAL_PENDING
-→ REVIEW_READY
+├─ deterministic execution evidence PASS → REVIEW_READY
+└─ evidence missing/failed              → EXECUTION_VALIDATION_FAILED
 → GPT_REVIEWING
 
 GPT_REVIEWING
@@ -85,6 +86,10 @@ GPT_REVIEWING
 ```
 
 `DISCOVERY_REFRESH_REQUIRED` is not a product-decision gate. It means current-state preparation no longer satisfies the required closure invariant.
+
+Revision-scoped dispatch metadata may be rebound while remaining in `TASK_READY` through a
+dedicated dispatch-binding action/event. That rebinding is not a state transition and does not
+relax the `TASK_READY -> TASK_READY` prohibition.
 
 ## Launch Definition states
 
@@ -131,6 +136,8 @@ AIDOS must not return to feature discovery merely because another improvement is
 - `WAITING_INTERACTIVE_SESSION` — work ready but supervised policy blocks desktop GPT activation;
 - `CONTEXT_ROTATION_REQUIRED` — current GPT/Codex context must not resume;
 - `RECOVERY_REQUIRED` — durable state requires reconciliation.
+- `EXECUTION_VALIDATION_FAILED` — Codex terminated, but declared deterministic execution evidence is absent or failed; session and terminal evidence remain available for a bounded repair revision.
+- `EXECUTION_DISPATCH_BOUND` — revision-scoped dispatch metadata rebound while the project remains in `TASK_READY`.
 
 ## Execution terminal outcomes
 

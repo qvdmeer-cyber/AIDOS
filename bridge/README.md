@@ -44,3 +44,25 @@ A direct supported ChatGPT event/deep-link API is not assumed. Windows desktop a
 7. crash/restart reconciliation;
 8. telemetry + tuning;
 9. optional isolated per-project runtimes.
+
+## Single-project execution entry point
+
+The PowerShell 7 bridge and Codex are separate runtimes. On WSL, invoke Codex directly with
+`RuntimeKind WSL_LOCAL`. A future Windows-native orchestrator uses `RuntimeKind WINDOWS_WSL`
+with an explicit distribution and WSL project root; it launches `wsl.exe` and never treats a
+Windows path as a Codex workspace path.
+
+Before dispatch, the bridge revalidates the exact project root/repository and the accepted
+preparation snapshot in the Execution. It then acquires one project-local execution lease,
+captures `codex exec --json`, and persists the session, terminal result, execution/revision and
+Git HEAD. Read-only authority maps to `codex exec --sandbox read-only ...`; filesystem-write
+authority maps to `codex exec --approve-for-me ...` with no `--sandbox` flag. `resume` reuses the
+persisted session policy and never restates sandbox flags. A clean Codex process termination reaches
+`TERMINAL_PENDING`; only declared deterministic execution evidence passing may advance to
+`REVIEW_READY`. Missing or failed evidence advances to `EXECUTION_VALIDATION_FAILED` while
+preserving the session and terminal evidence for repair. Revision changes while remaining in
+`TASK_READY` use a dedicated dispatch-binding event before the lease is acquired; the bridge never
+uses `TASK_READY -> TASK_READY` as a generic metadata patch. `Invoke-AidosStartupReconciliation`
+fails interrupted work to `RECOVERY_REQUIRED`; it never infers completion.
+
+Entry point: `bridge/Invoke-AidosCodex.ps1` (PowerShell 7 only).

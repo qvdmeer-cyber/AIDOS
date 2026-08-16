@@ -5,14 +5,24 @@ param(
     [Parameter(Mandatory)][string]$Repository,
     [ValidateSet('NEW_PROJECT','EXISTING_PROJECT')][string]$ProjectMode = 'EXISTING_PROJECT',
     [string]$DefaultBranch = 'main',
-    [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$RunnerPolicy = 'SUPERVISED'
+    [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$RunnerPolicy = 'SUPERVISED',
+    [ValidateSet('NATIVE','WINDOWS_WSL')][string]$GitRuntimeKind,
+    [string]$WslDistribution,
+    [string]$WslProjectRoot,
+    [string]$GitPath = 'git'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$root = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\\')
-if (-not (Test-Path -LiteralPath $root)) { throw "Project root does not exist: $root" }
+$rootItem = Get-Item -LiteralPath $ProjectRoot -Force -ErrorAction Stop
+if ($rootItem.PSProvider.Name -ne 'FileSystem' -or -not $rootItem.PSIsContainer) { throw "Project root is not a filesystem directory: $ProjectRoot" }
+$root = ([string]$rootItem.FullName).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+if (-not $GitRuntimeKind) {
+    if ($IsWindows -and $root.StartsWith('\\wsl.localhost\', [System.StringComparison]::OrdinalIgnoreCase)) { throw 'A WSL UNC project requires explicit -GitRuntimeKind WINDOWS_WSL, -WslDistribution and -WslProjectRoot registration.' }
+    $GitRuntimeKind = 'NATIVE'
+}
+if ($GitRuntimeKind -eq 'WINDOWS_WSL' -and ([string]::IsNullOrWhiteSpace($WslDistribution) -or [string]::IsNullOrWhiteSpace($WslProjectRoot))) { throw 'WINDOWS_WSL Git runtime requires WslDistribution and WslProjectRoot.' }
 
 $aidos = Join-Path $root '.aidos'
 $baselinePath = Join-Path $aidos 'documentation\PROJECT_BASELINE.json'
@@ -103,6 +113,11 @@ if ($PSCmdlet.ShouldProcess($aidos, 'Initialize private AIDOS runtime state agai
         capabilities = @()
         project_validators = @()
         runner_policy = $RunnerPolicy
+        git_runtime = if ($GitRuntimeKind -eq 'WINDOWS_WSL') {
+            [ordered]@{ kind = 'WINDOWS_WSL'; distribution = $WslDistribution; project_root = $WslProjectRoot; git_path = $GitPath }
+        } else {
+            [ordered]@{ kind = 'NATIVE'; project_root = $root; git_path = $GitPath }
+        }
     }
 
     $agentProfile = [ordered]@{
@@ -129,6 +144,9 @@ if ($PSCmdlet.ShouldProcess($aidos, 'Initialize private AIDOS runtime state agai
         codex_session_id = $null
         review_id = $null
         lease_id = $null
+        terminal_result = $null
+        git_head = $null
+        validation_result = $null
         updated_at = [DateTimeOffset]::UtcNow.ToString('o')
     }
 

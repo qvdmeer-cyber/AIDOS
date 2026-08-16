@@ -4,7 +4,7 @@
   "title": "AIDOS Execution",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "execution_id", "revision", "project_id", "project_mode", "preparation", "definition", "goal", "scope", "acceptance", "authority", "knowledge_selection", "executor_profile"],
+  "required": ["schema_version", "execution_id", "revision", "project_id", "project_mode", "preparation", "definition", "goal", "scope", "acceptance", "authority", "knowledge_selection", "executor_profile", "validation"],
   "properties": {
     "schema_version": {"type": "string", "const": "0.1"},
     "execution_id": {"type": "string", "minLength": 1},
@@ -14,9 +14,11 @@
     "preparation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["baseline_commit"],
+      "required": ["baseline_commit", "access_sha256", "evidence_inventory_sha256"],
       "properties": {
         "baseline_commit": {"type": "string", "minLength": 7},
+        "access_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "evidence_inventory_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "current_product_state_id": {"type": ["string", "null"]},
         "current_product_state_commit": {"type": ["string", "null"]},
         "current_product_state_contract_version": {"type": ["string", "null"]},
@@ -35,6 +37,30 @@
     "authority": {"type": "object"},
     "knowledge_selection": {"type": "array", "items": {"type": "string"}},
     "validators": {"type": "array", "items": {"type": "string"}},
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "requirements"],
+      "properties": {
+        "mode": {"type": "string", "const": "ALL"},
+        "requirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "path"],
+            "properties": {
+              "type": {"type": "string", "enum": ["PATH_EXISTS", "FILE_CONTENT_EXACT"]},
+              "path": {"type": "string", "minLength": 1},
+              "expected": {"type": "string"},
+              "trim_trailing_newline": {"type": "boolean"}
+            },
+            "allOf": [{"if": {"properties": {"type": {"const": "FILE_CONTENT_EXACT"}}}, "then": {"required": ["expected"]}}]
+          }
+        }
+      }
+    },
     "executor_profile": {
       "type": "object",
       "additionalProperties": false,

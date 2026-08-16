@@ -1,0 +1,4 @@
+[CmdletBinding()]param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$ExecutionPath,[ValidateSet('WSL_LOCAL','WINDOWS_WSL')][string]$RuntimeKind='WSL_LOCAL',[string]$WslDistribution,[string]$WslProjectRoot,[string]$CodexPath='codex',[string]$Prompt,[switch]$Resume)
+Set-StrictMode -Version Latest;$ErrorActionPreference='Stop';Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force
+$runtime=if($RuntimeKind-eq'WSL_LOCAL'){[pscustomobject]@{kind='WSL_LOCAL';project_root=$ProjectRoot;codex_path=$CodexPath}}else{if(-not$WslDistribution-or-not$WslProjectRoot){throw 'WINDOWS_WSL requires WslDistribution and WslProjectRoot.'};[pscustomobject]@{kind='WINDOWS_WSL';distribution=$WslDistribution;project_root=$WslProjectRoot;codex_path=$CodexPath}}
+Invoke-AidosStartupReconciliation $ProjectRoot|Out-Null;Invoke-AidosCodexExecution $ProjectRoot $ExecutionPath $runtime $Prompt -Resume:$Resume
