@@ -89,7 +89,7 @@ function Invoke-AidosPreparationResume {
                     $applyResult=[pscustomobject]@{processor=$processor;item_key=[string]$binding.target.item_key;selected_option_id=$selected}
                 }
                 'BASELINE_ACCEPTANCE' {
-                    if(-[bool]$value){
+                    if(-not [bool]$value){
                         $reopened=$true
                         $applyResult=[pscustomobject]@{processor=$processor;accepted=$false;selected_option_id=$selected}
                     }else{
