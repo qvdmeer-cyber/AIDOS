@@ -13,13 +13,19 @@ When human input is required, persist a request containing at least:
 - `project_id` and optional `workstream_id`;
 - concise context/evidence summary;
 - one concrete decision/question;
-- allowed options where useful;
+- the **actual material option space** where relevant, not an artificial A/B pair;
 - exact Definition/execution/revision/review binding where applicable;
 - request type/reason;
 - current safe waiting state;
 - actor role to resume after resolution;
 - status `WAITING` / `RESOLVED` / terminal replacement status;
 - human response and response event/evidence.
+
+For Definition/Baseline-style decision escalation, additionally preserve where relevant:
+
+- authority classification;
+- Decision Assessment reference;
+- explicit Auto Define stop reason (low confidence, material impact, equivalent alternatives, insufficient evidence, outside authority, irreversibility, etc.).
 
 Recommended project-local location:
 
@@ -43,6 +49,22 @@ actor reaches genuine boundary
 
 This permits a mobile client, replacement GPT chat, CLI or future Interface to resolve the same request without changing workflow semantics.
 
+## Auto Define boundary
+
+Definition Thinkers must attempt valid system/repository/Auto Define resolution **before** publishing a Human Input Request.
+
+A Human Input Request is appropriate when:
+
+- authority is `HUMAN_REQUIRED`;
+- an `AUTO_DECIDABLE` assessment fails the autonomy policy;
+- confidence is `LOW`;
+- a choice is irreversible or materially impactful;
+- material evidence is missing;
+- multiple materially equivalent project alternatives remain;
+- authority itself is unclear/conflicted.
+
+After the human response is resolved, AIDOS reactivates the appropriate Thinker from durable state. For Definition work, the Thinker immediately reruns Auto Define over **all remaining unresolved concerns** before asking another question.
+
 ## Typical reasons
 
 Human Input Requests include product/Definition decisions, authority expansion, risk acceptance, recovery choice, discovery authority grants, release decisions and material clarification that objective evidence cannot resolve.
@@ -59,7 +81,7 @@ The currently proven top-level runtime uses `WAITING_USER`. Human Input Request 
 
 ## Mobile/session continuity
 
-Canonical project/workstream/request state, not device-local chat history, is the basis for resuming. A new or rotated GPT session reads the same unresolved request and bound Definition/execution state.
+Canonical project/workstream/request/decision state, not device-local chat history, is the basis for resuming. A new or rotated GPT session reads the same unresolved request and bound Definition/execution state.
 
 ## Supervised runner
 
