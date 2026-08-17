@@ -1,30 +1,66 @@
-# Human interruption protocol
+# Human input / interruption protocol
 
 ## Purpose
 
-AIDOS should allow development to run independently while making genuine human decisions manageable from a normal ChatGPT conversation, including mobile use.
+AIDOS should run independently while routing genuine human decisions through durable, channel-independent state.
 
-## Interruption payload
+Human input is not owned by a particular GPT chat. The canonical artifact is a **Human Input Request** conforming to `schemas/human-input-request.schema.json`.
 
-When human input is required, persist a compact interruption record in project state containing:
+## Human Input Request
 
-- project/goal/execution/Definition binding;
-- interruption type;
-- exact evidence that caused it;
-- decision required;
-- current safe paused state;
-- Definition question reference when applicable.
+When human input is required, persist a request containing at least:
 
-The human-facing Conversation Agent should not require reading a long Worker/Codex transcript.
+- `project_id` and optional `workstream_id`;
+- concise context/evidence summary;
+- one concrete decision/question;
+- allowed options where useful;
+- exact Definition/execution/revision/review binding where applicable;
+- request type/reason;
+- current safe waiting state;
+- actor role to resume after resolution;
+- status `WAITING` / `RESOLVED` / terminal replacement status;
+- human response and response event/evidence.
+
+Recommended project-local location:
+
+```text
+.aidos/human-input/<request_id>.json
+```
+
+## Control flow
+
+Actors publish the request; they do not own the resume action.
+
+```text
+actor reaches genuine boundary
+→ durable Human Input Request WAITING
+→ AIDOS exposes request through available channel
+→ human responds
+→ AIDOS validates identity/binding/response
+→ request RESOLVED + event
+→ AIDOS determines next valid actor
+```
+
+This permits a mobile client, replacement GPT chat, CLI or future Interface to resolve the same request without changing workflow semantics.
+
+## Typical reasons
+
+Human Input Requests include product/Definition decisions, authority expansion, risk acceptance, recovery choice, discovery authority grants, release decisions and material clarification that objective evidence cannot resolve.
+
+Ordinary technical repair is not a human-input reason while safe bounded technical autonomy remains.
 
 ## Product contradiction
 
-For a Definition contradiction, the Conversation Agent presents the contradiction and asks one decision question at a time. On acceptance of a revised Definition, Worker may create a new/revised execution.
+For a Definition contradiction, persist the request against the exact Definition lineage. The Definition/Thinker role may formulate the decision, but AIDOS resumes only after the response is durably validated and any revised Definition is accepted.
 
-## Mobile continuity
+## Waiting state
 
-Canonical project state, not device-local chat history, is the basis for resuming. A mobile Conversation chat must be able to reason from the same accepted/open Definition state as desktop.
+The currently proven top-level runtime uses `WAITING_USER`. Human Input Request `WAITING` is the first-class reason/binding behind that wait. A future state-model version may expose a more explicit `WAITING_HUMAN_INPUT` projection, but existing runtime semantics are not renamed prematurely.
+
+## Mobile/session continuity
+
+Canonical project/workstream/request state, not device-local chat history, is the basis for resuming. A new or rotated GPT session reads the same unresolved request and bound Definition/execution state.
 
 ## Supervised runner
 
-If the runner is locked under `SUPERVISED` policy, it may finish an already-running bounded Codex execution but must not automatically start the next interactive GPT cycle. The pending interruption/review remains durable until the session is resumed/unlocked according to runner policy.
+If the runner is locked under `SUPERVISED`, an already-running bounded Codex execution may finish safely, but the next interactive actor must not start. Pending review/Human Input Request remains durable until policy permits activation.
