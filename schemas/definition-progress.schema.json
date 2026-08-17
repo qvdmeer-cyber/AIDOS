@@ -12,23 +12,22 @@
     "definition_id": {"type":"string","minLength":1},
     "definition_version": {"type":"integer","minimum":1},
     "status": {"type":"string","enum":["IN_PROGRESS","READY_FOR_REVIEW","ACCEPTED","REOPENED"]},
-    "surfaces": {
-      "type":"array",
-      "minItems":13,
-      "maxItems":13,
-      "items": {"$ref":"#/$defs/surface"}
-    },
+    "surfaces": {"type":"array","minItems":13,"maxItems":13,"items":{"$ref":"#/$defs/surface"}},
     "complete_count": {"type":"integer","minimum":0,"maximum":13},
     "incomplete_count": {"type":"integer","minimum":0,"maximum":13},
     "next_surface": {"type":["string","null"]},
+    "last_decision_id": {"type":["string","null"]},
+    "last_decision_kind": {"type":["string","null"],"enum":["HUMAN","AUTO","SYSTEM","REPO_VERIFIED",null]},
+    "last_decision_at": {"type":["string","null"],"format":"date-time"},
     "last_human_decision_id": {"type":["string","null"]},
     "last_human_decision_at": {"type":["string","null"],"format":"date-time"},
+    "last_auto_decision_id": {"type":["string","null"]},
+    "last_auto_decision_at": {"type":["string","null"],"format":"date-time"},
     "updated_at": {"type":"string","format":"date-time"}
   },
   "$defs": {
     "surface": {
-      "type":"object",
-      "additionalProperties": false,
+      "type":"object","additionalProperties": false,
       "required":["surface_id","status","summary","decision_refs","source_refs","open_question_count","updated_at"],
       "properties": {
         "surface_id":{"type":"string","minLength":1},
