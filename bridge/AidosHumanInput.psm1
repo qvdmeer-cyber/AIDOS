@@ -131,4 +131,42 @@ function Submit-AidosHumanInputResponse {
     }
 }
 
-Export-ModuleMember -Function Get-AidosHumanInputProjectId,Get-AidosHumanInputRequestPath,Get-AidosHumanInputResumePath,Submit-AidosHumanInputResponse
+function Submit-AidosHumanInputControlIntent {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$RequestedBy,
+        [Parameter(Mandatory)][hashtable]$Payload,
+        [string]$WorkstreamId
+    )
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $projectId=Get-AidosHumanInputProjectId $root
+    $requestId=[string]$Payload.request_id
+    if([string]::IsNullOrWhiteSpace($requestId)){throw 'SUBMIT_HUMAN_INPUT payload requires request_id.'}
+    $selectedOptionId=[string]$Payload.selected_option_id
+    $text=[string]$Payload.text
+    $controlId=[guid]::NewGuid().ToString()
+    $now=[DateTimeOffset]::UtcNow.ToString('o')
+    $intent=[ordered]@{
+        schema_version='0.1';control_id=$controlId;command='SUBMIT_HUMAN_INPUT';project_id=$projectId;
+        workstream_id=if([string]::IsNullOrWhiteSpace($WorkstreamId)){$null}else{$WorkstreamId};requested_by=$RequestedBy;
+        status='RECEIVED';payload=$Payload;submitted_at=$now;applied_at=$null;result=$null
+    }
+    $intentRoot=Join-Path $root '.aidos/control/intents'
+    if(-not(Test-Path -LiteralPath $intentRoot -PathType Container)){New-Item -ItemType Directory -Path $intentRoot -Force|Out-Null}
+    $intentPath=Join-Path $intentRoot ($controlId+'.json')
+    Write-AidosJsonAtomic $intentPath $intent
+    try{
+        $intent.status='ACCEPTED';Write-AidosJsonAtomic $intentPath $intent
+        $result=Submit-AidosHumanInputResponse -ProjectRoot $root -RequestId $requestId -RespondedBy $RequestedBy -SelectedOptionId $selectedOptionId -Text $text
+        $intent.result=[ordered]@{human_input=$result}
+        $intent.status='APPLIED'
+    }catch{
+        $intent.status='REJECTED';$intent.result=[ordered]@{reason=$_.Exception.Message}
+    }
+    $intent.applied_at=[DateTimeOffset]::UtcNow.ToString('o')
+    Write-AidosJsonAtomic $intentPath $intent
+    [pscustomobject][ordered]@{intent=[pscustomobject]$intent;path=[IO.Path]::GetRelativePath($root,$intentPath).Replace('\','/')}
+}
+
+Export-ModuleMember -Function Get-AidosHumanInputProjectId,Get-AidosHumanInputRequestPath,Get-AidosHumanInputResumePath,Submit-AidosHumanInputResponse,Submit-AidosHumanInputControlIntent
