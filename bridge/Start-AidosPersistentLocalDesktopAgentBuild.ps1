@@ -21,15 +21,5 @@ $wslLauncher="$WslRepoRoot/bridge/Start-AidosPersistentLocalDesktopAgentBuild.sh
 Write-Host "Starting Codex implementation from $assignmentName in $WslRepoRoot"
 Write-Host 'Codex owns repository implementation work; it must stop at any explicit human/security bootstrap gate.'
 
-$previousCodexPath=$env:AIDOS_CODEX_PATH
-try {
-    $env:AIDOS_CODEX_PATH=$CodexPath
-    & wsl.exe -d $WslDistribution -- bash $wslLauncher
-    if($LASTEXITCODE -ne 0){ throw "Codex build bootstrap exited with code $LASTEXITCODE." }
-} finally {
-    if($null -eq $previousCodexPath){
-        Remove-Item Env:AIDOS_CODEX_PATH -ErrorAction SilentlyContinue
-    } else {
-        $env:AIDOS_CODEX_PATH=$previousCodexPath
-    }
-}
+& wsl.exe -d $WslDistribution -- env "AIDOS_CODEX_PATH=$CodexPath" bash $wslLauncher
+if($LASTEXITCODE -ne 0){ throw "Codex build bootstrap exited with code $LASTEXITCODE." }
