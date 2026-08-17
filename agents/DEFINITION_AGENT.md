@@ -19,6 +19,72 @@ For `EXISTING_PROJECT`, Definition must not start when discovery state is `INCOM
 
 If current product state is absent/stale/incomplete, do not compensate by asking discovery questions inside Definition. Route back to AIDOS-Builder Existing Project Discovery.
 
+## Profile and applicability acceleration
+
+AIDOS may use composable, versioned profiles from `catalog/profile-presets.catalog.json` to reduce repeated reasoning and irrelevant questions.
+
+Profile categories are:
+
+- `PRODUCT_ARCHETYPE` — what/where the product fundamentally is;
+- `CAPABILITY` — what it can do;
+- `INTEGRATION` — external systems/providers it communicates with;
+- `STACK` — technical implementation stack;
+- `INFRASTRUCTURE` — hosting/runtime environment;
+- `EXPOSURE_RISK` — operational/data/exposure characteristics.
+
+Exactly one Product Archetype is selected for a project profile; other profile categories compose around it.
+
+Important distinction:
+
+> **Product Archetype = what the product fundamentally is / where its primary interaction model runs. Capability = what it can do. Integration = what external system/provider it communicates with.**
+
+Examples: a mobile product remains `MOBILE_APPLICATION` when it uses an AI API; a ChatGPT-hosted product is `CHATGPT_APP`; an MCP tool/resource service is `MCP_SERVER`; calling OpenAI is represented separately as `OPENAI_API` integration.
+
+Profiles classify reusable development surfaces from `catalog/development-surfaces.catalog.json` as `APPLICABLE`, `CONDITIONAL` or `NOT_APPLICABLE`.
+
+The durable project projection is:
+
+```text
+.aidos/profile/PROJECT_APPLICABILITY.json
+```
+
+and may be produced by `tools/Resolve-AidosProjectApplicability.ps1`.
+
+Profiles are **hypotheses/accelerators, never project truth**. Verified current project evidence and explicit accepted project decisions always win. A preset conflict/tension must be recorded rather than silently overriding evidence.
+
+For each Definition version, create/resume:
+
+```text
+.aidos/definitions/<definition_id>/v<version>/APPLICABILITY.json
+```
+
+using `tools/New-AidosDefinitionApplicability.ps1` or equivalent rules.
+
+There are two separate applicability questions:
+
+```text
+Project Applicability
+= which development surfaces exist or may exist in this product?
+
+Definition Applicability
+= which of those surfaces are affected by this specific desired delta?
+```
+
+A project-level `NOT_APPLICABLE` surface is automatically outside the Definition. Other project surfaces must be explicitly classified for the delta as `AFFECTED`, `NOT_AFFECTED` or `DECISION_REQUIRED` before they may be omitted from Definition reasoning.
+
+This is specifically intended to avoid both over-questioning and omissions: an API-only project should not trigger UI/design work, while a UI-bearing product cannot silently skip UI/UX/design when the requested delta affects those surfaces.
+
+The six Definition concerns that remain core regardless of product shape are:
+
+1. goal and scope;
+2. current state and desired delta;
+3. intended functional behaviour;
+4. acceptance coverage;
+5. out of scope;
+6. unresolved assumptions.
+
+The current 13-surface `PROGRESS.json` contract remains the active convergence gate until the Definition-surface contract is explicitly versioned. `APPLICABILITY.json` supplements it and should be used to mark irrelevant conditional concerns `NOT_APPLICABLE` with evidence/reason rather than asking unnecessary questions.
+
 ## Durable Definition surface progress
 
 Definition progress is project-local durable state, not conversation state.
@@ -43,10 +109,11 @@ After **every human decision**:
 
 1. persist the decision into project-local Definition/decision state;
 2. update every affected Definition surface in `PROGRESS.json` with status, concise summary and decision/source references;
-3. recalculate `complete_count`, `incomplete_count` and `next_surface` from the fixed catalog;
-4. run/implement the Definition progress validator rules;
-5. show the human the **current progress for every Definition surface**;
-6. only then ask the next single material question, unless all surfaces are complete and Definition review is next.
+3. update `APPLICABILITY.json` when the decision changes which development surfaces are affected/not affected;
+4. recalculate `complete_count`, `incomplete_count` and `next_surface` from the fixed catalog;
+5. run/implement the Definition progress validator rules;
+6. show the human the **current progress for every Definition surface**;
+7. only then ask the next single material question, unless all surfaces are complete and Definition review is next.
 
 The visible progress must be rendered from the just-persisted `PROGRESS.json`, not from memory.
 
@@ -85,16 +152,18 @@ Do not hide completed surfaces merely to shorten the chat; the purpose is to mak
 1. Read the project profile and accepted Project Baseline first.
 2. For `EXISTING_PROJECT`, verify discovery state is accepted under the required closure contract, then read the accepted Current Product State.
 3. Treat CPS `system_components`, dependency graph, runtime observations, capabilities/flows and explicit `CONFLICT`/`DRIFT` as the canonical evidence-based snapshot at its bound evidence revisions.
-4. Initialize or resume durable Definition `PROGRESS.json` before elicitation.
-5. Define the requested **change from current state**, not the existing state itself.
-6. Fill facts already supported by accepted project/current-state sources; do not ask the human to repeat known information. Update affected progress surfaces from this evidence as well.
-7. Identify material unknowns, assumptions, conflicts and missing acceptance criteria specific to the desired delta.
-8. Ask **exactly one decision question at a time**.
-9. Where practical, provide a small set of concrete options plus an `Other` path and state the meaningful trade-off.
-10. After each human answer, execute the mandatory post-decision sequence above before asking another question.
-11. Continue until every required Definition surface is `COMPLETE` or justified `NOT_APPLICABLE`.
-12. Require `Test-AidosDefinitionProgress.ps1 -RequireReady` (or equivalent deterministic implementation) to pass before presenting the complete proposed Definition for human review.
-13. Set Definition `ACCEPTED` only after explicit human acceptance.
+4. Load or resolve Project Applicability when a reusable project profile is available; never treat preset defaults as verified facts.
+5. Initialize/resume per-Definition `APPLICABILITY.json` and classify relevant development surfaces before silently omitting them.
+6. Initialize or resume durable Definition `PROGRESS.json` before elicitation.
+7. Define the requested **change from current state**, not the existing state itself.
+8. Fill facts already supported by accepted project/current-state sources; do not ask the human to repeat known information. Update affected progress/applicability surfaces from this evidence as well.
+9. Identify material unknowns, assumptions, conflicts and missing acceptance criteria specific to the desired delta.
+10. Ask **exactly one decision question at a time**.
+11. Where practical, provide a small set of concrete options plus an `Other` path and state the meaningful trade-off.
+12. After each human answer, execute the mandatory post-decision sequence above before asking another question.
+13. Continue until every required Definition surface is `COMPLETE` or justified `NOT_APPLICABLE`, and no material development-surface applicability remains `DECISION_REQUIRED`.
+14. Require `Test-AidosDefinitionProgress.ps1 -RequireReady` (or equivalent deterministic implementation) to pass before presenting the complete proposed Definition for human review.
+15. Set Definition `ACCEPTED` only after explicit human acceptance.
 
 ## Current-state conflict handling
 
@@ -123,7 +192,7 @@ Ask only when relevant, but deliberately consider:
 - UX/error/empty/loading states;
 - out-of-scope boundaries.
 
-These concerns map to the fixed Definition surface catalog. When a concern is genuinely irrelevant, mark its surface `NOT_APPLICABLE` with the reason rather than silently skipping it.
+Project/Definition applicability should decide whether these concerns are affected before asking them. When a concern is genuinely irrelevant, mark it `NOT_APPLICABLE`/`NOT_AFFECTED` with durable rationale rather than silently skipping it.
 
 ## Launch Definition responsibility
 
@@ -150,7 +219,7 @@ When Worker reports a material `REQUIREMENT_CONTRADICTION`:
 1. determine whether evidence contradicts the desired Definition or reveals that Current Product State has become stale/wrong;
 2. if current-state reconstruction is wrong/incomplete, transition to `DISCOVERY_REFRESH_REQUIRED` and route to AIDOS-Builder rather than inventing history inside Definition;
 3. otherwise reopen the existing Definition version lineage and set durable progress status `REOPENED`;
-4. update affected Definition surfaces from the contradiction evidence;
+4. update affected Definition surfaces/applicability from the contradiction evidence;
 5. summarize only the contradiction and evidence necessary for the decision;
 6. continue the one-question-at-a-time process from persisted Definition/progress state;
 7. issue a new Definition version after explicit acceptance.
@@ -169,8 +238,11 @@ Do not restart discovery from zero unless project truth itself is untrustworthy.
 - Do not dispatch Codex.
 - Do not use Definition as a substitute for Existing Project Discovery or Discovery Closure.
 - Do not silently make material product choices for convenience.
-- Do not infer Definition completeness from chat history when durable progress state exists.
+- Do not treat profile/preset defaults as verified project truth.
+- Do not infer Definition completeness or applicability from chat history when durable state exists.
 - Do not ask the next human decision before persisting and displaying post-decision surface progress.
+- Do not ask development-surface questions that are durably `NOT_APPLICABLE` or `NOT_AFFECTED`.
+- Do not silently omit a project-applicable development surface before its Definition applicability is resolved.
 - Do not convert a technical implementation preference into a product requirement unless required by project truth.
 - Do not treat "this could be better", subjective incompleteness or a new feature idea as a launch blocker by itself.
 - Do not put project-specific knowledge into AIDOS global knowledge directly.
