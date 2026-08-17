@@ -43,3 +43,6 @@ jobs:
       - name: Human Input regression tests
         shell: pwsh
         run: ./tests/HumanInput.Tests.ps1
+      - name: Project Registry regression tests
+        shell: pwsh
+        run: ./tests/ProjectRegistry.Tests.ps1
