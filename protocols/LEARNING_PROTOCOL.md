@@ -14,7 +14,44 @@ AIDOS distinguishes:
 
 `schemas/system-insight.schema.json` represents this distinction.
 
-A statistically recurring pattern may create an `OBSERVATION`; it must not silently mutate orchestration or development policy.
+A statistically recurring pattern may create an `OBSERVATION`; it must not silently mutate orchestration, decision authority or development policy.
+
+## Auto Define learning
+
+Auto Define produces useful evidence about where autonomous Definition/Baseline reasoning is reliable. Record/aggregate where available:
+
+- decision authority class;
+- confidence/reversibility/impact profile;
+- Auto Decision count;
+- later revision/supersession;
+- human overrides and reasons;
+- decision classes that remain stable;
+- decision classes that often require later human intervention;
+- Definition gaps exposed after autonomous closure.
+
+Example maturity chain:
+
+```text
+Observation:
+AUTO_DECIDABLE recovery-policy decisions with HIGH confidence were stable in 47/48 cases.
+
+→ Hypothesis:
+This class may be a good candidate for a more specific reusable profile/default.
+
+→ explicit review/adoption
+
+→ Adopted improvement:
+versioned profile/validator/policy change
+```
+
+Forbidden shortcut:
+
+```text
+low override rate
+→ automatically lower human-gate threshold
+```
+
+Auto Define statistics never automatically expand authority, permit material impacts, change reversibility requirements or downgrade `HUMAN_REQUIRED` categories.
 
 ## Existing knowledge promotion ladder
 
@@ -30,55 +67,29 @@ The existing `learning-candidate.schema.json` remains the promotion artifact for
 
 ## Adoption gate
 
-A rule/profile/protocol change becomes an `ADOPTED_IMPROVEMENT` only when:
+A rule/profile/protocol/decision-policy change becomes an `ADOPTED_IMPROVEMENT` only when:
 
 - the relevant observation/hypothesis and evidence are reviewable;
 - scope and potential regressions are considered;
+- human-authority consequences are explicitly considered for decision-governance changes;
 - the change is intentionally accepted through AIDOS governance;
 - the exact resulting code/contract/profile change is referenced.
 
-This preserves a clear difference between **what AIDOS noticed** and **what AIDOS chose to change**.
+This preserves a clear difference between what AIDOS noticed and what AIDOS chose to change.
 
 ## Provenance
 
-Every promoted learning records where applicable:
-
-- stable ID;
-- problem/profile/capability/goal classification;
-- generalized statement;
-- source project/workstream/execution(s);
-- evidence references/hashes;
-- validation method;
-- confidence/status;
-- first-seen and last-validated version/date;
-- supersedes/deprecated relationships;
-- adopted change reference when promoted into system behaviour.
+Every promoted learning records where applicable stable ID, classification, generalized statement, source project/workstream/execution/Definition decisions, evidence refs/hashes, validation method, confidence/status, dates/version and supersession/adoption references.
 
 ## Portfolio evidence
 
-Learning may use cross-project/workstream telemetry such as:
-
-- repair frequency and first-pass acceptance;
-- blocker/recovery classes;
-- human intervention reasons;
-- Definition gaps exposed during execution;
-- queue/agent/human wait time;
-- progress/ETA estimation error;
-- profile/preset overrides and contradictions;
-- repeated shared-resource/integration bottlenecks.
+Learning may use cross-project/workstream telemetry such as repair frequency, first-pass acceptance, blocker/recovery classes, human intervention reasons, Definition gaps, Auto Decision stability/override rates, wait time, estimation error, profile overrides and shared-resource/integration bottlenecks.
 
 The maturity question is not simply "is human input decreasing?". AIDOS should track **what human attention is still required for** and whether it shifts from operational/technical intervention toward genuine product, risk and strategic decisions.
 
 ## Goal-scoped retrieval
 
-AIDOS knowledge is not globally injected into every execution. Worker/Thinker selects the minimum relevant set by:
-
-```text
-core
-+ applicable profiles/capabilities
-+ development goal/pattern
-+ workstream context
-```
+AIDOS knowledge is not globally injected into every execution. Worker/Thinker selects the minimum relevant set by core + applicable profiles/capabilities + development goal/pattern + workstream context.
 
 ## Preference for executable knowledge
 
