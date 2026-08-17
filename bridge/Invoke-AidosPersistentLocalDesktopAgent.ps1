@@ -52,11 +52,12 @@ try {
         '-StateRoot',([string]$config.state_root),
         '-PollSeconds',([string][int]$config.poll_seconds)
     )
-    $process=Start-Process -FilePath $engine -ArgumentList $arguments -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -Wait -PassThru -WindowStyle Hidden
-    if($process.ExitCode -ne 0){
+    & $engine @arguments 1> $stdoutPath 2> $stderrPath
+    $exitCode=$LASTEXITCODE
+    if($exitCode -ne 0){
         $stderr=if(Test-Path -LiteralPath $stderrPath){Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue}else{$null}
         $stdout=if(Test-Path -LiteralPath $stdoutPath){Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue}else{$null}
-        $detail=@("Agent child PowerShell exited with code $($process.ExitCode).")
+        $detail=@("Agent child PowerShell exited with code $exitCode.")
         if(-not [string]::IsNullOrWhiteSpace([string]$stderr)){$detail += "STDERR:`n$stderr"}
         if(-not [string]::IsNullOrWhiteSpace([string]$stdout)){$detail += "STDOUT:`n$stdout"}
         throw ($detail -join "`n")
