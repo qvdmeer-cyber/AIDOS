@@ -18,6 +18,7 @@ $humanInput = Read-Json 'schemas/human-input-request.schema.json'
 $control = Read-Json 'schemas/control-intent.schema.json'
 $progress = Read-Json 'schemas/progress-estimate.schema.json'
 $insight = Read-Json 'schemas/system-insight.schema.json'
+$autoDefine = Read-Json 'schemas/auto-define-evaluation.schema.json'
 $statusProjection = Read-Json 'schemas/runtime-status.schema.json'
 $event = Read-Json 'schemas/event.schema.json'
 
@@ -29,11 +30,17 @@ foreach ($command in @('RUN','PAUSE','RESUME','SAFE_STOP','QUERY_STATUS','SUBMIT
     Assert-CoreContract (@($control.properties.command.enum) -contains $command) "control intent missing $command"
 }
 
+Assert-CoreContract ($humanInput.properties.contract_version.const -eq '0.1.0') 'Core Human Input mirror must use shared Contracts 0.1.0 envelope'
 foreach ($status in @('WAITING','RESOLVED')) {
     Assert-CoreContract (@($humanInput.properties.status.enum) -contains $status) "Human Input Request missing status $status"
 }
+foreach ($phase in @('PROJECT_BASELINE','DEFINITION','EXECUTION','REVIEW','RELEASE')) {
+    Assert-CoreContract (@($humanInput.properties.phase.enum) -contains $phase) "Human Input Request missing phase $phase"
+}
+Assert-CoreContract ($humanInput.properties.binding.properties.baseline_version -ne $null) 'Human Input Request must support Baseline binding'
 Assert-CoreContract ($humanInput.properties.binding.properties.execution_id -ne $null) 'Human Input Request must support execution binding'
 Assert-CoreContract ($humanInput.properties.workstream_id -ne $null) 'Human Input Request must support workstream binding'
+Assert-CoreContract ($humanInput.properties.auto_define_stop_reason -ne $null) 'Human Input Request must expose Auto Define stop reason'
 
 foreach ($confidence in @('HIGH','MEDIUM','LOW','NOT_RELIABLY_ESTIMABLE')) {
     Assert-CoreContract (@($progress.properties.eta.properties.confidence.enum) -contains $confidence) "progress estimate missing confidence $confidence"
@@ -43,6 +50,10 @@ Assert-CoreContract ($progress.properties.outcome -ne $null) 'progress estimate 
 foreach ($kind in @('OBSERVATION','HYPOTHESIS','ADOPTED_IMPROVEMENT')) {
     Assert-CoreContract (@($insight.properties.kind.enum) -contains $kind) "system insight missing $kind"
 }
+
+Assert-CoreContract ($autoDefine.properties.authority_counts -ne $null) 'Auto Define evaluation must expose authority counts'
+Assert-CoreContract ($autoDefine.properties.auto_decisions.properties.confidence_low.maximum -eq 0) 'Auto Define telemetry must encode zero valid LOW-confidence Auto Decisions'
+Assert-CoreContract ($autoDefine.properties.revisions.properties.human_overrides -ne $null) 'Auto Define evaluation must expose human overrides'
 
 Assert-CoreContract ($statusProjection.properties.projects -ne $null) 'runtime status projection must expose projects'
 Assert-CoreContract ($statusProjection.'$defs'.projectStatus.properties.workstreams -ne $null) 'runtime status projection must expose workstreams'
