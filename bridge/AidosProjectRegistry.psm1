@@ -88,6 +88,19 @@ function Test-AidosRegistryProjectBinding {
     [pscustomobject]@{project_id=[string]$Project.project_id;root=$root;repository=[string]$Project.repository;valid=$true}
 }
 
+function Sync-AidosRegisteredPreparationProject {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project)
+    Test-AidosRegistryProjectBinding $Project|Out-Null
+    $status=Invoke-AidosRegisteredGit $Project @('status','--porcelain=v1')
+    if($status.ExitCode-ne0){throw 'Unable to inspect registered project before synchronization.'}
+    if(@($status.Output|Where-Object {-not[string]::IsNullOrWhiteSpace([string]$_)}).Count -gt 0){throw 'Preparation project synchronization requires a clean worktree.'}
+    $pull=Invoke-AidosRegisteredGit $Project @('pull','--ff-only')
+    if($pull.ExitCode-ne0){throw "Preparation project fast-forward synchronization failed: $($pull.Output -join '; ')"}
+    $head=Invoke-AidosRegisteredGit $Project @('rev-parse','HEAD')
+    [pscustomobject]@{status='SYNCED';project_id=[string]$Project.project_id;head=if($head.ExitCode-eq0-and$head.Output.Count){[string]$head.Output[0]}else{$null};output=@($pull.Output)}
+}
+
 function Test-AidosAllowedPersistencePath {
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)][string]$Path)
     $normalized=$Path.Replace('\\','/').TrimStart('./')
@@ -137,4 +150,4 @@ function Set-AidosPreparationProjectPhase {
     $record
 }
 
-Export-ModuleMember -Function ConvertTo-AidosRegistryRepositoryIdentity,Get-AidosRegistryProjectPath,Register-AidosPreparationProject,Get-AidosRegisteredProject,Get-AidosRegisteredGitCommand,Invoke-AidosRegisteredGit,Test-AidosRegistryProjectBinding,Test-AidosAllowedPersistencePath,Invoke-AidosPreparationGitPersistence,Set-AidosPreparationProjectPhase
+Export-ModuleMember -Function ConvertTo-AidosRegistryRepositoryIdentity,Get-AidosRegistryProjectPath,Register-AidosPreparationProject,Get-AidosRegisteredProject,Get-AidosRegisteredGitCommand,Invoke-AidosRegisteredGit,Test-AidosRegistryProjectBinding,Sync-AidosRegisteredPreparationProject,Test-AidosAllowedPersistencePath,Invoke-AidosPreparationGitPersistence,Set-AidosPreparationProjectPhase
