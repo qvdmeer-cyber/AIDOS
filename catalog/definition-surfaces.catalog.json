@@ -1,0 +1,20 @@
+{
+  "catalog_version": "0.1.0",
+  "complete_statuses": ["COMPLETE", "NOT_APPLICABLE"],
+  "incomplete_statuses": ["INCOMPLETE", "DECISION_REQUIRED", "BLOCKED"],
+  "surfaces": [
+    {"id":"goal_scope","label":"Goal and scope","required":true,"description":"Problem/goal, intended outcome and development boundary are explicit."},
+    {"id":"current_state_delta","label":"Current state and desired delta","required":true,"description":"Relevant current state is bound and the intended change from it is explicit."},
+    {"id":"functional_behavior","label":"Functional behaviour","required":true,"description":"Foreseeable changed/new user-visible and system behaviour is specified."},
+    {"id":"actors_permissions","label":"Actors and permissions","required":true,"description":"Relevant actors, roles, permissions and authority effects are explicit or not applicable."},
+    {"id":"main_flows","label":"Main flows","required":true,"description":"Primary changed/new user and system flows are defined."},
+    {"id":"edge_error_states","label":"Edge and error states","required":true,"description":"Material edge, error, empty and loading states are defined or explicitly not applicable."},
+    {"id":"data_lifecycle","label":"Data and lifecycle","required":true,"description":"Material data creation, mutation, migration, retention and deletion effects are defined or not applicable."},
+    {"id":"security_privacy","label":"Security and privacy","required":true,"description":"Material security/privacy implications and constraints are resolved or explicitly not applicable."},
+    {"id":"compatibility_performance_runtime","label":"Compatibility, performance and runtime","required":true,"description":"Material compatibility, performance, environment and runtime constraints are resolved or not applicable."},
+    {"id":"observability_recovery","label":"Observability and recovery","required":true,"description":"Required diagnostics, monitoring, rollback and recovery behaviour are defined or not applicable."},
+    {"id":"acceptance_coverage","label":"Acceptance coverage","required":true,"description":"Requested behaviour has falsifiable acceptance checks and no material acceptance gap remains."},
+    {"id":"out_of_scope","label":"Out of scope","required":true,"description":"Relevant exclusions and non-goals are explicit."},
+    {"id":"unresolved_assumptions","label":"Unresolved assumptions","required":true,"description":"No material unresolved assumption remains; non-material residual assumptions are explicit."}
+  ]
+}
