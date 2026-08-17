@@ -70,3 +70,6 @@ jobs:
       - name: Runtime Project Manager regression tests
         shell: pwsh
         run: ./tests/RuntimeProjectManager.Tests.ps1
+      - name: Runtime Actor Assignment regression tests
+        shell: pwsh
+        run: ./tests/RuntimeActorAssignments.Tests.ps1
