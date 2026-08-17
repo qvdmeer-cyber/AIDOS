@@ -1,11 +1,11 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosPreparationRuntime.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosPreparationOnboarding.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosPreparationRuntime.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosPreparationOnboarding.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -DisableNameChecking
 
 function Get-AidosPreparationRegistryProjects {
     [CmdletBinding()]
