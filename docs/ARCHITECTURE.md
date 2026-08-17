@@ -2,7 +2,18 @@
 
 ## Purpose
 
-AIDOS is the private orchestration, governance and learning layer around existing AI runtimes. Project preparation is deliberately separated from private Definition/Execution orchestration.
+AIDOS is the private orchestration, governance and learning layer around existing AI runtimes. There is conceptually **one Artificial Intelligence Development Operating System** managing multiple isolated development projects.
+
+```text
+AIDOS
+├─ Project A
+├─ Project B
+└─ Project C
+```
+
+A project is an isolated development instance managed by AIDOS; it does not have its own independent AIDOS. GPT/Codex sessions are temporary actors inside those instances and are never project state or source of truth.
+
+Project preparation remains deliberately separated from private Definition/Execution orchestration:
 
 ```text
 AIDOS-Contracts
@@ -12,27 +23,15 @@ AIDOS-Builder
   → Evidence Inventory / Project Baseline / Current Product State implementation
 
 Project repository
-  → accepted project truth + evidence + current product snapshot
+  → accepted project truth + evidence + durable project/workstream state
 
-AIDOS
-  → private goal definition, orchestration, execution, review and learning
+AIDOS Core/Runtime
+  → portfolio/project/workstream orchestration, Definition, execution, review, controls, learning
 ```
 
 ## Preparation architecture
 
-The first source inventory is shared across preparation:
-
-```text
-Evidence Inventory
-        │
-        ├─ Project Baseline mapping
-        │
-        └─ Existing Project Discovery enrichment
-             ├─ linked first-party source evidence
-             └─ runtime observation evidence
-```
-
-Project mode then determines the gate:
+The current preparation lifecycle remains:
 
 ```text
 NEW_PROJECT
@@ -47,194 +46,218 @@ Accepted Project Baseline
 → Definition
 ```
 
-### Product boundary
+Lifecycle ordering/promotion semantics may be versioned separately; the workstream/control-plane architecture in this document does not silently change that existing preparation contract.
 
-For an existing product, the primary repository is the **discovery root**, not the assumed system boundary.
-
-AIDOS-Builder builds an evidence-backed component graph:
-
-```text
-primary component
-→ dependency
-   ├─ FIRST_PARTY_MATERIAL → recursively discover component
-   ├─ THIRD_PARTY_EXTERNAL → interface + relevant observable behaviour
-   ├─ INFRASTRUCTURE       → infrastructure relationship/constraints
-   └─ NON_MATERIAL         → explicit stop reason
-```
-
-Every `FIRST_PARTY` + `MATERIAL` component participates in closure and must have complete per-surface discovery coverage.
-
-Core invariant:
-
-> **Existing Project Discovery is complete only when AIDOS has closed the material product graph: all materially relevant first-party components and all reasonably observable runtime surfaces have either been discovered or are explicitly unresolved blockers.**
-
-Because an explicit unresolved blocker means the graph is not closed, Current Product State acceptance remains blocked until it is resolved.
+For an existing product, the primary repository is the discovery root, not the assumed system boundary. AIDOS-Builder recursively follows `FIRST_PARTY_MATERIAL` dependencies and reasonably observable runtime until deterministic Discovery Closure passes.
 
 ## Authority architecture
 
-Three concerns remain separate:
+Project/source authority, Discovery Authority and Execution Authority remain separate.
 
-### Project/source authority
+- `PROJECT_ACCESS.json` describes project/source boundaries.
+- `DISCOVERY_AUTHORITY.json` governs read/runtime evidence collection.
+- AIDOS Execution envelopes govern mutation/deployment authority for a bounded accepted goal.
 
-`PROJECT_ACCESS.json` describes the primary build repository and explicitly declared project/context sources.
+No access/authority is transitive across sibling projects or workstreams.
 
-### Discovery authority
+## One project, multiple workstreams
 
-`DISCOVERY_AUTHORITY.json` governs evidence collection only.
-
-Default discovery authority permits:
-
-- passive read-only observation of known public runtime;
-- read-only following of an evidence-linked material first-party source when accessible;
-- no unrelated repository enumeration.
-
-It forbids code changes, deploys, database writes, payments, side-effect forms and mutating admin actions. Active/authenticated runtime interaction requires an explicit bounded discovery grant.
-
-### Execution authority
-
-Private AIDOS Execution envelopes independently authorize technical mutation/deploy behaviour for one accepted goal. Discovery authority never expands execution authority.
-
-## Current Product State
-
-CPS is product-complete rather than repository-complete. It contains at least:
-
-- `system_components`;
-- `dependency_graph`;
-- `runtime_surfaces`;
-- discovery blockers/limitations;
-- capabilities/flows;
-- implementation/runtime/reconciliation state;
-- evidence/provenance;
-- explicit `CONFLICT`/`DRIFT`.
-
-Required distinction:
+An accepted Definition may be decomposed into multiple parallel workstreams when dependencies make this safe and useful.
 
 ```text
-implementation state
-!=
-observed runtime state
+Project
+├─ project-level reasoning
+├─ Workstream A → Thinker → Worker
+├─ Workstream B → Thinker → Worker
+└─ Workstream C → Thinker → Worker
 ```
 
-Known public/passive runtime must be actually observed when reasonably reachable. `NOT_OBSERVED` cannot close that branch merely because source code exists or because repository access is bounded.
+Parallelization is optional. AIDOS chooses sequential versus parallel execution from:
 
-## Deterministic Discovery Closure
+- workstream scope ownership;
+- shared contracts;
+- dependency graph;
+- blockers;
+- shared-resource lease requirements;
+- integration risk/gates.
 
-A CPS is acceptance-eligible only when deterministic validation proves:
+Each workstream has durable identity/state under `schemas/workstream.schema.json`. See `docs/WORKSTREAM_ORCHESTRATION.md`.
 
-1. all required global discovery surfaces are closed;
-2. all disposition-required evidence is resolved;
-3. all product mappings/references resolve;
-4. every material first-party component is recursively complete;
-5. every `FIRST_PARTY_MATERIAL` edge resolves to such a component;
-6. all reasonably observable public/passive runtime has observation evidence;
-7. capability/flow `NOT_OBSERVED` does not hide observation-required runtime;
-8. no discovery blocker remains open.
+## Actor-role abstraction
 
-Known defects, `CONFLICT` or `DRIFT` can remain because they describe known current reality.
+Mature orchestration distinguishes actor roles from concrete model/chat identities:
 
-## Runtime components
+- `THINKER` — bounded reasoning/planning/review;
+- `WORKER` — bounded technical execution/mutation;
+- `HUMAN` — genuine product/risk/authority decisions.
+
+To preserve current proven runtime terminology, `DEFINITION_AGENT` and the existing reasoning/review `WORKER_AGENT` can serve Thinker roles, while `EXECUTION_AGENT`/Codex serves the Worker role. Existing reviewer identity/contracts are not renamed by this abstraction.
+
+## AIDOS owns control flow
+
+Thinkers and Workers do not directly own each other's lifecycle.
+
+Canonical orchestration is:
 
 ```text
-Accepted preparation state
-  │
-  ▼
-Human + Definition Agent
-  │ defines desired delta
-  ▼
-Accepted Definition ───────────────┐
-  │                                │
-  ▼                                │ contradiction
-Worker Agent                       │
-  │                                │
-  ▼                                │
-Execution Envelope                 │
-  │                                │
-  ▼                                │
-Local Bridge                       │
-  ▼                                │
-Execution Agent / Codex            │
-  │                                │
-  ▼                                │
-Evidence + terminal handoff        │
-  ▼                                │
-Worker review ─────────────────────┘
+AIDOS
+→ select next valid actor from durable state
+→ activate actor with exact project/workstream/bindings
+→ actor produces durable event/result/request
+→ AIDOS validates/reconciles
+→ AIDOS selects next valid actor
 ```
 
-If review discovers an omitted material first-party component, missing runtime branch or other closure failure:
+An actor may request dispatch, repair, escalation or human input, but the AIDOS runtime/Bridge applies the transition only after validating canonical state, authority and leases.
+
+This keeps workflow continuity independent of any single GPT/Codex session.
+
+## Durable events and projections
+
+Project/workstream state has two forms:
+
+1. durable append-only events/evidence;
+2. compact current projections for routing/status.
+
+`event.schema.json` supports optional `workstream_id`, Human Input Request/control bindings and abstract actor roles while preserving existing concrete actor identities.
+
+Session summaries are never a replacement for durable state.
+
+## Concurrency, leases and integration
+
+The existing execution lease prevents duplicate execution of one project/revision and remains valid runtime semantics.
+
+Parallel workstreams additionally require shared-resource claims/leases for conflicting resources. General workstream resource leasing is an architectural requirement, not yet a proven runtime capability.
+
+A workstream may complete locally but remain `WAITING_INTEGRATION`. The combined result is accepted only after applicable integration gates pass: shared-contract compatibility, combined build/tests, migrations/data compatibility, runtime validation and Definition/release convergence.
+
+See `docs/CONCURRENCY_AND_RECOVERY.md`.
+
+## Human Input Requests
+
+Human input is a first-class durable object, not a property of a Conversation/GPT chat.
+
+`schemas/human-input-request.schema.json` binds one concrete question/decision to project/workstream and relevant Definition/execution/revision/review state.
 
 ```text
-DISCOVERY_REFRESH_REQUIRED
-→ AIDOS-Builder
-→ reuse existing evidence/CPS
-→ close only missing branches
-→ accept new CPS
-→ Definition consistency check
+actor reaches genuine human boundary
+→ Human Input Request WAITING
+→ any authorized channel presents it
+→ response persisted/validated
+→ request RESOLVED
+→ AIDOS chooses next actor
 ```
 
-This is distinct from a product `CONTRADICTION`.
+The currently proven top-level runtime still uses `WAITING_USER`; the Human Input Request provides the durable reason/binding behind that state without prematurely renaming existing runtime state semantics.
 
-## Definition-first lifecycle
+See `protocols/INTERRUPTION_PROTOCOL.md`.
+
+## Control plane
+
+AIDOS must be controllable independently of a UI through explicit control intents:
+
+- run/start;
+- pause;
+- resume;
+- safe stop;
+- status query;
+- Human Input response;
+- recovery request.
+
+`schemas/control-intent.schema.json` defines the core envelope.
+
+Core rule:
+
+> **An interface passes intent; AIDOS remains authority and decides how the intent is safely executed.**
+
+No client/UI may directly start/kill Codex, rewrite project state or mutate project files outside AIDOS orchestration.
+
+General remote control runtime implementation is roadmap work. Existing supervised-session behaviour already demonstrates part of the safe-boundary model: an already-running bounded execution may finish while the next interactive actor remains blocked.
+
+See `docs/CONTROL_PLANE.md`.
+
+## Progress and ETA
+
+AIDOS may expose probabilistic project/workstream progress and Estimated Time Remaining using `schemas/progress-estimate.schema.json`.
+
+Progress is not simple task-count completion. Where possible it derives from Definition scope, workstreams, dependency graph, weighted remaining work and validation/integration status.
+
+ETA carries explicit confidence (`HIGH`, `MEDIUM`, `LOW`, `NOT_RELIABLY_ESTIMABLE`). Estimated versus actual remaining time should be preserved to improve calibration.
+
+Progress/ETA are operational projections only. Definition + evidence + validation/integration/release gates determine actual completeness.
+
+See `docs/PROGRESS_AND_ESTIMATION.md`.
+
+## Observability, portfolio insights and learning
+
+AIDOS observes project/workstream execution, repair/revision cycles, blockers/recovery, Human Input Requests, first-pass acceptance, wait categories, phase durations, Definition gaps and estimation error.
+
+Portfolio-level aggregation may analyze autonomy/reliability trends and recurring bottlenecks while preserving project isolation.
+
+Learning uses a strict maturity distinction:
+
+```text
+OBSERVATION
+→ HYPOTHESIS / learning candidate
+→ explicit review/adoption
+→ ADOPTED_IMPROVEMENT
+```
+
+A statistical pattern never directly becomes a system rule. `schemas/system-insight.schema.json` and `protocols/LEARNING_PROTOCOL.md` make this durable.
+
+A key maturity metric is **what human attention is still needed for**, and whether that attention shifts from operational/technical intervention toward genuine product, risk and strategic decisions.
+
+## External Interface boundary
+
+A future external **AIDOS Interface** is a separate layer/project above Core.
+
+```text
+AIDOS Core / Runtime
+├─ project/workstream state
+├─ controls
+├─ Human Input Requests
+├─ events/metrics/estimates/insights
+└─ explicit API/event boundary
+        ↓
+future AIDOS Interface
+```
+
+AIDOS must function fully without the Interface. The Interface observes and submits intent through explicit contracts; it owns no essential orchestration logic.
+
+No Interface UI or separate Interface project is implemented in AIDOS Core here.
+
+## Definition and execution lifecycle
 
 Once preparation is valid:
 
 ```text
-accepted preparation state
-→ goal-specific questions only
-→ proposed Definition
-→ human ACCEPTED
-→ plan/Definition consistency
-→ Execution
-→ convergence review
+accepted preparation
+→ Definition applicability + durable progress
+→ human-accepted Definition
+→ project/workstream planning
+→ bounded executions
+→ validation/review
+→ integration gates where parallelized
+→ release governance where applicable
 ```
 
-For existing products, Definition is explicitly the desired delta from the accepted CPS.
+For existing projects, Definition remains a desired delta from the accepted closure-compatible CPS.
 
-## Launch discipline
+## Fail-closed runtime binding
 
-For product/material releases, a Launch Definition defines the falsifiable release threshold before final launch pressure where practical.
+Execution continues to bind exact project/preparation/Definition/execution identities. Workstream-enabled execution additionally requires exact workstream/scope/shared-contract/resource bindings once runtime support is implemented.
 
-> **Launch criteria are defined before launch pressure exists. Once satisfied, improvement alone is not sufficient grounds for delay.**
+A mismatch is a control-flow failure, not something an actor may guess through.
 
-After acceptance, release scope is frozen. New findings are classified as `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`. When all launch criteria pass, default state is `RELEASE_READY`.
+## Recovery
+
+Power loss, process crash or session rotation is recovered from durable project/workstream state, events, Git bindings, leases, review transport and Human Input Requests. A session may disappear without deleting workflow state.
 
 ## Separation of truth
 
-### AIDOS-Contracts
+- **AIDOS-Contracts** owns generic versioned preparation contracts.
+- **AIDOS-Builder** owns distributable preparation procedures/validators.
+- **AIDOS Core** owns private orchestration/control/agents/learning contracts.
+- **Project repositories** own project-specific accepted truth and durable project/workstream state.
 
-Owns generic, versioned preparation contracts only.
-
-### AIDOS-Builder
-
-Owns distributable preparation procedures and deterministic validators.
-
-### AIDOS
-
-Owns private Definition/Worker/Execution/orchestration/review/learning capability.
-
-### Project repository
-
-Owns all project-specific accepted truth and durable state, including Baseline, Evidence Inventory, Discovery Authority, CPS/component graph/runtime observations, Definitions, executions and release state.
-
-Principle: **Project-local truth; AIDOS-global capability.**
-
-## Runtime binding and fail-closed behaviour
-
-Existing-project execution binds at least:
-
-```text
-project_id
-project_mode
-repo/root/branch
-accepted baseline commit
-accepted CPS id + commit
-CPS contract version
-discovery catalog version
-accepted Definition id/version
-execution id/revision
-```
-
-Current AIDOS requires CPS/discovery contract/catalog `0.2.0` for existing-project execution. A stale/older accepted CPS is historical truth, not valid current preparation.
-
-## Multi-project isolation
-
-Repository/source/discovery/execution authority is project-scoped. Access to one project or a material component does not imply access to sibling projects. The dedicated runner must enforce per-project credential/root boundaries rather than relying only on agent instructions.
+Principle: **Project-local truth; AIDOS-global capability and control flow.**
