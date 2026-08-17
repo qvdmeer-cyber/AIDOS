@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 
 function Invoke-AidosHumanInputExclusive {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][scriptblock]$ScriptBlock,[int]$TimeoutSeconds=15)
