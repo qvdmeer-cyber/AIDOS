@@ -52,10 +52,12 @@ function Get-AidosRegisteredGitCommand {
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)][string[]]$Arguments)
     $runtime=$Project.git_runtime
     if([string]$runtime.kind -eq 'NATIVE'){
-        return [pscustomobject]@{FileName=if($runtime.git_path){[string]$runtime.git_path}else{'git'};Arguments=@('-C',[string]$runtime.project_root)+$Arguments}
+        $gitPath=if($runtime.git_path){[string]$runtime.git_path}else{'git'}
+        return [pscustomobject]@{FileName=$gitPath;Arguments=@('-C',[string]$runtime.project_root)+$Arguments}
     }
     if([string]$runtime.kind -eq 'WINDOWS_WSL'){
-        return [pscustomobject]@{FileName='wsl.exe';Arguments=@('--distribution',[string]$runtime.distribution,'--cd',[string]$runtime.project_root,'--exec',if($runtime.git_path){[string]$runtime.git_path}else{'git'},'-C',[string]$runtime.project_root)+$Arguments}
+        $gitPath=if($runtime.git_path){[string]$runtime.git_path}else{'git'}
+        return [pscustomobject]@{FileName='wsl.exe';Arguments=@('--distribution',[string]$runtime.distribution,'--cd',[string]$runtime.project_root,'--exec',$gitPath,'-C',[string]$runtime.project_root)+$Arguments}
     }
     throw "Unsupported registry Git runtime '$($runtime.kind)'."
 }
