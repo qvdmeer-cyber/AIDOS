@@ -4,12 +4,61 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
 
+function Get-AidosDesktopStrictReviewResponseText {
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)]$Assignment
+    )
+    if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){ return $null }
+    if(-not ('System.Windows.Automation.AutomationElement' -as [type])){
+        Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+    }
+    $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+    if(-not $root){ return $null }
+    $elements=@($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))
+    $reviewId=[regex]::Escape([string]$Assignment.review_id)
+    $candidates=@()
+    $seen=@{}
+    foreach($element in $elements){
+        $texts=@()
+        try {
+            $textPattern=$element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+            if($textPattern){ $texts += [string]$textPattern.DocumentRange.GetText(-1) }
+        } catch {}
+        try {
+            $valuePattern=$element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            if($valuePattern){ $texts += [string]$valuePattern.Current.Value }
+        } catch {}
+        $texts += [string]$element.Current.Name
+        foreach($text in @($texts | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)){
+            $trim=([string]$text).Trim()
+            $body=$trim
+            if($trim.StartsWith('```')){
+                if($trim -notmatch '^```(?:json)?\s*(?<body>[\s\S]*?)\s*```$'){ continue }
+                $body=[string]$Matches.body.Trim()
+            } elseif($trim -notmatch '^\{[\s\S]*\}$'){
+                continue
+            }
+            if($body -notmatch '^\{[\s\S]*\}$'){ continue }
+            if($body -notmatch '"envelope_type"\s*:\s*"REVIEW_RESPONSE"'){ continue }
+            if($body -notmatch ('"review_id"\s*:\s*"'+$reviewId+'"')){ continue }
+            $key=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($trim))).ToLowerInvariant()
+            if($seen.ContainsKey($key)){ continue }
+            $seen[$key]=$true
+            $candidates += $trim
+        }
+    }
+    if(-not $candidates){ return $null }
+    $candidates | Select-Object -Last 1
+}
+
 function New-AidosDesktopSessionGateBackend {
     param(
         [Parameter(Mandatory)]$Backend,
         [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$Policy='SUPERVISED',
         [scriptblock]$SnapshotProvider,
-        [Parameter(Mandatory)]$GateState
+        [Parameter(Mandatory)]$GateState,
+        [bool]$UseStrictUiResponseReader=$false
     )
     $assertUnderlying=$Backend.AssertInteractiveSession
     $provider=$SnapshotProvider
@@ -52,6 +101,12 @@ function New-AidosDesktopSessionGateBackend {
         }
         $true
     }).GetNewClosure()
+    if($UseStrictUiResponseReader){
+        $props['ReadLatestResponseText']=({
+            param($Context,$Enrollment,[int]$Attempt,$Assignment)
+            Get-AidosDesktopStrictReviewResponseText -Context $Context -Assignment $Assignment
+        }).GetNewClosure()
+    }
     [pscustomobject]$props
 }
 
@@ -175,6 +230,7 @@ function Invoke-AidosDesktopChatGPTReview {
     $ProjectRoot=Resolve-AidosFileSystemPath $ProjectRoot
     $reviewId=[string](Split-Path -Leaf (Split-Path -Parent $AssignmentPath))
     $realBackend=$Backend
+    $useStrictUiResponseReader=(-not $Backend)
     if(-not $realBackend){ $realBackend=AidosDesktopChatGPT\New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName }
     $useNativeGate=(-not $Backend) -or $null -ne $SessionSnapshotProvider
     $waitStarted=[DateTimeOffset]::UtcNow
@@ -182,7 +238,7 @@ function Invoke-AidosDesktopChatGPTReview {
     while($true){
         $before=if(-not [string]::IsNullOrWhiteSpace($reviewId)){ Read-AidosDesktopChatGPTState $ProjectRoot $reviewId }else{$null}
         $gateState=[pscustomobject]@{snapshot=$null;decision=$null}
-        $effectiveBackend=if($useNativeGate){ New-AidosDesktopSessionGateBackend -Backend $realBackend -Policy $SessionPolicy -SnapshotProvider $SessionSnapshotProvider -GateState $gateState }else{$realBackend}
+        $effectiveBackend=if($useNativeGate){ New-AidosDesktopSessionGateBackend -Backend $realBackend -Policy $SessionPolicy -SnapshotProvider $SessionSnapshotProvider -GateState $gateState -UseStrictUiResponseReader:$useStrictUiResponseReader }else{$realBackend}
         $result=AidosDesktopChatGPT\Invoke-AidosDesktopChatGPTReview -ProjectRoot $ProjectRoot -AssignmentPath $AssignmentPath -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -Backend $effectiveBackend
         $reviewId=[string]$result.review_id
 
@@ -228,4 +284,4 @@ function Invoke-AidosDesktopChatGPTReview {
     }
 }
 
-Export-ModuleMember -Function New-AidosDesktopSessionGateBackend,New-AidosDesktopInteractiveOverlay,ConvertTo-AidosDesktopWaitingState,Set-AidosDesktopInteractiveOverlay,Invoke-AidosDesktopChatGPTEnroll,Invoke-AidosDesktopChatGPTReview
+Export-ModuleMember -Function Get-AidosDesktopStrictReviewResponseText,New-AidosDesktopSessionGateBackend,New-AidosDesktopInteractiveOverlay,ConvertTo-AidosDesktopWaitingState,Set-AidosDesktopInteractiveOverlay,Invoke-AidosDesktopChatGPTEnroll,Invoke-AidosDesktopChatGPTReview
