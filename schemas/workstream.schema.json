@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/workstream.schema.json",
+  "title": "AIDOS Workstream",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version","workstream_id","project_id","name","status","definition",
+    "scope_ownership","shared_contract_refs","dependencies","blockers","resource_claims",
+    "integration_gate_refs","updated_at"
+  ],
+  "properties": {
+    "schema_version": {"type":"string","const":"0.1"},
+    "workstream_id": {"type":"string","minLength":1},
+    "project_id": {"type":"string","minLength":1},
+    "name": {"type":"string","minLength":1},
+    "status": {
+      "type":"string",
+      "enum":["PLANNED","READY","THINKING","EXECUTING","VALIDATING","BLOCKED","WAITING_HUMAN","WAITING_DEPENDENCY","WAITING_INTEGRATION","INTEGRATED","PAUSED","STOPPED"]
+    },
+    "definition": {
+      "type":"object","additionalProperties":false,
+      "required":["definition_id","definition_version"],
+      "properties": {
+        "definition_id":{"type":"string","minLength":1},
+        "definition_version":{"type":"integer","minimum":1}
+      }
+    },
+    "scope_ownership": {
+      "type":"object","additionalProperties":false,
+      "required":["summary","owned_paths","owned_surfaces","owned_outputs","excluded_scope"],
+      "properties": {
+        "summary":{"type":"string","minLength":1},
+        "owned_paths":{"type":"array","items":{"type":"string"}},
+        "owned_surfaces":{"type":"array","items":{"type":"string"}},
+        "owned_outputs":{"type":"array","items":{"type":"string"}},
+        "excluded_scope":{"type":"array","items":{"type":"string"}}
+      }
+    },
+    "shared_contract_refs": {"type":"array","items":{"type":"string"}},
+    "dependencies": {
+      "type":"array",
+      "items": {
+        "type":"object","additionalProperties":false,
+        "required":["workstream_id","dependency_type","status","reason"],
+        "properties": {
+          "workstream_id":{"type":"string","minLength":1},
+          "dependency_type":{"type":"string","enum":["HARD","SOFT","INTEGRATION"]},
+          "status":{"type":"string","enum":["PENDING","SATISFIED","BLOCKED"]},
+          "reason":{"type":["string","null"]}
+        }
+      }
+    },
+    "blockers": {
+      "type":"array",
+      "items": {
+        "type":"object","additionalProperties":false,
+        "required":["blocker_id","status","type","summary","human_input_request_id"],
+        "properties": {
+          "blocker_id":{"type":"string","minLength":1},
+          "status":{"type":"string","enum":["OPEN","RESOLVED"]},
+          "type":{"type":"string","enum":["DEPENDENCY","SHARED_RESOURCE","CONTRACT","TECHNICAL","AUTHORITY","HUMAN_DECISION","RECOVERY","OTHER"]},
+          "summary":{"type":"string","minLength":1},
+          "human_input_request_id":{"type":["string","null"]}
+        }
+      }
+    },
+    "resource_claims": {
+      "type":"array",
+      "items": {
+        "type":"object","additionalProperties":false,
+        "required":["resource_id","mode","lease_required"],
+        "properties": {
+          "resource_id":{"type":"string","minLength":1},
+          "mode":{"type":"string","enum":["SHARED_READ","EXCLUSIVE_WRITE","EXCLUSIVE_RUNTIME"]},
+          "lease_required":{"type":"boolean"}
+        }
+      }
+    },
+    "integration_gate_refs": {"type":"array","items":{"type":"string"}},
+    "current_actor_role": {"type":["string","null"],"enum":["THINKER","WORKER","HUMAN",null]},
+    "current_execution_id": {"type":["string","null"]},
+    "updated_at": {"type":"string","format":"date-time"}
+  }
+}
