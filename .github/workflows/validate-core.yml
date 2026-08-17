@@ -37,3 +37,6 @@ jobs:
       - name: Auto Define regression tests
         shell: pwsh
         run: ./tests/AutoDefine.Tests.ps1
+      - name: Operator API regression tests
+        shell: pwsh
+        run: ./tests/OperatorApi.Tests.ps1
