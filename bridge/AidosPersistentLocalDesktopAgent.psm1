@@ -1,12 +1,15 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosPreparationDispatcher.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
+# Internal dependencies must not be force-reloaded. The top-level entrypoint owns
+# deliberate module refresh; nested -Force imports can evict sibling module
+# instances and make preparation/runtime commands disappear mid-process.
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosPreparationDispatcher.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking
 
 function Get-AidosHostAgentDefaultStateRoot {
     if(-not $IsWindows){ return (Join-Path ([IO.Path]::GetTempPath()) 'AIDOS-host-agent') }
