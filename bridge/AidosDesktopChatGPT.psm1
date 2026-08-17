@@ -1,6 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
+
 function Get-AidosDesktopChatGPTAdapterRoot {
     param([string]$ProjectRoot)
     Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/runtime/chatgpt'
