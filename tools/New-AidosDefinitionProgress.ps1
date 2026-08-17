@@ -13,9 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = [System.IO.Path]::GetFullPath($ProjectRoot)
 if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Project root does not exist: $root" }
-if ([string]::IsNullOrWhiteSpace($CatalogPath)) {
-    $CatalogPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'catalog\definition-surfaces.catalog.json'
-}
+if ([string]::IsNullOrWhiteSpace($CatalogPath)) { $CatalogPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'catalog\definition-surfaces.catalog.json' }
 if (-not (Test-Path -LiteralPath $CatalogPath -PathType Leaf)) { throw "Definition surface catalog not found: $CatalogPath" }
 
 $catalog = Get-Content -LiteralPath $CatalogPath -Raw | ConvertFrom-Json -Depth 50
@@ -27,15 +25,7 @@ if ((Test-Path -LiteralPath $progressPath) -and -not $Force) { throw "Definition
 
 $now = [DateTimeOffset]::UtcNow.ToString('o')
 $surfaces = foreach ($surface in $catalog.surfaces) {
-    [ordered]@{
-        surface_id = $surface.id
-        status = 'INCOMPLETE'
-        summary = ''
-        decision_refs = @()
-        source_refs = @()
-        open_question_count = 0
-        updated_at = $now
-    }
+    [ordered]@{ surface_id=$surface.id; status='INCOMPLETE'; summary=''; decision_refs=@(); source_refs=@(); open_question_count=0; updated_at=$now }
 }
 
 $progress = [ordered]@{
@@ -49,8 +39,13 @@ $progress = [ordered]@{
     complete_count = 0
     incomplete_count = @($surfaces).Count
     next_surface = if (@($surfaces).Count -gt 0) { $surfaces[0].surface_id } else { $null }
+    last_decision_id = $null
+    last_decision_kind = $null
+    last_decision_at = $null
     last_human_decision_id = $null
     last_human_decision_at = $null
+    last_auto_decision_id = $null
+    last_auto_decision_at = $null
     updated_at = $now
 }
 
