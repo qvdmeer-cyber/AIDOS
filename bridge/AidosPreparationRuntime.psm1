@@ -1,8 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
 
 function Get-AidosHumanInputResolutionBindingPath {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$RequestId)
