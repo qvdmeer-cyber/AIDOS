@@ -13,6 +13,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -Force -DisableNameChecking
 
 switch($Command){
     'Snapshot' {
@@ -25,7 +26,12 @@ switch($Command){
     }
     'Control' {
         if([string]::IsNullOrWhiteSpace($ControlCommand)){throw 'Control requires -ControlCommand.'}
-        Submit-AidosControlIntent -ProjectRoot $ProjectRoot -Command $ControlCommand -RequestedBy $RequestedBy -WorkstreamId $WorkstreamId -Payload $Payload |
-            ConvertTo-Json -Depth 100
+        if($ControlCommand -eq 'SUBMIT_HUMAN_INPUT'){
+            Submit-AidosHumanInputControlIntent -ProjectRoot $ProjectRoot -RequestedBy $RequestedBy -WorkstreamId $WorkstreamId -Payload $Payload |
+                ConvertTo-Json -Depth 100
+        }else{
+            Submit-AidosControlIntent -ProjectRoot $ProjectRoot -Command $ControlCommand -RequestedBy $RequestedBy -WorkstreamId $WorkstreamId -Payload $Payload |
+                ConvertTo-Json -Depth 100
+        }
     }
 }
