@@ -24,6 +24,20 @@ function Convert-WslPathToUnc {
     $relative=$Path.TrimStart('/').Replace('/','\')
     "\\wsl.localhost\$Distribution\$relative"
 }
+function Invoke-AidosBootstrapModuleCommand {
+    param(
+        [Parameter(Mandatory)][string]$ModulePath,
+        [Parameter(Mandatory)][string]$CommandName,
+        [hashtable]$Arguments=@{}
+    )
+    # Resolve a fresh command object for every cross-module call. This is intentionally
+    # independent of caller/module scope because nested -Force imports may replace a
+    # previously loaded module during the same bootstrap process.
+    $module=Import-Module -Name $ModulePath -Force -DisableNameChecking -PassThru -ErrorAction Stop
+    $command=Get-Command -Name $CommandName -Module $module.Name -ErrorAction Stop | Select-Object -First 1
+    if($null -eq $command){throw "Command '$CommandName' was not exported by '$ModulePath'."}
+    & $command @Arguments
+}
 
 $sync=@()
 foreach($repo in @('AIDOS','AIDOS-Builder','AIDOS-Contracts',$PreparationProjectName)){$sync+=Invoke-WslGitPull $repo}
@@ -34,22 +48,23 @@ $projectWslRoot="$WslReposRoot/$PreparationProjectName"
 $projectRoot=Convert-WslPathToUnc $projectWslRoot
 $registryRoot=Join-Path $env:LOCALAPPDATA 'AIDOS\project-registry'
 $stateRoot=Join-Path $env:LOCALAPPDATA 'AIDOS\host-agent'
+$registryModule=Join-Path $aidosRoot 'bridge/AidosProjectRegistry.psm1'
+$runtimeModule=Join-Path $aidosRoot 'bridge/AidosPreparationRuntime.psm1'
 
-# Import both modules, but invoke every cross-module command with an explicit module qualifier.
-# This avoids PowerShell caller-scope command loss when nested modules are force-reloaded.
-Import-Module (Join-Path $aidosRoot 'bridge/AidosPreparationRuntime.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $aidosRoot 'bridge/AidosProjectRegistry.psm1') -Force -DisableNameChecking
-
-$registryPath=AidosProjectRegistry\Get-AidosRegistryProjectPath -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
+$registryPath=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Get-AidosRegistryProjectPath' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId}
 if(Test-Path -LiteralPath $registryPath -PathType Leaf){
-    $registered=AidosProjectRegistry\Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
+    $registered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Get-AidosRegisteredProject' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId}
     if([string]$registered.repository -ne $PreparationRepository -or [string]$registered.local_root -ne [string](Get-Item -LiteralPath $projectRoot).FullName){throw 'Existing preparation registry binding differs from requested AIDOS Interface binding.'}
     if($registered.PSObject.Properties['project_mode'] -and [string]$registered.project_mode -ne 'NEW_PROJECT'){throw 'Existing preparation registry project_mode is not NEW_PROJECT.'}
     if($registered.PSObject.Properties['runner_policy'] -and [string]$registered.runner_policy -ne 'UNATTENDED_ALLOWED'){throw 'Existing preparation registry runner_policy is not UNATTENDED_ALLOWED.'}
 }else{
-    $registered=AidosProjectRegistry\Register-AidosPreparationProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Repository $PreparationRepository -LocalRoot $projectRoot -ProjectMode NEW_PROJECT -DefaultBranch main -RunnerPolicy UNATTENDED_ALLOWED -GitRuntimeKind WINDOWS_WSL -WslDistribution $Distribution -WslProjectRoot $projectWslRoot -AllowedPersistencePaths @('.aidos')
+    $registered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Register-AidosPreparationProject' -Arguments @{
+        RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId;Repository=$PreparationRepository;LocalRoot=$projectRoot;
+        ProjectMode='NEW_PROJECT';DefaultBranch='main';RunnerPolicy='UNATTENDED_ALLOWED';GitRuntimeKind='WINDOWS_WSL';
+        WslDistribution=$Distribution;WslProjectRoot=$projectWslRoot;AllowedPersistencePaths=@('.aidos')
+    }
 }
-AidosProjectRegistry\Test-AidosRegistryProjectBinding $registered|Out-Null
+Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Test-AidosRegistryProjectBinding' -Arguments @{Project=$registered}|Out-Null
 
 $validator=Join-Path $builderRoot 'tools/Test-AidosProjectBaseline.ps1'
 $validation=& $validator -ProjectRoot $projectRoot -ContractsRoot $contractsRoot -NoExit
@@ -58,13 +73,13 @@ $baselinePath=Join-Path $projectRoot '.aidos/documentation/PROJECT_BASELINE.json
 $baseline=Get-Content -LiteralPath $baselinePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
 $acceptance=$null
 if([string]::IsNullOrWhiteSpace([string]$baseline.accepted_at)){
-    $acceptance=AidosPreparationRuntime\New-AidosPreparationBaselineAcceptanceRequest -ProjectRoot $projectRoot -BuilderRoot $builderRoot -ContractsRoot $contractsRoot
-    $registered=AidosProjectRegistry\Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
-    $persistence=AidosProjectRegistry\Invoke-AidosPreparationGitPersistence -Project $registered -CommitMessage 'AIDOS publish formal Project Baseline acceptance request' -Push
-    AidosProjectRegistry\Set-AidosPreparationProjectPhase -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Phase 'BASELINE_ACCEPTANCE' -Status WAITING_HUMAN|Out-Null
+    $acceptance=Invoke-AidosBootstrapModuleCommand -ModulePath $runtimeModule -CommandName 'New-AidosPreparationBaselineAcceptanceRequest' -Arguments @{ProjectRoot=$projectRoot;BuilderRoot=$builderRoot;ContractsRoot=$contractsRoot}
+    $registered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Get-AidosRegisteredProject' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId}
+    $persistence=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Invoke-AidosPreparationGitPersistence' -Arguments @{Project=$registered;CommitMessage='AIDOS publish formal Project Baseline acceptance request';Push=$true}
+    Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Set-AidosPreparationProjectPhase' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId;Phase='BASELINE_ACCEPTANCE';Status='WAITING_HUMAN'}|Out-Null
 }else{
     $persistence=[pscustomobject]@{status='NO_CHANGES';commit=$null;pushed=$false;paths=@()}
-    AidosProjectRegistry\Set-AidosPreparationProjectPhase -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Phase 'RUNTIME_ONBOARDING' -Status READY_FOR_ONBOARDING|Out-Null
+    Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Set-AidosPreparationProjectPhase' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId;Phase='RUNTIME_ONBOARDING';Status='READY_FOR_ONBOARDING'}|Out-Null
 }
 
 if([string]::IsNullOrWhiteSpace($RuntimeProjectRoot)){
@@ -79,12 +94,13 @@ if([string]::IsNullOrWhiteSpace($RuntimeProjectRoot)){throw 'Unable to resolve t
 $agentEntry=Join-Path $aidosRoot 'bridge/Invoke-AidosPersistentLocalDesktopAgent.ps1'
 $installJson=& $agentEntry -Command Install -ProjectRoot $RuntimeProjectRoot -AuthorizedUser $AuthorizedUser -StateRoot $stateRoot -PreparationRegistryRoot $registryRoot -BuilderRoot $builderRoot -ContractsRoot $contractsRoot -PreparationPush $true
 $install=$installJson|ConvertFrom-Json -Depth 30
+$finalRegistered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Get-AidosRegisteredProject' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId}
 
 [pscustomobject][ordered]@{
     status='ENABLED'
     synced_repositories=@($sync|ForEach-Object {$_.repo})
     registry_root=$registryRoot
-    preparation_project=(AidosProjectRegistry\Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId)
+    preparation_project=$finalRegistered
     baseline_validation=$validation
     acceptance_request=$acceptance
     persistence=$persistence
