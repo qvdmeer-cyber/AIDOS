@@ -21,7 +21,6 @@ foreach($relative in $modules){
     $passed++
 }
 
-# Repeated top-level reloads must leave the dispatcher callable and all preparation exports resolvable.
 Import-Module (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosPreparationRuntime.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -Force -DisableNameChecking
