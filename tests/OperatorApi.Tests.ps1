@@ -5,9 +5,17 @@ $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $root 'bridge/AidosOperator.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosPersistentLocalDesktopAgent.psm1') -Force -DisableNameChecking
 
 $script:passed=0
 function Assert-Operator([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
+function New-OperatorSessionSnapshot {
+    [pscustomobject]@{
+        observed_at='2026-08-17T20:00:00Z';session_id=8;process_session_id=8;active_console_session_id=8;
+        connection_state='ACTIVE';lock_state='UNLOCKED';session_kind='CONSOLE';protocol_type=0;input_desktop_available=$true;
+        user_name='qvdm';domain_name='AIDOS';winstation_name='Console';observation_status='OK';error=$null
+    }
+}
 
 $projectRoot=Join-Path ([IO.Path]::GetTempPath()) ('aidos-operator-test-'+[guid]::NewGuid().ToString('N'))
 try {
@@ -40,6 +48,10 @@ try {
     Assert-Operator ($pause.intent.status -eq 'APPLIED') 'PAUSE control intent is durably applied'
     Assert-Operator ((Get-AidosOperatorControlState $projectRoot).mode -eq 'PAUSED') 'PAUSE sets safe-boundary desired mode'
     Assert-Operator (Test-Path -LiteralPath (Join-Path $projectRoot $pause.path)) 'PAUSE persists a durable control-intent record'
+    $global:AidosOperatorReviewTouched=$false
+    $pausedTick=Invoke-AidosHostAgentTick -ProjectRoot $projectRoot -AuthorizedUser 'AIDOS\qvdm' -SnapshotProvider {New-OperatorSessionSnapshot} -ShellHealthProvider {[pscustomobject]@{status='HEALTHY'}} -ReviewReconciler {$global:AidosOperatorReviewTouched=$true;throw 'paused runtime must not reconcile review'} -DesktopReviewInvoker {throw 'paused runtime must not activate desktop Worker'}
+    Assert-Operator ($pausedTick.status -eq 'PAUSED' -and $pausedTick.reason -eq 'OPERATOR_CONTROL' -and -not $global:AidosOperatorReviewTouched) 'PAUSE gates persistent Worker before reconciliation or desktop activation'
+    Remove-Variable -Name AidosOperatorReviewTouched -Scope Global -ErrorAction SilentlyContinue
 
     $query=Submit-AidosControlIntent -ProjectRoot $projectRoot -Command QUERY_STATUS -RequestedBy TEST
     Assert-Operator ($query.intent.status -eq 'APPLIED' -and $query.intent.result.runtime_status.projects[0].project_id -eq 'OPERATOR-SMOKE') 'QUERY_STATUS returns runtime projection through durable intent lifecycle'
@@ -49,6 +61,10 @@ try {
 
     $stop=Submit-AidosControlIntent -ProjectRoot $projectRoot -Command SAFE_STOP -RequestedBy TEST
     Assert-Operator ($stop.intent.status -eq 'APPLIED' -and (Get-AidosOperatorControlState $projectRoot).mode -eq 'SAFE_STOPPED') 'SAFE_STOP persists safe stopped desired mode'
+    $global:AidosOperatorReviewTouched=$false
+    $stoppedTick=Invoke-AidosHostAgentTick -ProjectRoot $projectRoot -AuthorizedUser 'AIDOS\qvdm' -SnapshotProvider {New-OperatorSessionSnapshot} -ShellHealthProvider {[pscustomobject]@{status='HEALTHY'}} -ReviewReconciler {$global:AidosOperatorReviewTouched=$true;throw 'safe-stopped runtime must not reconcile review'} -DesktopReviewInvoker {throw 'safe-stopped runtime must not activate desktop Worker'}
+    Assert-Operator ($stoppedTick.status -eq 'SAFE_STOPPED' -and $stoppedTick.reason -eq 'OPERATOR_CONTROL' -and -not $global:AidosOperatorReviewTouched) 'SAFE_STOP gates persistent Worker before reconciliation or desktop activation'
+    Remove-Variable -Name AidosOperatorReviewTouched -Scope Global -ErrorAction SilentlyContinue
 
     $unsupported=Submit-AidosControlIntent -ProjectRoot $projectRoot -Command SUBMIT_HUMAN_INPUT -RequestedBy TEST
     Assert-Operator ($unsupported.intent.status -eq 'REJECTED' -and $unsupported.intent.result.reason -match 'not implemented') 'unimplemented mutating processor fails closed rather than fabricating application'
