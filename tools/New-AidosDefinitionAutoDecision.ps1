@@ -21,32 +21,22 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Test-AssessmentAllowed {
-    param([Parameter(Mandatory)]$Assessment)
-    if ($Assessment.contract_version -ne '0.1.0') { throw 'Decision Assessment must use contract 0.1.0.' }
-    if ($Assessment.authority_classification -ne 'AUTO_DECIDABLE') { throw 'Only AUTO_DECIDABLE may create an Auto Decision.' }
-    if ($Assessment.within_authority -ne $true) { throw 'Decision falls outside authority; HUMAN_REQUIRED.' }
-    if ($Assessment.materially_equivalent_alternatives -eq $true) { throw 'Materially equivalent alternatives remain; HUMAN_REQUIRED.' }
-    if ($Assessment.confidence -in @('LOW','NOT_APPLICABLE')) { throw 'Confidence does not permit autonomous decision; HUMAN_REQUIRED.' }
-    if ($Assessment.reversibility -eq 'IRREVERSIBLE') { throw 'Irreversible decision requires human input.' }
-    foreach ($name in @('product_business','security_privacy','destructive','external_cost_commitment','compatibility','blast_radius')) {
-        if ([string]$Assessment.impacts.$name -in @('MEDIUM','HIGH')) { throw "Material $name impact requires human input." }
-    }
-    if ([string]$Assessment.missing_evidence -in @('MEDIUM','HIGH')) { throw 'Material missing evidence requires human input.' }
-    if ($Assessment.confidence -eq 'MEDIUM' -and $Assessment.reversibility -ne 'REVERSIBLE') { throw 'MEDIUM-confidence Auto Decision must be fully REVERSIBLE.' }
-}
-
 $root = [System.IO.Path]::GetFullPath($ProjectRoot)
 $contracts = [System.IO.Path]::GetFullPath($ContractsRoot)
 $decisionCatalogPath = Join-Path $contracts 'catalog\decision-authority.catalog.json'
-if (-not (Test-Path -LiteralPath $decisionCatalogPath -PathType Leaf)) { throw "Decision Governance catalog not found: $decisionCatalogPath" }
+$policyTool = Join-Path $contracts 'tools\Test-AidosDecisionAssessment.ps1'
+foreach ($path in @($decisionCatalogPath,$policyTool)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required Decision Governance artifact not found: $path" }
+}
 $decisionCatalog = Get-Content -LiteralPath $decisionCatalogPath -Raw | ConvertFrom-Json -Depth 100
 if ($decisionCatalog.contract_version -ne '0.1.0') { throw "Unsupported Decision Governance contract '$($decisionCatalog.contract_version)'." }
+
+$policy = & $policyTool -AssessmentJson $AssessmentJson -ContractsRoot $contracts -NoExit
+if (-not $policy.pass -or -not $policy.decision_allowed) { throw "Decision Governance requires HUMAN_REQUIRED: $(@($policy.errors) -join '; ')" }
 
 try { $chosen = $ChosenValueJson | ConvertFrom-Json -Depth 100 } catch { throw "ChosenValueJson is invalid JSON: $($_.Exception.Message)" }
 try { $alternatives = @($AlternativesJson | ConvertFrom-Json -Depth 100) } catch { throw "AlternativesJson is invalid JSON: $($_.Exception.Message)" }
 try { $assessment = $AssessmentJson | ConvertFrom-Json -Depth 100 } catch { throw "AssessmentJson is invalid JSON: $($_.Exception.Message)" }
-Test-AssessmentAllowed -Assessment $assessment
 
 if ($TargetType -eq 'DEFINITION_SURFACE' -and [string]::IsNullOrWhiteSpace($SurfaceId)) { throw 'DEFINITION_SURFACE target requires SurfaceId.' }
 if ($TargetType -eq 'DEFINITION_FIELD' -and [string]::IsNullOrWhiteSpace($Field)) { throw 'DEFINITION_FIELD target requires Field.' }
