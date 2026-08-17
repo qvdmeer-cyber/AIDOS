@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/project-applicability.schema.json",
+  "title": "AIDOS Project Applicability Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","surface_catalog_version","preset_catalog_version","project_id","selected_presets","overrides","resolved_surfaces","conflicts","updated_at"],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "surface_catalog_version":{"type":"string","const":"0.1.0"},
+    "preset_catalog_version":{"type":"string","const":"0.1.0"},
+    "project_id":{"type":"string","minLength":1},
+    "selected_presets":{
+      "type":"array","minItems":1,
+      "items":{
+        "type":"object","additionalProperties":false,
+        "required":["preset_id","version","category","selection_source"],
+        "properties":{
+          "preset_id":{"type":"string","minLength":1},
+          "version":{"type":"integer","minimum":1},
+          "category":{"type":"string"},
+          "selection_source":{"type":"string","enum":["HUMAN_ACCEPTED","DISCOVERY_DERIVED","BASELINE_DERIVED","MIGRATED"]}
+        }
+      }
+    },
+    "overrides":{
+      "type":"array",
+      "items":{
+        "type":"object","additionalProperties":false,
+        "required":["surface_id","state","reason","source_ref"],
+        "properties":{
+          "surface_id":{"type":"string","minLength":1},
+          "state":{"type":"string","enum":["APPLICABLE","CONDITIONAL","NOT_APPLICABLE"]},
+          "reason":{"type":"string","minLength":1},
+          "source_ref":{"type":"string","minLength":1}
+        }
+      }
+    },
+    "resolved_surfaces":{
+      "type":"array","minItems":1,
+      "items":{
+        "type":"object","additionalProperties":false,
+        "required":["surface_id","state","preset_refs","override_applied","reason"],
+        "properties":{
+          "surface_id":{"type":"string","minLength":1},
+          "state":{"type":"string","enum":["APPLICABLE","CONDITIONAL","NOT_APPLICABLE","UNRESOLVED"]},
+          "preset_refs":{"type":"array","items":{"type":"string"}},
+          "override_applied":{"type":"boolean"},
+          "reason":{"type":["string","null"]}
+        }
+      }
+    },
+    "conflicts":{
+      "type":"array",
+      "items":{
+        "type":"object","additionalProperties":false,
+        "required":["surface_id","preset_refs","states","resolution"],
+        "properties":{
+          "surface_id":{"type":"string","minLength":1},
+          "preset_refs":{"type":"array","minItems":2,"items":{"type":"string"}},
+          "states":{"type":"array","minItems":2,"items":{"type":"string"}},
+          "resolution":{"type":"string","minLength":1}
+        }
+      }
+    },
+    "updated_at":{"type":"string","format":"date-time"}
+  }
+}
