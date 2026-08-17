@@ -67,8 +67,15 @@ uses `TASK_READY -> TASK_READY` as a generic metadata patch. `Invoke-AidosStartu
 fails interrupted work to `RECOVERY_REQUIRED`; it never infers completion.
 
 Review transport is explicit and ephemeral: `Publish-AidosReviewPackage` creates a secret-free
-package and durable review record, `Invoke-AidosReviewConsumer` records the decision and consume
-acknowledgement, and `Invoke-AidosReviewCleanup` removes the ephemeral package only after the
-durable record is complete.
+package, publishes a canonical `REVIEW_ASSIGNMENT` envelope and durable review record,
+`Invoke-AidosReviewWorker.ps1` can act as a separate transport-neutral Worker/GPT stub that returns
+a canonical `REVIEW_RESPONSE` envelope, `Invoke-AidosReviewConsumer` validates the response and
+records the durable decision/consume acknowledgement, `Repair-AidosReviewPackage` can explicitly
+upgrade a legacy GPT_REVIEWING or RECOVERY_REQUIRED package that is missing canonical assignment
+materialization, and `Repair-AidosLegacyReviewAssignmentCorrelation` repairs the narrowly provable
+legacy case where the assignment file is already canonical but the durable assignment hash drifted.
+`Invoke-AidosReviewCleanup` removes the ephemeral package only after the durable record is complete.
+The entrypoint exposes `-Mode Recover` for the assignment-materialization path and
+`-Mode RepairLegacyCorrelation` for the hash-correlation repair path.
 
 Entry point: `bridge/Invoke-AidosCodex.ps1` (PowerShell 7 only).

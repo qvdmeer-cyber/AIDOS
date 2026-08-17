@@ -7,6 +7,19 @@ $script:Passed = 0
 function Assert-True([bool]$Condition,[string]$Message) { if(-not $Condition){throw "ASSERTION FAILED: $Message"};$script:Passed++ }
 function Assert-Throws([scriptblock]$Action,[string]$Pattern) { try{&$Action;throw 'Expected an exception.'}catch{if($_.Exception.Message -eq 'Expected an exception.'){throw};Assert-True ($_.Exception.Message -match $Pattern) "Expected error /$Pattern/, got: $($_.Exception.Message)"} }
 function Write-Json($Path,$Value) { $dir=Split-Path -Parent $Path;if(-not(Test-Path $dir)){New-Item -ItemType Directory -Path $dir -Force|Out-Null};$Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $Path -Encoding utf8NoBOM }
+function Get-PwshExecutable {
+    $command=Get-Command pwsh -ErrorAction SilentlyContinue
+    if($command -and $command.Source){return $command.Source}
+    return (Join-Path $PSHOME 'pwsh')
+}
+function Invoke-ExternalReviewWorker {
+    param([string]$AssignmentPath,[ValidateSet('PASS','REPAIR','BLOCKER','DISCOVERY_REFRESH_REQUIRED','WAITING_INTERACTIVE_SESSION')][string]$Outcome='PASS',[string]$Reason='external worker stub review')
+    $workerScript=Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/Invoke-AidosReviewWorker.ps1'
+    $pwshExe=Get-PwshExecutable
+    $response=& $pwshExe -NoLogo -NoProfile -File $workerScript -AssignmentPath $AssignmentPath -Outcome $Outcome -Reason $Reason
+    if($LASTEXITCODE -ne 0){throw "Worker stub failed with exit code $LASTEXITCODE."}
+    [string]::Join([Environment]::NewLine, @($response))
+}
 function New-TestProject {
     $root=Join-Path ([IO.Path]::GetTempPath()) ('aidos-bridge-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $root|Out-Null
     &git -C $root init -q;&git -C $root config user.email test@example.invalid;&git -C $root config user.name 'AIDOS Test';&git -C $root remote add origin https://github.com/test-owner/test-project.git
@@ -14,7 +27,8 @@ function New-TestProject {
     Write-Json (Join-Path $root '.aidos/documentation/PROJECT_BASELINE.json') ([ordered]@{accepted_at='2026-01-01T00:00:00Z';accepted_by='human';accepted_commit='abcdef1234567890'})
     Write-Json (Join-Path $root '.aidos/documentation/PROJECT_ACCESS.json') ([ordered]@{contract_version='0.1.0';project_id='TEST'})
     Write-Json (Join-Path $root '.aidos/evidence/EVIDENCE_INVENTORY.json') ([ordered]@{contract_version='0.2.0';project_id='TEST'})
-    Write-Json (Join-Path $root '.aidos/PROJECT.json') ([ordered]@{schema_version='0.1';project_id='TEST';project_mode='NEW_PROJECT';repository='test-owner/test-project';official_root=$root;project_baseline='.aidos/documentation/PROJECT_BASELINE.json';project_access='.aidos/documentation/PROJECT_ACCESS.json';evidence_inventory='.aidos/evidence/EVIDENCE_INVENTORY.json';git_runtime=[ordered]@{kind='NATIVE';project_root=$root;git_path='git'}})
+    Write-Json (Join-Path $root '.aidos/PROJECT.json') ([ordered]@{schema_version='0.1';project_id='TEST';project_mode='NEW_PROJECT';repository='test-owner/test-project';official_root=$root;agent_profile='.aidos/AGENT_PROFILE.json';project_baseline='.aidos/documentation/PROJECT_BASELINE.json';project_access='.aidos/documentation/PROJECT_ACCESS.json';evidence_inventory='.aidos/evidence/EVIDENCE_INVENTORY.json';git_runtime=[ordered]@{kind='NATIVE';project_root=$root;git_path='git'}})
+    Write-Json (Join-Path $root '.aidos/AGENT_PROFILE.json') ([ordered]@{schema_version='0.1';project_id='TEST';aidos_agents=[ordered]@{definition='agents/DEFINITION_AGENT.md';worker='agents/WORKER_AGENT.md';execution='agents/EXECUTION_AGENT.md'};reviewer_role='WORKER_AGENT';reviewer_identity='agents/WORKER_AGENT.md';project_specific_sources=@();project_constraints=@();executor=[ordered]@{model='fake';reasoning_effort='low'}})
     Write-Json (Join-Path $root '.aidos/STATE.json') ([ordered]@{schema_version='0.1';project_id='TEST';state='TASK_READY';definition_id='DEF-1';definition_version=1;execution_id='EXEC-1';revision=1;codex_session_id=$null;review_id=$null;lease_id=$null;terminal_result=$null;git_head=$null;updated_at='2026-01-01T00:00:00Z'})
     Set-Content (Join-Path $root 'tracked.txt') 'initial' -Encoding utf8NoBOM;&git -C $root add .;&git -C $root commit -qm initial
     $snapshot=Get-AidosPreparationSnapshot $root
@@ -174,17 +188,110 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         $reviewState=Get-AidosState $reviewProject.Root
         Assert-True ($reviewState.state -eq 'GPT_REVIEWING' -and $reviewState.review_id -eq $published.review_id) 'publish binds review_id and moves to GPT_REVIEWING'
         $manifest=Read-AidosJson (Join-Path $reviewProject.Root $published.manifest_path)
-        Assert-True ($manifest.package_type -eq 'REVIEW_PACKAGE' -and $manifest.review_id -eq $published.review_id -and @($manifest.evidence_refs).Count -ge 4) 'review manifest is secret-free and points at durable evidence'
-        $consumer=Invoke-AidosReviewConsumer -ProjectRoot $reviewProject.Root -ReviewId $published.review_id -Outcome PASS -Reason 'approved'
+        $assignment=Read-AidosJson (Join-Path $reviewProject.Root $published.assignment_path)
+        Assert-True ($manifest.package_type -eq 'REVIEW_PACKAGE' -and $manifest.review_id -eq $published.review_id -and $manifest.assignment_path -eq $published.assignment_path -and @($manifest.evidence_refs).Count -ge 4) 'review manifest is secret-free and points at durable evidence'
+        Assert-True ($assignment.envelope_type -eq 'REVIEW_ASSIGNMENT' -and $assignment.reviewer_identity -eq 'agents/WORKER_AGENT.md' -and $published.assignment_sha256) 'review assignment is canonical and secret-free'
+        $packageNames=@(Get-ChildItem (Join-Path $reviewProject.Root $published.package_path) | Select-Object -ExpandProperty Name)
+        Assert-True ($packageNames -contains 'MANIFEST.json' -and $packageNames -contains 'REVIEW_ASSIGNMENT.json') 'published review package contains MANIFEST.json and REVIEW_ASSIGNMENT.json'
+        Assert-True ($published.assignment_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $reviewProject.Root $published.assignment_path) -Algorithm SHA256).Hash.ToLowerInvariant()) 'durable assignment hash equals exact published file hash'
+        $responseJson=Invoke-ExternalReviewWorker -AssignmentPath (Join-Path $reviewProject.Root $published.assignment_path) -Outcome PASS -Reason 'approved'
+        $response=$responseJson | ConvertFrom-Json -Depth 100
+        Assert-True ($response.envelope_type -eq 'REVIEW_RESPONSE' -and $response.reviewer_identity -eq 'agents/WORKER_AGENT.md' -and $response.assignment_sha256) 'external worker returns a canonical response envelope'
+        Assert-True ((Get-FileHash -LiteralPath (Join-Path $reviewProject.Root $published.assignment_path) -Algorithm SHA256).Hash.ToLowerInvariant() -eq $published.assignment_sha256) 'worker does not mutate assignment bytes or hash'
+        $consumer=Invoke-AidosReviewConsumer -ProjectRoot $reviewProject.Root -ResponseJson $responseJson
         $cleanState=Get-AidosState $reviewProject.Root
         Assert-True ($cleanState.state -eq 'IDLE' -and $cleanState.review_id -eq $null) 'PASS deterministically returns project to IDLE'
         Assert-True ($cleanState.lease_id -ne $null -and -not(Test-Path (Join-Path $reviewProject.Root '.aidos/runtime/lease.json'))) 'IDLE keeps last execution lease_id as historical context after the physical lease is removed'
         $reviewRecord=Read-AidosJson (Join-Path $reviewProject.Root ".aidos/reviews/$($published.review_id)/REVIEW.json")
-        Assert-True ($reviewRecord.transport_state -eq 'CLEANED' -and $reviewRecord.decision.outcome -eq 'PASS' -and $reviewRecord.consume_ack.review_id -eq $published.review_id) 'durable review record keeps decision, consume ack, and cleanup evidence'
+        Assert-True ($reviewRecord.transport_state -eq 'CLEANED' -and $reviewRecord.decision.outcome -eq 'PASS' -and $reviewRecord.consume_ack.review_id -eq $published.review_id -and $reviewRecord.response.reviewer_identity -eq 'agents/WORKER_AGENT.md') 'durable review record keeps assignment, response, decision, consume ack, and cleanup evidence'
         Assert-True (-not(Test-Path (Join-Path $reviewProject.Root $published.package_path))) 'ephemeral review package is cleaned after durable consume'
+        $replayed=Invoke-AidosReviewConsumer -ProjectRoot $reviewProject.Root -ResponseJson $responseJson
+        Assert-True ((Get-AidosState $reviewProject.Root).state -eq 'IDLE' -and (Read-AidosReviewRecord $reviewProject.Root $published.review_id).transport_state -eq 'CLEANED') 'identical response replay is idempotent'
+        $tamperedResponse=$response|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+        $tamperedResponse.reviewer_identity='malicious-reviewer'
+        $tamperedResponseJson=$tamperedResponse|ConvertTo-Json -Depth 100
+        Assert-Throws { Invoke-AidosReviewConsumer -ProjectRoot $reviewProject.Root -ResponseJson $tamperedResponseJson } 'bridge-bound|mismatched'
         $reviewEvents=@(Get-ChildItem (Join-Path $reviewProject.Root '.aidos/events') -Filter '*.jsonl' | ForEach-Object { Get-Content $_.FullName } | ForEach-Object { ($_ | ConvertFrom-Json).event_type })
-        Assert-True ($reviewEvents -contains 'REVIEW_PACKAGE_PUBLISHED' -and $reviewEvents -contains 'REVIEW_DECISION_RECORDED' -and $reviewEvents -contains 'REVIEW_PACKAGE_CONSUMED' -and $reviewEvents -contains 'REVIEW_CLEANUP_CONFIRMED') 'review lifecycle events are emitted'
+        Assert-True ($reviewEvents -contains 'REVIEW_ASSIGNMENT_PUBLISHED' -and $reviewEvents -contains 'REVIEW_RESPONSE_RECEIVED' -and $reviewEvents -contains 'REVIEW_RESPONSE_ACCEPTED' -and $reviewEvents -contains 'REVIEW_DECISION_RECORDED' -and $reviewEvents -contains 'REVIEW_PACKAGE_CONSUMED' -and $reviewEvents -contains 'REVIEW_CLEANUP_CONFIRMED') 'review lifecycle events are emitted'
     } finally { Remove-Item -LiteralPath $reviewProject.Root -Recurse -Force }
+
+    $recoveryProject=New-TestProject
+    try {
+        $recoveryRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$recoveryProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $recoveryExecution=Invoke-AidosCodexExecution $recoveryProject.Root $recoveryProject.ExecutionPath $recoveryRuntime 'legacy review recovery smoke'
+        Assert-True ($recoveryExecution.validation_status -eq 'PASS') 'legacy recovery smoke reaches publishable evidence'
+        $recoveryPublished=Publish-AidosReviewPackage $recoveryProject.Root $recoveryProject.ExecutionPath
+        $legacyAssignmentPath=Join-Path $recoveryProject.Root $recoveryPublished.assignment_path
+        Remove-Item -LiteralPath $legacyAssignmentPath -Force
+        $legacyRecord=Read-AidosJson (Join-Path $recoveryProject.Root ".aidos/reviews/$($recoveryPublished.review_id)/REVIEW.json")
+        $legacyRecord.assignment_path=$null
+        $legacyRecord.assignment=$null
+        $legacyRecord.assignment_sha256=$null
+        $legacyRecord.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosReviewRecordAtomic $recoveryProject.Root $recoveryPublished.review_id $legacyRecord
+        $recoveryEntryPoint=Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/Invoke-AidosReview.ps1'
+        $recoveredJson=& (Get-PwshExecutable) -NoLogo -NoProfile -File $recoveryEntryPoint -ProjectRoot $recoveryProject.Root -Mode Recover -ExecutionPath $recoveryProject.ExecutionPath
+        if($LASTEXITCODE -ne 0){throw "Recovery entrypoint failed with exit code $LASTEXITCODE."}
+        $recovered=$recoveredJson | ConvertFrom-Json -Depth 100
+        Assert-True ($recovered.recovered -and $recovered.assignment_path -and $recovered.assignment_sha256) 'legacy GPT_REVIEWING recovery creates canonical assignment correlation without a new state transition'
+        $recoveryAssignment=Read-AidosJson (Join-Path $recoveryProject.Root $recovered.assignment_path)
+        Assert-True ($recoveryAssignment.envelope_type -eq 'REVIEW_ASSIGNMENT' -and $recoveryAssignment.reviewer_identity -eq 'agents/WORKER_AGENT.md') 'recovery writes canonical REVIEW_ASSIGNMENT.json'
+        $recoveryPackageNames=@(Get-ChildItem (Join-Path $recoveryProject.Root $recovered.package_path) | Select-Object -ExpandProperty Name)
+        Assert-True ($recoveryPackageNames -contains 'MANIFEST.json' -and $recoveryPackageNames -contains 'REVIEW_ASSIGNMENT.json') 'recovered review package contains MANIFEST.json and REVIEW_ASSIGNMENT.json'
+        $recoveryRecord=Read-AidosJson (Join-Path $recoveryProject.Root ".aidos/reviews/$($recoveryPublished.review_id)/REVIEW.json")
+        Assert-True ($recoveryRecord.assignment_path -eq $recovered.assignment_path -and $recoveryRecord.assignment_sha256 -eq $recovered.assignment_sha256) 'recovery records assignment correlation durably'
+        Assert-True ($recovered.assignment_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $recoveryProject.Root $recovered.assignment_path) -Algorithm SHA256).Hash.ToLowerInvariant()) 'recovery durable hash equals exact final file hash'
+        $canonicalRecoveryAssignmentHash=$recovered.assignment_sha256
+        $recoveryRecord.assignment_sha256='0000000000000000000000000000000000000000000000000000000000000000'
+        $recoveryRecord.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosReviewRecordAtomic $recoveryProject.Root $recoveryPublished.review_id $recoveryRecord
+        Assert-Throws { & (Get-PwshExecutable) -NoLogo -NoProfile -File $recoveryEntryPoint -ProjectRoot $recoveryProject.Root -Mode Recover -ExecutionPath $recoveryProject.ExecutionPath } 'hash mismatch'
+        $repairedJson=& (Get-PwshExecutable) -NoLogo -NoProfile -File $recoveryEntryPoint -ProjectRoot $recoveryProject.Root -Mode RepairLegacyCorrelation -ExecutionPath $recoveryProject.ExecutionPath
+        if($LASTEXITCODE -ne 0){throw "Legacy correlation repair entrypoint failed with exit code $LASTEXITCODE."}
+        $repaired=$repairedJson | ConvertFrom-Json -Depth 100
+        Assert-True ($repaired.recovered -and -not $repaired.idempotent -and $repaired.assignment_sha256 -eq $canonicalRecoveryAssignmentHash) 'explicit legacy correlation repair fixes durable hash without a state transition'
+        $repairedRecord=Read-AidosJson (Join-Path $recoveryProject.Root ".aidos/reviews/$($recoveryPublished.review_id)/REVIEW.json")
+        Assert-True ($repairedRecord.assignment_sha256 -eq $canonicalRecoveryAssignmentHash) 'legacy correlation repair updates REVIEW.json.assignment_sha256'
+        $repairedAgainJson=& (Get-PwshExecutable) -NoLogo -NoProfile -File $recoveryEntryPoint -ProjectRoot $recoveryProject.Root -Mode RepairLegacyCorrelation -ExecutionPath $recoveryProject.ExecutionPath
+        if($LASTEXITCODE -ne 0){throw "Idempotent legacy correlation repair entrypoint failed with exit code $LASTEXITCODE."}
+        $repairedAgain=$repairedAgainJson | ConvertFrom-Json -Depth 100
+        Assert-True ($repairedAgain.idempotent -and $repairedAgain.assignment_sha256 -eq $canonicalRecoveryAssignmentHash) 'legacy correlation repair is idempotent'
+        $recoveryAssignment=Read-AidosJson (Join-Path $recoveryProject.Root $repaired.assignment_path)
+        Assert-True ($recoveryAssignment.envelope_type -eq 'REVIEW_ASSIGNMENT' -and $recoveryAssignment.reviewer_identity -eq 'agents/WORKER_AGENT.md') 'recovery writes canonical REVIEW_ASSIGNMENT.json'
+        $recoveryPackageNames=@(Get-ChildItem (Join-Path $recoveryProject.Root $repaired.package_path) | Select-Object -ExpandProperty Name)
+        Assert-True ($recoveryPackageNames -contains 'MANIFEST.json' -and $recoveryPackageNames -contains 'REVIEW_ASSIGNMENT.json') 'recovered review package contains MANIFEST.json and REVIEW_ASSIGNMENT.json'
+        $consumingResponseJson=Invoke-ExternalReviewWorker -AssignmentPath (Join-Path $recoveryProject.Root $repaired.assignment_path) -Outcome PASS -Reason 'approved'
+        $null=Invoke-AidosReviewConsumer -ProjectRoot $recoveryProject.Root -ResponseJson $consumingResponseJson
+        Assert-Throws { & (Get-PwshExecutable) -NoLogo -NoProfile -File $recoveryEntryPoint -ProjectRoot $recoveryProject.Root -Mode RepairLegacyCorrelation -ExecutionPath $recoveryProject.ExecutionPath } 'GPT_REVIEWING|decision|consumed|CLEANED'
+        $recoveryEvents=@(Get-ChildItem (Join-Path $recoveryProject.Root '.aidos/events') -Filter '*.jsonl' | ForEach-Object { Get-Content $_.FullName } | ForEach-Object { ($_ | ConvertFrom-Json).event_type })
+        Assert-True ($recoveryEvents -contains 'LEGACY_REVIEW_ASSIGNMENT_CORRELATION_REPAIRED') 'legacy correlation repair event is emitted'
+    } finally { Remove-Item -LiteralPath $recoveryProject.Root -Recurse -Force }
+
+    $tamperRecoveryProject=New-TestProject
+    try {
+        $tamperRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$tamperRecoveryProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $tamperExecution=Invoke-AidosCodexExecution $tamperRecoveryProject.Root $tamperRecoveryProject.ExecutionPath $tamperRuntime 'tamper assignment repair smoke'
+        Assert-True ($tamperExecution.validation_status -eq 'PASS') 'tamper assignment repair smoke reaches publishable evidence'
+        $tamperPublished=Publish-AidosReviewPackage $tamperRecoveryProject.Root $tamperRecoveryProject.ExecutionPath
+        $tamperAssignmentPath=Join-Path $tamperRecoveryProject.Root $tamperPublished.assignment_path
+        $tamperedAssignment=Read-AidosJson $tamperAssignmentPath
+        $tamperedAssignment.reviewer_identity='malicious-reviewer'
+        Write-Json $tamperAssignmentPath $tamperedAssignment
+        Assert-Throws { & (Get-PwshExecutable) -NoLogo -NoProfile -File (Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/Invoke-AidosReview.ps1') -ProjectRoot $tamperRecoveryProject.Root -Mode RepairLegacyCorrelation -ExecutionPath $tamperRecoveryProject.ExecutionPath } 'stale or mismatched|bridge-bound|hash mismatch'
+    } finally { Remove-Item -LiteralPath $tamperRecoveryProject.Root -Recurse -Force }
+
+    $manifestRecoveryProject=New-TestProject
+    try {
+        $manifestRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$manifestRecoveryProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $manifestExecution=Invoke-AidosCodexExecution $manifestRecoveryProject.Root $manifestRecoveryProject.ExecutionPath $manifestRuntime 'manifest mismatch repair smoke'
+        Assert-True ($manifestExecution.validation_status -eq 'PASS') 'manifest mismatch repair smoke reaches publishable evidence'
+        $manifestPublished=Publish-AidosReviewPackage $manifestRecoveryProject.Root $manifestRecoveryProject.ExecutionPath
+        $manifestPath=Join-Path $manifestRecoveryProject.Root $manifestPublished.manifest_path
+        $manifest=Read-AidosJson $manifestPath
+        $manifest.evidence_refs=@()
+        Write-Json $manifestPath $manifest
+        Assert-Throws { & (Get-PwshExecutable) -NoLogo -NoProfile -File (Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/Invoke-AidosReview.ps1') -ProjectRoot $manifestRecoveryProject.Root -Mode RepairLegacyCorrelation -ExecutionPath $manifestRecoveryProject.ExecutionPath } 'manifest hash mismatch|stale or mismatched'
+    } finally { Remove-Item -LiteralPath $manifestRecoveryProject.Root -Recurse -Force }
 
     $repairProject=New-TestProject
     try {
@@ -192,7 +299,8 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         $repairExecution=Invoke-AidosCodexExecution $repairProject.Root $repairProject.ExecutionPath $repairRuntime 'repair review smoke'
         Assert-True ($repairExecution.validation_status -eq 'PASS') 'repair review smoke reaches publishable evidence'
         $repairPublished=Publish-AidosReviewPackage $repairProject.Root $repairProject.ExecutionPath
-        $repairOutcome=Invoke-AidosReviewConsumer -ProjectRoot $repairProject.Root -ReviewId $repairPublished.review_id -Outcome REPAIR -Reason 'needs follow-up'
+        $repairResponseJson=Invoke-ExternalReviewWorker -AssignmentPath (Join-Path $repairProject.Root $repairPublished.assignment_path) -Outcome REPAIR -Reason 'needs follow-up'
+        $repairOutcome=Invoke-AidosReviewConsumer -ProjectRoot $repairProject.Root -ResponseJson $repairResponseJson
         $repairState=Get-AidosState $repairProject.Root
         Assert-True ($repairState.state -eq 'TASK_READY' -and $repairState.revision -eq 1 -and $repairState.review_id -eq $null) 'REPAIR returns TASK_READY without inventing a new revision'
         $repairRecord=Read-AidosJson (Join-Path $repairProject.Root ".aidos/reviews/$($repairPublished.review_id)/REVIEW.json")
@@ -205,9 +313,20 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         $reconcileExecution=Invoke-AidosCodexExecution $reconcileProject.Root $reconcileProject.ExecutionPath $reconcileRuntime 'reconcile review smoke'
         Assert-True ($reconcileExecution.validation_status -eq 'PASS') 'reconciliation smoke reaches publishable evidence'
         $reconcilePublished=Publish-AidosReviewPackage $reconcileProject.Root $reconcileProject.ExecutionPath
-        $null=Set-AidosReviewDecision -ProjectRoot $reconcileProject.Root -ReviewId $reconcilePublished.review_id -Outcome PASS -Reason 'approved'
+        $reconcileResponseJson=Invoke-ExternalReviewWorker -AssignmentPath (Join-Path $reconcileProject.Root $reconcilePublished.assignment_path) -Outcome PASS -Reason 'approved'
+        $reconcileResponse=$reconcileResponseJson | ConvertFrom-Json -Depth 100
+        $reconcileRecord=Read-AidosReviewRecord $reconcileProject.Root $reconcilePublished.review_id
+        $reconcileRecord.response=$reconcileResponse
+        $reconcileRecord.response_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($reconcileResponseJson))).ToLowerInvariant()
+        $reconcileRecord.response_received_at=[DateTimeOffset]::UtcNow.ToString('o')
+        $reconcileRecord.response_received_by=$reconcileResponse.reviewer_identity
+        $reconcileRecord.response_accepted_at=$null
+        $reconcileRecord.response_accepted_by=$null
+        $reconcileRecord.decision=$null
+        $reconcileRecord.transport_state='PUBLISHED'
+        Write-AidosReviewRecordAtomic $reconcileProject.Root $reconcilePublished.review_id $reconcileRecord
         $beforeReconcile=Get-AidosState $reconcileProject.Root
-        Assert-True ($beforeReconcile.state -eq 'IDLE' -and $beforeReconcile.review_id -eq $null) 'decision recorded before reconciliation still leaves project in target state'
+        Assert-True ($beforeReconcile.state -eq 'GPT_REVIEWING' -and $beforeReconcile.review_id -eq $reconcilePublished.review_id) 'response stored before reconciliation still leaves project in review state'
         $reconciled=Invoke-AidosReviewReconciliation $reconcileProject.Root
         Assert-True ($reconciled.status -eq 'CLEANED') 'reconciliation completes consume and cleanup after an interrupted review'
         $reconciledRecord=Read-AidosJson (Join-Path $reconcileProject.Root ".aidos/reviews/$($reconcilePublished.review_id)/REVIEW.json")
@@ -220,12 +339,11 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         $tamperExecution=Invoke-AidosCodexExecution $tamperProject.Root $tamperProject.ExecutionPath $tamperRuntime 'tamper review smoke'
         Assert-True ($tamperExecution.validation_status -eq 'PASS') 'tamper review smoke reaches publishable evidence'
         $tamperPublished=Publish-AidosReviewPackage $tamperProject.Root $tamperProject.ExecutionPath
-        $tamperedRecord=Read-AidosJson (Join-Path $tamperProject.Root ".aidos/reviews/$($tamperPublished.review_id)/REVIEW.json")
-        $tamperedRecord.review_id='WRONG-REVIEW-ID'
-        Write-AidosReviewRecordAtomic $tamperProject.Root $tamperPublished.review_id $tamperedRecord
-        Assert-Throws { Invoke-AidosReviewConsumer -ProjectRoot $tamperProject.Root -ReviewId $tamperPublished.review_id -Outcome PASS -Reason 'tampered' } 'stale or mismatched|hash mismatch'
-        $tamperRecovery=Invoke-AidosReviewReconciliation $tamperProject.Root
-        Assert-True ($tamperRecovery.status -eq 'RECOVERY_REQUIRED') 'tampered review binding fails closed to recovery'
+        $tamperedAssignment=Read-AidosJson (Join-Path $tamperProject.Root $tamperPublished.assignment_path)
+        $tamperedAssignment.reviewer_identity='malicious-reviewer'
+        $tamperedAssignmentPath=Join-Path $tamperProject.Root 'tampered-assignment.json'
+        Write-Json $tamperedAssignmentPath $tamperedAssignment
+        Assert-Throws { Invoke-ExternalReviewWorker -AssignmentPath $tamperedAssignmentPath -Outcome PASS -Reason 'tampered' } 'Worker stub failed'
     } finally { Remove-Item -LiteralPath $tamperProject.Root -Recurse -Force }
 
     $blockedProject=New-TestProject

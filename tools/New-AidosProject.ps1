@@ -128,6 +128,8 @@ if ($PSCmdlet.ShouldProcess($aidos, 'Initialize private AIDOS runtime state agai
             worker = 'agents/WORKER_AGENT.md'
             execution = 'agents/EXECUTION_AGENT.md'
         }
+        reviewer_role = 'WORKER_AGENT'
+        reviewer_identity = 'agents/WORKER_AGENT.md'
         project_specific_sources = @()
         project_constraints = @()
         executor = [ordered]@{ model = 'gpt-5.4-mini'; reasoning_effort = 'medium' }

@@ -54,21 +54,21 @@ On `TER_REVIEW`:
 3. verify Launch Definition/release binding when applicable;
 4. verify terminal legitimacy and acceptance evidence;
 5. perform Definition convergence against the desired delta;
-6. determine whether new evidence reveals a **Discovery Closure failure**, including:
+6. verify the exact `REVIEW_ASSIGNMENT` / `REVIEW_RESPONSE` envelope pair, reviewer identity and manifest hash;
+7. determine whether new evidence reveals a **Discovery Closure failure**, including:
    - materially relevant first-party component omitted from CPS;
    - `FIRST_PARTY_MATERIAL` dependency not recursively discovered;
    - known reasonably observable public/passive runtime omitted or still `NOT_OBSERVED`;
    - material source/runtime reference that does not resolve;
    - other evidence showing the accepted CPS was materially stale/wrong;
-7. when release-scoped, perform Launch Definition convergence and classify release findings;
-8. verify scope/authority and cleanup/final-state requirements;
-9. decide exactly one of:
-   - `ACCEPTED`;
+8. when release-scoped, perform Launch Definition convergence and classify release findings;
+9. verify scope/authority and cleanup/final-state requirements;
+10. decide exactly one of:
+   - `PASS`;
    - `REPAIR` — technical correction inside accepted Definition/release scope;
-   - `CONTRADICTION` — desired product Definition must be reopened;
+   - `BLOCKER` — human authority/reasoning required;
    - `DISCOVERY_REFRESH_REQUIRED` — objective current-product reconstruction/closure must return to AIDOS-Builder;
-   - `GATE`/`BLOCKED` — human authority/reasoning required;
-   - `RELEASE_READY` — all frozen launch criteria PASS with no launch blocker.
+   - `WAITING_INTERACTIVE_SESSION` — interactive policy blocks the next step.
 
 ## Discovery Closure boundary
 

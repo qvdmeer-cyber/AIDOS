@@ -19,17 +19,18 @@ When a frozen Launch Definition applies, review additionally evaluates release r
 3. Launch Definition/release binding where applicable.
 4. Terminal legitimacy.
 5. Acceptance check and validator/evidence integrity.
-6. Definition convergence: delivered desired delta versus accepted intent.
-7. Existing-product current-state reconciliation:
+6. Review assignment integrity and response integrity: exact `REVIEW_ASSIGNMENT` / `REVIEW_RESPONSE` binding, reviewer identity, manifest hash, replay/idempotency and evidence refs.
+7. Definition convergence: delivered desired delta versus accepted intent.
+8. Existing-product current-state reconciliation:
    - did this execution itself cause the changed state?;
    - or did evidence expose an omitted material first-party component/dependency branch?;
    - or did evidence expose missing reasonably observable runtime?
    - or was the bound CPS otherwise materially stale/wrong before execution?
-8. Launch Definition convergence where applicable.
-9. Release-finding classification where applicable.
-10. Scope/authority compliance.
-11. Cleanup/final-state requirements.
-12. Learning candidates.
+9. Launch Definition convergence where applicable.
+10. Release-finding classification where applicable.
+11. Scope/authority compliance.
+12. Cleanup/final-state requirements.
+13. Learning candidates.
 
 ## Outcomes
 

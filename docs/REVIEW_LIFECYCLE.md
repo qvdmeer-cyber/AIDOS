@@ -22,11 +22,15 @@ For the local bridge implementation the first transport carrier is a secret-free
 
 ```text
 .aidos/runtime/reviews/<review_id>/
+├─ REVIEW_ASSIGNMENT.json
 ├─ MANIFEST.json
 └─ ACK.json
 ```
 
 The durable review record binds the exact project/definition/execution/revision identity and keeps the package locator as a historical reference only.
+The bridge publishes a canonical `REVIEW_ASSIGNMENT` envelope into the ephemeral package, a
+separate Worker/GPT process returns a canonical `REVIEW_RESPONSE` envelope, and the bridge alone
+records the durable response/decision/correlation trail.
 
 Example conceptual ref:
 
@@ -42,11 +46,13 @@ A normal deletion commit on the durable development branch is not sufficient cle
 Codex terminal state
 → push code/checkpoint
 → create fresh ephemeral review package
-→ publish manifest + minimum missing evidence
+→ publish assignment + manifest + minimum missing evidence
 → REVIEW_READY
 → publish review transport
 → GPT_REVIEWING
-→ Worker consumes exact review_id/manifest
+→ optional explicit recovery upgrade for legacy GPT_REVIEWING packages
+→ external Worker/GPT consumes exact assignment/manifest
+→ review response persisted durably
 → review decision persisted durably
 → consume acknowledged durably
 → REVIEW_CONSUMED

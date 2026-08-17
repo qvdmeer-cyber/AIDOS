@@ -137,7 +137,10 @@ AIDOS must not return to feature discovery merely because another improvement is
 - `CONTEXT_ROTATION_REQUIRED` — current GPT/Codex context must not resume;
 - `RECOVERY_REQUIRED` — durable state requires reconciliation.
 - `REVIEW_READY` — execution evidence passed; review transport has not yet been published.
-- `GPT_REVIEWING` — review transport is published and a Worker/GPT consumer is permitted to decide.
+- `GPT_REVIEWING` — review transport is published, the assignment envelope is available and a
+  Worker/GPT consumer is permitted to return a bound response.
+- `REVIEW_RECOVERY_REQUIRED` — a published review needs explicit bridge recovery before it can be
+  consumed safely.
 - `EXECUTION_VALIDATION_FAILED` — Codex terminated, but declared deterministic execution evidence is absent or failed; session and terminal evidence remain available for a bounded repair revision.
 - `EXECUTION_DISPATCH_BOUND` — revision-scoped dispatch metadata rebound while the project remains in `TASK_READY`.
 

@@ -4,7 +4,7 @@
   "title": "AIDOS Review Package Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "package_type", "review_id", "project_id", "project_root", "definition_id", "definition_version", "execution_id", "revision", "review_record_path", "terminal_result_path", "validation_result_path", "events_path", "stderr_path", "git_head", "evidence_refs", "published_at"],
+  "required": ["schema_version", "package_type", "review_id", "project_id", "project_root", "definition_id", "definition_version", "execution_id", "revision", "assignment_path", "review_record_path", "terminal_result_path", "validation_result_path", "events_path", "stderr_path", "git_head", "evidence_refs", "published_at"],
   "properties": {
     "schema_version": {"type": "string", "const": "0.1"},
     "package_type": {"type": "string", "const": "REVIEW_PACKAGE"},
@@ -15,6 +15,7 @@
     "definition_version": {"type": "integer", "minimum": 1},
     "execution_id": {"type": "string", "minLength": 1},
     "revision": {"type": "integer", "minimum": 1},
+    "assignment_path": {"type": "string", "minLength": 1},
     "review_record_path": {"type": "string", "minLength": 1},
     "terminal_result_path": {"type": "string", "minLength": 1},
     "validation_result_path": {"type": "string", "minLength": 1},

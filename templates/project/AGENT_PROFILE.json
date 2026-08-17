@@ -6,6 +6,8 @@
     "worker": "agents/WORKER_AGENT.md",
     "execution": "agents/EXECUTION_AGENT.md"
   },
+  "reviewer_role": "WORKER_AGENT",
+  "reviewer_identity": "agents/WORKER_AGENT.md",
   "project_specific_sources": [],
   "project_constraints": [],
   "executor": {
