@@ -1,0 +1,78 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$temp = Join-Path ([System.IO.Path]::GetTempPath()) ('aidos-autodefine-' + [guid]::NewGuid().ToString('N'))
+$project = Join-Path $temp 'project'
+$contracts = Join-Path $temp 'contracts'
+New-Item -ItemType Directory -Path (Join-Path $contracts 'catalog') -Force | Out-Null
+New-Item -ItemType Directory -Path $project -Force | Out-Null
+
+try {
+    $policy = [ordered]@{
+        contract_version='0.1.0'
+        authority_classifications=@('SYSTEM_INVARIANT','REPO_VERIFIABLE','AUTO_DECIDABLE','HUMAN_REQUIRED')
+        confidence_levels=@('HIGH','MEDIUM','LOW','NOT_APPLICABLE')
+        reversibility_levels=@('REVERSIBLE','CONDITIONALLY_REVERSIBLE','IRREVERSIBLE','NOT_APPLICABLE')
+        impact_levels=@('NONE','LOW','MEDIUM','HIGH')
+        auto_decision_policy=[ordered]@{}
+    }
+    $policy | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $contracts 'catalog\decision-authority.catalog.json') -Encoding UTF8
+
+    & (Join-Path $repoRoot 'tools\New-AidosDefinitionProgress.ps1') -ProjectRoot $project -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1
+
+    function New-AssessmentJson([string]$Confidence='HIGH',[string]$Reversibility='REVERSIBLE',[bool]$Equivalent=$false,[bool]$Within=$true,[string]$Impact='LOW',[string]$Missing='LOW') {
+        [ordered]@{
+            contract_version='0.1.0'
+            authority_classification='AUTO_DECIDABLE'
+            confidence=$Confidence
+            reversibility=$Reversibility
+            within_authority=$Within
+            materially_equivalent_alternatives=$Equivalent
+            alternatives_count=0
+            impacts=[ordered]@{ product_business=$Impact; security_privacy='LOW'; destructive='NONE'; external_cost_commitment='NONE'; compatibility='LOW'; blast_radius='LOW' }
+            missing_evidence=$Missing
+            rationale='Regression test assessment.'
+            evidence_refs=@('test:evidence')
+            source_refs=@('test:source')
+            assessed_by=[ordered]@{actor='DEFINITION_AGENT';model='test-model';session_id='test'}
+            assessed_at=[DateTimeOffset]::UtcNow.ToString('o')
+        } | ConvertTo-Json -Depth 20 -Compress
+    }
+
+    $create = Join-Path $repoRoot 'tools\New-AidosDefinitionAutoDecision.ps1'
+    $validate = Join-Path $repoRoot 'tools\Test-AidosAutoDecision.ps1'
+
+    $first = & $create -ProjectRoot $project -ContractsRoot $contracts -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1 -TargetType DEFINITION_SURFACE -SurfaceId goal_scope -ChosenValueJson '"bounded goal"' -Rationale 'High-confidence reversible choice.' -AssessmentJson (New-AssessmentJson) -DecidedByActor DEFINITION_AGENT -DecidedByModel test-model
+    if ([string]::IsNullOrWhiteSpace($first.decision_id)) { throw 'Expected HIGH-confidence Auto Decision to be created.' }
+    $firstPath = Join-Path $project ($first.decision_ref -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+    $validation = & $validate -DecisionPath $firstPath -ContractsRoot $contracts -NoExit
+    if (-not $validation.pass) { throw 'Expected persisted HIGH-confidence Auto Decision to validate.' }
+
+    $blocked = 0
+    foreach ($case in @(
+        @{name='LOW confidence'; assessment=(New-AssessmentJson -Confidence LOW)},
+        @{name='equivalent alternatives'; assessment=(New-AssessmentJson -Equivalent $true)},
+        @{name='outside authority'; assessment=(New-AssessmentJson -Within $false)},
+        @{name='material impact'; assessment=(New-AssessmentJson -Impact MEDIUM)},
+        @{name='medium not fully reversible'; assessment=(New-AssessmentJson -Confidence MEDIUM -Reversibility CONDITIONALLY_REVERSIBLE)}
+    )) {
+        try {
+            & $create -ProjectRoot $project -ContractsRoot $contracts -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1 -TargetType DEFINITION_SURFACE -SurfaceId goal_scope -ChosenValueJson '"should-fail"' -Rationale $case.name -AssessmentJson $case.assessment -DecidedByActor DEFINITION_AGENT | Out-Null
+            throw "Expected Auto Define to reject: $($case.name)"
+        } catch {
+            if ($_.Exception.Message -like 'Expected Auto Define to reject:*') { throw }
+            $blocked++
+        }
+    }
+    if ($blocked -ne 5) { throw "Expected 5 blocked cases, got $blocked." }
+
+    $medium = & $create -ProjectRoot $project -ContractsRoot $contracts -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1 -TargetType DEFINITION_SURFACE -SurfaceId goal_scope -ChosenValueJson '"medium-reversible"' -Rationale 'Medium but reversible.' -AssessmentJson (New-AssessmentJson -Confidence MEDIUM -Reversibility REVERSIBLE) -DecidedByActor DEFINITION_AGENT -SupersedesDecisionId $first.decision_id
+    $prior = Get-Content -LiteralPath $firstPath -Raw | ConvertFrom-Json -Depth 50
+    if ($prior.superseded_by -ne $medium.decision_id) { throw 'Supersession lineage was not persisted.' }
+
+    Write-Host 'AIDOS Auto Define tests PASS.'
+}
+finally {
+    if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
+}
