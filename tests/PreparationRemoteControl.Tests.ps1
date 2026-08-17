@@ -18,7 +18,7 @@ try{
     & git -C $work add .;& git -C $work commit -m seed|Out-Null;& git -C $work branch -M main;& git -C $work push -u origin main|Out-Null
     $project=Register-AidosPreparationProject -RegistryRoot $registry -ProjectId 'REMOTE-SMOKE' -Repository $bare -LocalRoot $work -AllowedPersistencePaths @('.aidos')
 
-    & git clone $bare $publisher|Out-Null;& git -C $publisher config user.email 'transport@test.invalid';& git -C $publisher config user.name 'Transport Test'
+    & git clone -b main $bare $publisher|Out-Null;& git -C $publisher config user.email 'transport@test.invalid';& git -C $publisher config user.name 'Transport Test'
     $intentId='intent-1';$intentPath=Join-Path $publisher ".aidos/control/intents/$intentId.json"
     [ordered]@{schema_version='0.1';control_id=$intentId;command='SUBMIT_HUMAN_INPUT';project_id='REMOTE-SMOKE';workstream_id=$null;requested_by='human';status='RECEIVED';payload=[ordered]@{request_id=$requestId;selected_option_id='A';text=$null};submitted_at=$now;applied_at=$null;result=$null}|ConvertTo-Json -Depth 30|Set-Content -LiteralPath $intentPath -Encoding utf8NoBOM
     & git -C $publisher add .;& git -C $publisher commit -m 'Submit Human Input A'|Out-Null;& git -C $publisher push|Out-Null
