@@ -1,6 +1,12 @@
 # Windows interactive session gate
 
-The desktop ChatGPT transport is permitted to interact with the Windows UI only when the runner can prove a usable interactive user session. Machine/session availability is an infrastructure condition; it is not a project/workflow state transition.
+The desktop ChatGPT transport may interact with the Windows UI only when the runner can prove that its logged-on user session is not locked and has not disappeared. RDP connectivity is an observation and remote-control channel; it is not runtime authority.
+
+## Intended dedicated-machine behavior
+
+AIDOS continues autonomously while the machine is powered and the bound Windows user session remains unlocked, including when an RDP client disconnects. AIDOS pauses interactive ChatGPT work only when Windows security/session state actually removes that authority, most importantly when the session is locked or no longer valid.
+
+Sleep, hibernate and power-off suspend or terminate the process rather than creating an AIDOS workflow state. After resume/restart, the bridge must re-query current Windows state before any new interactive action.
 
 ## Native observation
 
@@ -10,26 +16,30 @@ The desktop ChatGPT transport is permitted to interact with the Windows UI only 
 - `WTSQuerySessionInformationW(..., WTSSessionInfoEx)` supplies connection and lock state;
 - `WTSQuerySessionInformationW(..., WTSClientProtocolType)` distinguishes console (`0`) from RDP (`2`);
 - `WTSGetActiveConsoleSessionId` records the physical-console session for diagnostics;
-- `OpenInputDesktop` proves that the caller can open the current input desktop.
+- `OpenInputDesktop` records desktop readiness for the transport.
 
-A failed or partial observation never implies permission. Unknown state fails closed.
+A failed or partial WTS observation never implies permission. Unknown lock/session identity fails closed.
 
-## Eligibility
+## Machine/session eligibility
 
 Both `SUPERVISED` and the current desktop implementation of `UNATTENDED_ALLOWED` require:
 
 ```text
-connection_state = ACTIVE
+session_id == process_session_id
 lock_state = UNLOCKED
 session_kind in { CONSOLE, RDP }
-input_desktop_available = true
+connection_state not in { DOWN, RESET, LISTEN, INIT, UNKNOWN }
 ```
 
-`UNATTENDED_ALLOWED` means that no human trigger is required while Windows already provides an approved interactive desktop. It does not authorize authentication bypass, automatic unlock, credential injection, security-desktop manipulation, or UI automation against a locked/disconnected desktop.
+`connection_state = DISCONNECTED` is explicitly allowed for an RDP session. Disconnecting an RDP client does not close the logged-on Windows session, and therefore does not itself revoke AIDOS runtime authority.
+
+`input_desktop_available` is no longer a machine-authorization condition. It is transport readiness. During an RDP connect/disconnect transition, UI/Desktop APIs may be temporarily unavailable even though the session remains unlocked. That condition is classified as `DESKTOP_TRANSITION_UNAVAILABLE` and automatically retried; it is not a human wait condition.
+
+`UNATTENDED_ALLOWED` still does not authorize authentication bypass, automatic unlock, credential injection, security-desktop manipulation, or UI automation against a genuinely locked session.
 
 ## Durable waiting overlay
 
-The canonical project remains `REVIEW_READY` while an assignment has not yet been consumed. The desktop adapter's existing transport phase is also preserved:
+The canonical project remains `REVIEW_READY`/`GPT_REVIEWING` according to the existing review lifecycle. The desktop adapter's transport phase is preserved independently:
 
 ```text
 PREPARED
@@ -39,60 +49,61 @@ VALIDATED
 HANDOFF_COMPLETE
 ```
 
-Temporary Windows availability is stored orthogonally in `ADAPTER_STATE.json`:
+A genuine machine/session block can be represented orthogonally in `ADAPTER_STATE.json`:
 
 ```json
 {
   "status": "SENT",
   "interactive_session": {
     "status": "WAITING",
-    "reason": "SESSION_DISCONNECTED",
+    "reason": "SESSION_LOCKED",
     "session_kind": "RDP"
   }
 }
 ```
 
-The previous compatibility form in which `WAITING_INTERACTIVE_SESSION` replaced `status` is normalized on the next gated invocation. In particular, `delivery_status=SENT` becomes `status=SENT`; reconnect can therefore never authorize a blind resend.
+A transient desktop transition may temporarily use the same overlay with `reason=DESKTOP_TRANSITION_UNAVAILABLE`, but the normal launcher automatically retries it. `WAITING` with `reason=NONE` is invalid.
 
-## Resume behavior
+## RDP disconnect semantics
 
-`bridge/AidosDesktopSessionGate.psm1` wraps the proven desktop adapter without changing its send/read/validation implementation.
-
-When the native gate blocks interaction:
-
-1. the underlying adapter writes its safe waiting result;
-2. the wrapper normalizes it to the original transport phase plus `interactive_session=WAITING`;
-3. `INTERACTIVE_SESSION_WAIT_STARTED` is recorded when possible;
-4. the launcher waits by repeatedly querying current Windows state unless waiting was explicitly disabled;
-5. after the session becomes eligible, `interactive_session=AVAILABLE` and `INTERACTIVE_SESSION_WAIT_ENDED` are recorded;
-6. the exact same review invocation resumes through the existing adapter state.
-
-Because `PREPARED` and `SENT` survive the wait, unlock/reconnect cannot duplicate Codex execution, review publication, assignment send, accepted response, consume acknowledgement, or cleanup.
-
-The polling loop is a wake mechanism only. Every retry obtains a fresh native snapshot; no lock/unlock event or prior observation is treated as authority.
-
-## Launcher policy
-
-`Invoke-AidosDesktopChatGPT.ps1` defaults to:
+RDP transitions are explicitly modeled but do not pause AIDOS:
 
 ```text
-SessionPolicy = SUPERVISED
-WaitForInteractiveSession = true
-InteractiveSessionPollSeconds = 2
-InteractiveSessionWaitTimeoutSeconds = 0  # no timeout
+RDP ACTIVE + UNLOCKED
+→ RDP DISCONNECTED + UNLOCKED
+→ AIDOS remains authorized
+→ desktop transport retries transient UI/Desktop transition if needed
+→ ChatGPT send/read continues if the disconnected session exposes usable UI Automation
 ```
 
-For diagnostic/manual runs, `-WaitForInteractiveSession:$false` persists the waiting overlay and returns immediately. A later invocation resumes from the persisted `PREPARED` or `SENT` phase.
+The final capability boundary is empirical: Windows preserves the disconnected session, but ChatGPT Classic/Chromium UI Automation must be machine-tested while disconnected. If UIA itself does not remain functional for long-lived disconnected sessions, the next architecture step is a stable local-console desktop agent, not treating RDP connection as authority and not bypassing Windows security.
+
+## Lock semantics
+
+Lock is different from disconnect:
+
+```text
+UNLOCKED
+→ LOCKED
+→ already-running non-interactive Codex may finish
+→ durable evidence/review state may be written
+→ no new interactive ChatGPT action starts
+→ UNLOCK restores eligibility after a fresh native query
+```
+
+Unlock never creates new work and never resets transport phase; existing idempotency remains authoritative.
 
 ## Dedicated-machine acceptance smoke
 
 The milestone is accepted only after the dedicated Windows machine proves at least:
 
-- console unlocked -> available;
-- console lock before send -> no send, phase `PREPARED` preserved;
+- active RDP unlocked -> eligible;
+- RDP disconnect while unlocked -> remains machine-policy eligible;
+- RDP disconnect before send -> same review continues without requiring reconnect, if ChatGPT UIA remains usable;
+- transient desktop unavailability during disconnect -> automatic retry, no duplicate send;
+- RDP reconnect -> no duplicate work;
+- lock before send -> no send, phase `PREPARED` preserved;
 - unlock -> one send;
-- lock/disconnect after `SENT` -> `SENT` preserved and no resend;
-- RDP disconnect -> unavailable;
-- RDP reconnect -> resume exactly once;
-- bridge restart while waiting -> same review/revision resumes without duplicate work;
+- lock after `SENT` -> `SENT` preserved and no resend;
+- bridge restart while genuinely waiting -> same review/revision resumes without duplicate work;
 - unknown/native query failure -> fail closed.
