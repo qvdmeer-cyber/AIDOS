@@ -8,9 +8,6 @@ Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -Disab
 
 function Get-AidosHostAgentDefaultStateRoot {
     if(-not $IsWindows){ return (Join-Path ([IO.Path]::GetTempPath()) 'AIDOS-host-agent') }
-    # The agent is deliberately bound to one authenticated interactive user;
-    # keeping its operational ledger in that user's profile avoids requiring a
-    # privileged service or a writable machine-wide directory.
     Join-Path $env:LOCALAPPDATA 'AIDOS\host-agent'
 }
 function Get-AidosHostAgentPath { param([string]$StateRoot,[ValidateSet('lease','status','stop','events')][string]$Kind)
@@ -78,29 +75,20 @@ function Invoke-AidosHostAgentTick {
     $shell=if($auth.allowed){if($ShellHealthProvider){& $ShellHealthProvider $ProcessName ([int]$snapshot.session_id)}else{Get-AidosHostAgentShellHealth -ProcessName $ProcessName -ExpectedSessionId ([int]$snapshot.session_id)}}else{[pscustomobject]@{status='NOT_CHECKED';reason=$auth.reason}}
     $result=[ordered]@{status='IDLE';authorized=$auth.allowed;reason=$auth.reason;snapshot=$snapshot;shell=$shell;project_result=$null}
     if(-not $auth.allowed){$result.status='WAITING_INFRASTRUCTURE';return [pscustomobject]$result}
-    # Recovery is safe while the session is unlocked. It only projects durable state.
     $reconciled=if($ReviewReconciler){& $ReviewReconciler $ProjectRoot}else{Invoke-AidosReviewReconciliation -ProjectRoot $ProjectRoot}
     $result.project_result=$reconciled
-    # A decision is already durable bridge state.  Reconciliation owns its
-    # consume/cleanup path, and the desktop transport must never act on it.
     if([string]$reconciled.status -ne 'PUBLISHED'){ $result.status=[string]$reconciled.status;return [pscustomobject]$result }
     $reviewId=[string]$reconciled.review_id;$record=Read-AidosReviewRecord $ProjectRoot $reviewId
     if(-not $record){$result.status='RECOVERY_REQUIRED';$result.reason='REVIEW_RECORD_MISSING';return [pscustomobject]$result}
     $adapterState=Read-AidosDesktopChatGPTState $ProjectRoot $reviewId
     $responsePath=Get-AidosDesktopChatGPTResponsePath $ProjectRoot $reviewId
     if($adapterState -and [string]$adapterState.status -eq 'HANDOFF_COMPLETE' -and (Test-Path -LiteralPath $responsePath -PathType Leaf)){
-        # HANDOFF_COMPLETE is a transport result, not a decision.  Keep the
-        # bridge consumer as the sole binding/hash validator.  A failure here
-        # must be visible and must never fall through to a new desktop send.
         try {$consumed=if($ReviewConsumer){& $ReviewConsumer $ProjectRoot $responsePath}else{Invoke-AidosReviewConsumer -ProjectRoot $ProjectRoot -ResponsePath $responsePath -Actor BRIDGE}}
         catch {$result.status='RECOVERY_REQUIRED';$result.reason="REVIEW_CONSUME_FAILED: $($_.Exception.Message)";return [pscustomobject]$result}
         $result.status='CONSUMED';$result.project_result=$consumed;return [pscustomobject]$result
     }
     if($shell.status -ne 'HEALTHY'){$result.status='WAITING_INFRASTRUCTURE';$result.reason='CHATGPT_SHELL_UNAVAILABLE';return [pscustomobject]$result}
     $assignmentPath=Get-AidosHostAgentAssignmentPath $ProjectRoot $reviewId $record
-    # Use the existing session-gate wrapper in non-blocking mode.  A lock or
-    # transition racing this tick is persisted by that adapter as its existing
-    # overlay, then this host loop re-observes before another attempt.
     $desktop=if($DesktopReviewInvoker){& $DesktopReviewInvoker $ProjectRoot $assignmentPath}else{AidosDesktopSessionGate\Invoke-AidosDesktopChatGPTReview -ProjectRoot $ProjectRoot -AssignmentPath $assignmentPath -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -WaitForInteractiveSession:$false}
     $result.status=[string]$desktop.status;$result.project_result=$desktop
     if([string]$desktop.status -eq 'HANDOFF_COMPLETE'){
@@ -117,15 +105,22 @@ function Start-AidosPersistentLocalDesktopAgent {
     $owner=[guid]::NewGuid().ToString();$failureCount=0;$null=Acquire-AidosHostAgentLease -StateRoot $StateRoot -OwnerId $owner
     try {
         Remove-Item -LiteralPath (Get-AidosHostAgentPath $StateRoot stop) -Force -ErrorAction SilentlyContinue
-        # The bridge, not this host ledger, determines what recovery means.
-        # Record the result but continue polling so a pending review can be
-        # reconciled when its durable state is eligible.
-        $startup=Invoke-AidosStartupReconciliation -ProjectRoot $ProjectRoot
-        Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTED' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;startup_reconciliation=$startup.status}
+        $boot=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='BOOTING';last_tick=$null;failure_count=0}
+        Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $boot
+        Add-AidosHostAgentEvent $StateRoot 'AGENT_BOOTING' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser}
+        try {
+            $startup=Invoke-AidosStartupReconciliation -ProjectRoot $ProjectRoot
+            Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTED' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;startup_reconciliation=$startup.status}
+        } catch {
+            $failureCount=1
+            $boot.phase='STARTUP_ERROR';$boot.failure_count=$failureCount;$boot.startup_error=$_.Exception.Message;$boot.heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $boot
+            Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTUP_ERROR' @{owner_id=$owner;error=$_.Exception.Message}
+        }
         do {
             try {$tick=Invoke-AidosHostAgentTick -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -ResponseTimeoutSeconds $ResponseTimeoutSeconds; $failureCount=0}
             catch {$tick=[pscustomobject]@{status='ERROR';reason=$_.Exception.Message};$failureCount=1+[int]$failureCount}
-            $status=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');last_tick=$tick;failure_count=$failureCount}
+            $status=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='RUNNING';last_tick=$tick;failure_count=$failureCount}
             Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $status
             Add-AidosHostAgentEvent $StateRoot 'TICK' @{status=(Get-AidosHostAgentProperty $tick 'status' 'UNKNOWN');reason=(Get-AidosHostAgentProperty $tick 'reason' $null)}
             if($Once -or (Test-Path -LiteralPath (Get-AidosHostAgentPath $StateRoot stop))){break};Start-Sleep -Seconds ([Math]::Min(60,[Math]::Max(1,$PollSeconds)*[Math]::Min(8,[Math]::Max(1,$failureCount+1))) )
