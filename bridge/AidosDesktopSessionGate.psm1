@@ -27,11 +27,6 @@ function New-AidosDesktopSessionGateBackend {
             try {
                 & $assertUnderlying | Out-Null
             } catch {
-                # RDP connect/disconnect can transiently invalidate the desktop between
-                # the WTS policy observation and the transport's own OpenInputDesktop
-                # assertion. Re-query lock/session state. If it is still authorized,
-                # classify this as a retryable desktop transition rather than as a
-                # locked/unavailable Windows session.
                 $fresh=if($provider){ & $provider }else{ Get-AidosInteractiveSessionSnapshot }
                 $freshDecision=Test-AidosInteractiveSessionPolicy -Snapshot $fresh -Policy $Policy
                 if(-not $freshDecision.allowed){
@@ -137,10 +132,7 @@ function Add-AidosDesktopInteractiveWaitEvent {
             session_kind=$Decision.snapshot.session_kind
             reason=$Decision.reason
         } | Out-Null
-    } catch {
-        # Availability persistence is authoritative for this gate. Telemetry/event
-        # emission must not corrupt an otherwise safe wait transition.
-    }
+    } catch {}
 }
 
 function Invoke-AidosDesktopChatGPTEnroll {
@@ -149,7 +141,7 @@ function Invoke-AidosDesktopChatGPTEnroll {
         [Parameter(Mandatory)][string]$ProjectRoot,
         [Parameter(Mandatory)][string]$ConversationProofText,
         [string]$AccountProofText='',
-        [string]$ProcessName='ChatGPT',
+        [string]$ProcessName='ChatGPT Classic',
         [object]$Backend,
         [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$SessionPolicy='SUPERVISED',
         [scriptblock]$SessionSnapshotProvider
@@ -171,7 +163,7 @@ function Invoke-AidosDesktopChatGPTReview {
         [Parameter(Mandatory)][string]$AssignmentPath,
         [string]$ConversationProofText='',
         [string]$AccountProofText='',
-        [string]$ProcessName='ChatGPT',
+        [string]$ProcessName='ChatGPT Classic',
         [int]$ResponseTimeoutSeconds=180,
         [object]$Backend,
         [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$SessionPolicy='SUPERVISED',
