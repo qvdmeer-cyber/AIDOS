@@ -60,11 +60,11 @@ if ($ProjectMode -eq 'EXISTING_PROJECT') {
     $discoveryState = Get-Content -LiteralPath $discoveryStatePath -Raw | ConvertFrom-Json -Depth 100
     $discoveryAuthority = Get-Content -LiteralPath $discoveryAuthorityPath -Raw | ConvertFrom-Json -Depth 100
 
-    if ($cps.contract_version -ne '0.2.0' -or $cps.discovery_catalog_version -ne '0.2.0') {
-        throw "Current Product State uses discovery contract/catalog '$($cps.contract_version)/$($cps.discovery_catalog_version)'. Current AIDOS requires Discovery Closure 0.2.0/0.2.0."
+    if ($cps.contract_version -ne '0.3.0' -or $cps.discovery_catalog_version -ne '0.3.0') {
+        throw "Current Product State uses discovery contract/catalog '$($cps.contract_version)/$($cps.discovery_catalog_version)'. Current AIDOS requires content-complete Discovery Closure 0.3.0/0.3.0. Refresh with AIDOS-Builder; older accepted CPS remains historical lineage."
     }
-    if ($discoveryState.contract_version -ne '0.2.0' -or $discoveryState.discovery_catalog_version -ne '0.2.0') {
-        throw 'Discovery state is not compatible with current Discovery Closure contracts.'
+    if ($discoveryState.contract_version -ne '0.3.0' -or $discoveryState.discovery_catalog_version -ne '0.3.0') {
+        throw 'Discovery state is not compatible with current content-complete Discovery Closure contracts (0.3.0).'
     }
     if ($discoveryState.status -ne 'ACCEPTED') {
         throw "Existing project discovery state is '$($discoveryState.status)'. Definition/runtime onboarding is blocked until Discovery Closure is ACCEPTED."
@@ -173,7 +173,7 @@ if ($PSCmdlet.ShouldProcess($aidos, 'Initialize private AIDOS runtime state agai
             project_mode = $ProjectMode
             baseline = '.aidos/documentation/PROJECT_BASELINE.json'
             current_product_state = if ($ProjectMode -eq 'EXISTING_PROJECT') { '.aidos/discovery/CURRENT_PRODUCT_STATE.json' } else { $null }
-            discovery_closure = if ($ProjectMode -eq 'EXISTING_PROJECT') { 'ACCEPTED' } else { $null }
+            discovery_closure = if ($ProjectMode -eq 'EXISTING_PROJECT') { 'ACCEPTED_CONTENT_COMPLETE_0.3.0' } else { $null }
         }
     }
     ($initialEvent | ConvertTo-Json -Depth 20 -Compress) | Set-Content -LiteralPath (Join-Path $aidos 'events\initial.jsonl') -Encoding UTF8
