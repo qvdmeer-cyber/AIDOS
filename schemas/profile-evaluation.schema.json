@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/profile-evaluation.schema.json",
+  "title": "AIDOS Profile Evaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","evaluation_id","project_id","preset_id","preset_version","period","metrics","signals","created_at"],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "evaluation_id":{"type":"string","minLength":1},
+    "project_id":{"type":"string","minLength":1},
+    "preset_id":{"type":"string","minLength":1},
+    "preset_version":{"type":"integer","minimum":1},
+    "period":{
+      "type":"object","additionalProperties":false,
+      "required":["from","to"],
+      "properties":{"from":{"type":"string","format":"date-time"},"to":{"type":"string","format":"date-time"}}
+    },
+    "metrics":{
+      "type":"object","additionalProperties":false,
+      "required":["defaults_suggested","defaults_accepted","defaults_overridden","evidence_contradictions","definition_questions_avoided","codex_executions","codex_repairs","gpt_handoffs","validator_preventions"],
+      "properties":{
+        "defaults_suggested":{"type":"integer","minimum":0},
+        "defaults_accepted":{"type":"integer","minimum":0},
+        "defaults_overridden":{"type":"integer","minimum":0},
+        "evidence_contradictions":{"type":"integer","minimum":0},
+        "definition_questions_avoided":{"type":"integer","minimum":0},
+        "codex_executions":{"type":"integer","minimum":0},
+        "codex_repairs":{"type":"integer","minimum":0},
+        "gpt_handoffs":{"type":"integer","minimum":0},
+        "validator_preventions":{"type":"integer","minimum":0}
+      }
+    },
+    "signals":{
+      "type":"array",
+      "items":{
+        "type":"object","additionalProperties":false,
+        "required":["type","summary","evidence_refs"],
+        "properties":{
+          "type":{"type":"string","enum":["PRESET_CONFIRMED","PRESET_OVERRIDDEN","EVIDENCE_CONTRADICTION","QUESTION_SAVED","VALIDATOR_PREVENTED_FAILURE","EXECUTION_RETRY_PATTERN","HANDOFF_PATTERN","OTHER"]},
+          "summary":{"type":"string","minLength":1},
+          "evidence_refs":{"type":"array","items":{"type":"string"}}
+        }
+      }
+    },
+    "created_at":{"type":"string","format":"date-time"}
+  }
+}
