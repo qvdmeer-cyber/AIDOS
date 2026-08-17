@@ -40,7 +40,20 @@ switch ($Mode) {
     }
     'Review' {
         if([string]::IsNullOrWhiteSpace($AssignmentPath)){ throw 'Review mode requires AssignmentPath.' }
-        $result=Invoke-AidosDesktopChatGPTReview -ProjectRoot $ProjectRoot -AssignmentPath $AssignmentPath -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -Backend $backend -SessionPolicy $SessionPolicy -WaitForInteractiveSession:$WaitForInteractiveSession -InteractiveSessionPollSeconds $InteractiveSessionPollSeconds -InteractiveSessionWaitTimeoutSeconds $InteractiveSessionWaitTimeoutSeconds
+        $retryStarted=[DateTimeOffset]::UtcNow
+        while($true){
+            try {
+                $result=Invoke-AidosDesktopChatGPTReview -ProjectRoot $ProjectRoot -AssignmentPath $AssignmentPath -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -Backend $backend -SessionPolicy $SessionPolicy -WaitForInteractiveSession:$WaitForInteractiveSession -InteractiveSessionPollSeconds $InteractiveSessionPollSeconds -InteractiveSessionWaitTimeoutSeconds $InteractiveSessionWaitTimeoutSeconds
+                break
+            } catch {
+                if($_.Exception.Message -ne 'Interactive wait was requested without a blocking or transient session reason.' -or -not $WaitForInteractiveSession){ throw }
+                $snapshot=Get-AidosInteractiveSessionSnapshot
+                $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $SessionPolicy
+                if(-not $decision.allowed){ throw }
+                if($InteractiveSessionWaitTimeoutSeconds -gt 0 -and ([DateTimeOffset]::UtcNow-$retryStarted).TotalSeconds -ge $InteractiveSessionWaitTimeoutSeconds){ throw }
+                Start-Sleep -Seconds ([Math]::Max(1,$InteractiveSessionPollSeconds))
+            }
+        }
         if($result.status -eq 'HANDOFF_COMPLETE' -and $result.response){
             $result.response | ConvertTo-Json -Depth 100
         } else {
