@@ -18,6 +18,9 @@ This repository is the single source of truth for the **private AIDOS runtime me
 - An old accepted CPS that predates stronger Discovery Closure is historical lineage, not current preparation authority.
 - If a missing material first-party component, missing observable runtime branch or stale CPS is discovered, transition to `DISCOVERY_REFRESH_REQUIRED`; do not absorb product reconstruction into Definition/Worker review.
 - Discovery Authority is separate from Execution Authority. Passive/read-only discovery permission never grants code mutation, deploy or other execution permission.
+- Definition completeness/progress is project-local durable state. Do not infer it from chat history when `PROGRESS.json` exists.
+- After every human Definition decision, persist the decision, update/validate all affected Definition surfaces, show the current **full per-surface progress**, and only then ask the next single question.
+- Do not advance a Definition to user review until all fixed Definition surfaces are `COMPLETE` or justified `NOT_APPLICABLE` and the Definition progress validator passes.
 - Generic private AIDOS runtime agents are defined once here; projects configure them rather than forking them.
 - Reusable learning must be generalized and retain provenance/evidence.
 - A generic heuristic may never silently override accepted Project Baseline, CPS, project truth, Definition or frozen Launch Definition.
@@ -52,11 +55,33 @@ open discovery blockers = 0
 
 ## Agent hierarchy
 
-1. **Definition Agent** — consumes accepted preparation state, defines one desired delta/goal and obtains human acceptance.
+1. **Definition Agent** — consumes accepted preparation state, maintains durable Definition-surface convergence state, defines one desired delta/goal and obtains human acceptance.
 2. **Worker Agent** — bounded planning, dispatch, review, CPS-staleness detection, release-scope discipline and state control.
 3. **Execution Agent** — technical execution only inside exact accepted bindings and authority.
 
 Project preparation happens before this hierarchy through AIDOS-Builder/AIDOS-Contracts.
+
+## Definition progress
+
+A Definition version maintains:
+
+```text
+.aidos/definitions/<definition_id>/v<version>/PROGRESS.json
+```
+
+against `catalog/definition-surfaces.catalog.json`.
+
+A new or rotated chat reads this durable object before continuing. Each human decision is a transaction:
+
+```text
+persist decision
+→ update affected surfaces
+→ recalculate/validate progress
+→ show every surface
+→ ask next question
+```
+
+The progress display is a control surface, not optional conversational decoration.
 
 ## Knowledge selection
 
@@ -99,7 +124,7 @@ After scope freeze classify new findings only as `LAUNCH_BLOCKER`, `POST_LAUNCH`
 
 Chats/sessions are disposable. Essential state must be reconstructable from project-repository state/events.
 
-AIDOS consumes but does not own/regenerate Project Baseline, Evidence Inventory, Discovery Authority, discovery state or CPS.
+AIDOS consumes but does not own/regenerate Project Baseline, Evidence Inventory, Discovery Authority, discovery state or CPS. Definition decisions and Definition-surface progress are likewise project-local durable state.
 
 ## Changes to AIDOS itself
 
