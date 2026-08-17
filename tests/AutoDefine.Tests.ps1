@@ -42,12 +42,18 @@ try {
 
     $create = Join-Path $repoRoot 'tools\New-AidosDefinitionAutoDecision.ps1'
     $validate = Join-Path $repoRoot 'tools\Test-AidosAutoDecision.ps1'
+    $validateDefinition = Join-Path $repoRoot 'tools\Test-AidosDefinitionDecisions.ps1'
+    $setSurface = Join-Path $repoRoot 'tools\Set-AidosDefinitionSurface.ps1'
 
     $first = & $create -ProjectRoot $project -ContractsRoot $contracts -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1 -TargetType DEFINITION_SURFACE -SurfaceId goal_scope -ChosenValueJson '"bounded goal"' -Rationale 'High-confidence reversible choice.' -AssessmentJson (New-AssessmentJson) -DecidedByActor DEFINITION_AGENT -DecidedByModel test-model
     if ([string]::IsNullOrWhiteSpace($first.decision_id)) { throw 'Expected HIGH-confidence Auto Decision to be created.' }
     $firstPath = Join-Path $project ($first.decision_ref -replace '/', [System.IO.Path]::DirectorySeparatorChar)
     $validation = & $validate -DecisionPath $firstPath -ContractsRoot $contracts -NoExit
     if (-not $validation.pass) { throw 'Expected persisted HIGH-confidence Auto Decision to validate.' }
+    & $setSurface -ProjectRoot $project -DefinitionId 'DEF-1' -DefinitionVersion 1 -SurfaceId goal_scope -Status COMPLETE -Summary 'Auto-defined goal.' -DecisionRef $first.decision_ref -AutoDecisionId $first.decision_id -AutoDecisionAt $first.decided_at
+
+    $initialDefinitionValidation = & $validateDefinition -ProjectRoot $project -ContractsRoot $contracts -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1 -NoExit
+    if (-not $initialDefinitionValidation.pass -or $initialDefinitionValidation.auto_decisions_current -ne 1) { throw 'Expected Definition decision lineage to validate with one current Auto Decision.' }
 
     $blocked = 0
     foreach ($case in @(
@@ -70,6 +76,11 @@ try {
     $medium = & $create -ProjectRoot $project -ContractsRoot $contracts -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1 -TargetType DEFINITION_SURFACE -SurfaceId goal_scope -ChosenValueJson '"medium-reversible"' -Rationale 'Medium but reversible.' -AssessmentJson (New-AssessmentJson -Confidence MEDIUM -Reversibility REVERSIBLE) -DecidedByActor DEFINITION_AGENT -SupersedesDecisionId $first.decision_id
     $prior = Get-Content -LiteralPath $firstPath -Raw | ConvertFrom-Json -Depth 50
     if ($prior.superseded_by -ne $medium.decision_id) { throw 'Supersession lineage was not persisted.' }
+    & $setSurface -ProjectRoot $project -DefinitionId 'DEF-1' -DefinitionVersion 1 -SurfaceId goal_scope -Status COMPLETE -Summary 'Superseding Auto Decision.' -DecisionRef $medium.decision_ref -AutoDecisionId $medium.decision_id -AutoDecisionAt $medium.decided_at
+
+    $lineage = & $validateDefinition -ProjectRoot $project -ContractsRoot $contracts -ProjectId 'TEST' -DefinitionId 'DEF-1' -DefinitionVersion 1 -NoExit
+    if (-not $lineage.pass) { throw "Expected Definition decision lineage to validate after supersession: $($lineage.errors -join '; ')" }
+    if ($lineage.auto_decisions_current -ne 1 -or $lineage.auto_decisions_superseded -ne 1) { throw 'Expected one current and one superseded Auto Decision.' }
 
     Write-Host 'AIDOS Auto Define tests PASS.'
 }
