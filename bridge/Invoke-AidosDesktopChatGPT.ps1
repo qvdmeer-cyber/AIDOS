@@ -5,7 +5,7 @@ param(
     [string]$ConversationProofText='',
     [string]$AccountProofText='',
     [string]$AssignmentPath,
-    [string]$ProcessName='ChatGPT',
+    [string]$ProcessName='ChatGPT Classic',
     [ValidateSet('Real','Stub')][string]$BackendMode='Real',
     [bool]$StubInteractiveSession=$true,
     [bool]$StubConversationMatches=$true,
