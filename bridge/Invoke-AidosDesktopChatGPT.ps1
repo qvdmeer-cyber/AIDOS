@@ -23,8 +23,11 @@ $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -Force -DisableNameChecking
+# Import the session module last. The gate imports it as a nested dependency with
+# -Force; importing it again here makes its public commands available in this
+# launcher scope for retry/recovery paths as well.
+Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
 
 $backend=if($BackendMode -eq 'Stub'){
     AidosDesktopChatGPT\New-AidosDesktopChatGPTStubBackend -InteractiveSession:$StubInteractiveSession -ConversationMatches:$StubConversationMatches -NoResponse:$StubNoResponse -ResponseText $StubResponseText -ProcessName $ProcessName
