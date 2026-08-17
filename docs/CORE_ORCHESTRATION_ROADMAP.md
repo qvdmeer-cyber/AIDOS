@@ -20,7 +20,14 @@ This roadmap covers additive AIDOS-core capabilities for multi-project/multi-wor
 - [x] unified Definition readiness validator combining progress/applicability/decision integrity;
 - [x] Human Input escalation semantics for failed Auto Define assessments;
 - [x] Auto Define telemetry/learning model and durable aggregate schema;
-- [x] Builder-owned authority-aware Project Baseline Auto Define under the same shared policy.
+- [x] Builder-owned authority-aware Project Baseline Auto Define under the same shared policy;
+- [x] runtime status projection contract;
+- [x] operator snapshot contract separating project truth, host-agent state and control mode.
+
+## Proven runtime milestones
+
+- [x] Persistent Local Desktop Agent accepted: RDP-independent Windows interactive host runtime, fail-closed session gating, autonomous review recovery/consume/cleanup and continued ticking through RDP/console transition. See `docs/ACCEPTANCE_PERSISTENT_LOCAL_DESKTOP_AGENT.md`.
+- [x] Runtime Observability & Operator API core foundation: status projection, recent events, host heartbeat projection, durable control-intent intake, safe operator mode and persistent Worker gating. See `docs/RUNTIME_OPERATOR_API.md`.
 
 ## Runtime implementation required
 
@@ -54,12 +61,15 @@ Contracts/tools exist; the runtime still needs to make them an automatic actor l
 
 ### Control plane
 
-- [ ] durable control-intent processor;
-- [ ] safe-boundary `RUN`, `PAUSE`, `RESUME`, `SAFE_STOP` semantics;
-- [ ] status/blocker/recovery query projection;
-- [ ] audit/reject invalid control intent;
-- [ ] external client authentication/authorization;
-- [ ] no direct process/project-file manipulation by clients.
+- [x] durable control-intent intake and deterministic processing for `QUERY_STATUS`, `RUN`, `PAUSE`, `RESUME`, `SAFE_STOP`;
+- [x] persistent Worker safe-boundary gating for `PAUSE` and `SAFE_STOP` without abrupt process termination;
+- [x] status/blocker/recovery query projection;
+- [x] audit/reject invalid or unsupported control intent;
+- [x] no direct process/project-file manipulation by clients;
+- [ ] extend safe-boundary control mode to every future actor/workstream scheduler activation path;
+- [ ] canonical `SUBMIT_HUMAN_INPUT` processor integration;
+- [ ] canonical `REQUEST_RECOVERY` processor integration;
+- [ ] external client authentication/authorization and network transport.
 
 ### Human Input Requests
 
@@ -94,4 +104,4 @@ Contracts/tools exist; the runtime still needs to make them an automatic actor l
 
 ## Explicit non-scope
 
-This does **not** implement the external AIDOS Interface UI and does not start a separate Interface project. A future Interface consumes Core status/control/Human Input/decision-explainability/event contracts only.
+This does **not** implement the external AIDOS Interface UI and does not start a separate Interface project. The separate `AIDOS-interface` project is intended to be the first real project built through AIDOS and should consume Core status/control/Human Input/decision-explainability/event contracts only.
