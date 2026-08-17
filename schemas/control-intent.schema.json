@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/control-intent.schema.json",
+  "title": "AIDOS Control Intent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","control_id","command","project_id","workstream_id","requested_by","status","payload","submitted_at","applied_at","result"],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "control_id":{"type":"string","minLength":1},
+    "command":{"type":"string","enum":["RUN","PAUSE","RESUME","SAFE_STOP","QUERY_STATUS","SUBMIT_HUMAN_INPUT","REQUEST_RECOVERY"]},
+    "project_id":{"type":["string","null"]},
+    "workstream_id":{"type":["string","null"]},
+    "requested_by":{"type":"string","minLength":1},
+    "status":{"type":"string","enum":["RECEIVED","ACCEPTED","REJECTED","APPLIED","FAILED"]},
+    "payload":{"type":"object"},
+    "submitted_at":{"type":"string","format":"date-time"},
+    "applied_at":{"type":["string","null"],"format":"date-time"},
+    "result":{"type":["object","null"]}
+  }
+}
