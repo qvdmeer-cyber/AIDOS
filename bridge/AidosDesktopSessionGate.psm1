@@ -27,22 +27,32 @@ function New-AidosDesktopSessionGateBackend {
             try {
                 & $assertUnderlying | Out-Null
             } catch {
-                # The Windows backend's underlying interactive assertion is a second
-                # OpenInputDesktop check immediately before UIA use. If that check
-                # fails after the native policy snapshot was eligible, availability
-                # changed inside the race window. Persist the stricter observation;
-                # WAITING must never be paired with reason=NONE.
-                $strict=[ordered]@{}
-                foreach($p in $snapshot.PSObject.Properties){ $strict[$p.Name]=$p.Value }
-                $strict.input_desktop_available=$false
-                $strict.observation_status='OK'
-                $strict.error="UNDERLYING_INTERACTIVE_ASSERTION_FAILED: $($_.Exception.Message)"
-                $strict.observed_at=[DateTimeOffset]::UtcNow.ToString('o')
-                $snapshot=[pscustomobject]$strict
-                $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $Policy
-                $gate.snapshot=$snapshot
-                $gate.decision=$decision
-                throw "Interactive ChatGPT action blocked by session policy: $($decision.reason)."
+                # RDP connect/disconnect can transiently invalidate the desktop between
+                # the WTS policy observation and the transport's own OpenInputDesktop
+                # assertion. Re-query lock/session state. If it is still authorized,
+                # classify this as a retryable desktop transition rather than as a
+                # locked/unavailable Windows session.
+                $fresh=if($provider){ & $provider }else{ Get-AidosInteractiveSessionSnapshot }
+                $freshDecision=Test-AidosInteractiveSessionPolicy -Snapshot $fresh -Policy $Policy
+                if(-not $freshDecision.allowed){
+                    $gate.snapshot=$fresh
+                    $gate.decision=$freshDecision
+                    throw "Interactive ChatGPT action blocked by session policy: $($freshDecision.reason)."
+                }
+                $transition=[ordered]@{}
+                foreach($p in $fresh.PSObject.Properties){ $transition[$p.Name]=$p.Value }
+                $transition.input_desktop_available=$false
+                $transition.error="DESKTOP_TRANSITION_UNAVAILABLE: $($_.Exception.Message)"
+                $transition.observed_at=[DateTimeOffset]::UtcNow.ToString('o')
+                $transitionDecision=[pscustomobject]@{
+                    allowed=$false
+                    policy=$Policy
+                    reason='DESKTOP_TRANSITION_UNAVAILABLE'
+                    snapshot=[pscustomobject]$transition
+                }
+                $gate.snapshot=$transitionDecision.snapshot
+                $gate.decision=$transitionDecision
+                throw 'Interactive desktop is transitioning; retry without changing project or transport authority.'
             }
         }
         $true
@@ -78,6 +88,7 @@ function ConvertTo-AidosDesktopWaitingState {
         [Parameter(Mandatory)]$State,
         [Parameter(Mandatory)]$Decision
     )
+    if([string]$Decision.reason -eq 'NONE'){ throw 'WAITING interactive overlay requires a blocking or transient reason.' }
     $phase=if([string]$State.delivery_status -in @('PREPARED','SENT')){[string]$State.delivery_status}elseif([string]$State.status -in @('PREPARED','SENT','RECEIVED','VALIDATED','HANDOFF_COMPLETE')){[string]$State.status}else{'PREPARED'}
     $o=[ordered]@{}
     foreach($p in $State.PSObject.Properties){
@@ -104,7 +115,7 @@ function Set-AidosDesktopInteractiveOverlay {
         if($p.Name -ne 'interactive_session'){ $o[$p.Name]=$p.Value }
     }
     $o.interactive_session=New-AidosDesktopInteractiveOverlay -Decision $Decision -Status $Status
-    if($Status -eq 'AVAILABLE' -and [string]$o.last_error -in @('SESSION_LOCKED','SESSION_DISCONNECTED','NO_INTERACTIVE_SESSION','INPUT_DESKTOP_UNAVAILABLE','SESSION_STATE_UNKNOWN')){
+    if($Status -eq 'AVAILABLE' -and [string]$o.last_error -in @('SESSION_LOCKED','SESSION_DISCONNECTED','NO_INTERACTIVE_SESSION','INPUT_DESKTOP_UNAVAILABLE','SESSION_STATE_UNKNOWN','DESKTOP_TRANSITION_UNAVAILABLE')){
         [void]$o.Remove('last_error')
     }
     $o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
@@ -174,6 +185,7 @@ function Invoke-AidosDesktopChatGPTReview {
     $realBackend=$Backend
     if(-not $realBackend){ $realBackend=AidosDesktopChatGPT\New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName }
     $useNativeGate=(-not $Backend) -or $null -ne $SessionSnapshotProvider
+    $waitStarted=[DateTimeOffset]::UtcNow
 
     while($true){
         $before=if(-not [string]::IsNullOrWhiteSpace($reviewId)){ Read-AidosDesktopChatGPTState $ProjectRoot $reviewId }else{$null}
@@ -184,22 +196,12 @@ function Invoke-AidosDesktopChatGPTReview {
 
         if([string]$result.status -eq 'WAITING_INTERACTIVE_SESSION'){
             $decision=$gateState.decision
-            if(-not $decision -or $decision.allowed){
-                # A WAITING result must always have a blocking availability reason.
-                # A still-allowed decision means the underlying desktop assertion
-                # failed outside/between snapshots; refresh and, if still eligible,
-                # fail closed as an input-desktop race rather than persisting NONE.
+            if(-not $decision){
                 $snapshot=if($SessionSnapshotProvider){ & $SessionSnapshotProvider }else{ Get-AidosInteractiveSessionSnapshot }
                 $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $SessionPolicy
-                if($decision.allowed){
-                    $strict=[ordered]@{}
-                    foreach($p in $snapshot.PSObject.Properties){ $strict[$p.Name]=$p.Value }
-                    $strict.input_desktop_available=$false
-                    $strict.error='INTERACTIVE_ASSERTION_RACE'
-                    $strict.observed_at=[DateTimeOffset]::UtcNow.ToString('o')
-                    $snapshot=[pscustomobject]$strict
-                    $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $SessionPolicy
-                }
+            }
+            if(-not $decision -or [string]$decision.reason -eq 'NONE'){
+                throw 'Interactive wait was requested without a blocking or transient session reason.'
             }
             $raw=Read-AidosDesktopChatGPTState $ProjectRoot $reviewId
             $normalized=ConvertTo-AidosDesktopWaitingState -State $raw -Decision $decision
@@ -209,6 +211,13 @@ function Invoke-AidosDesktopChatGPTReview {
             }
             if(-not $WaitForInteractiveSession){
                 return [pscustomobject]@{review_id=$reviewId;status=[string]$normalized.status;waiting_interactive_session=$true;idempotent=$false;adapter_state=$normalized}
+            }
+            if([string]$decision.reason -eq 'DESKTOP_TRANSITION_UNAVAILABLE'){
+                if($InteractiveSessionWaitTimeoutSeconds -gt 0 -and ([DateTimeOffset]::UtcNow-$waitStarted).TotalSeconds -ge $InteractiveSessionWaitTimeoutSeconds){
+                    return [pscustomobject]@{review_id=$reviewId;status=[string]$normalized.status;waiting_interactive_session=$true;wait_timeout=$true;transient_desktop_transition=$true;idempotent=$false;adapter_state=$normalized}
+                }
+                Start-Sleep -Seconds ([Math]::Max(1,$InteractiveSessionPollSeconds))
+                continue
             }
             $ready=Wait-AidosInteractiveSession -Policy $SessionPolicy -PollSeconds $InteractiveSessionPollSeconds -TimeoutSeconds $InteractiveSessionWaitTimeoutSeconds -SnapshotProvider $SessionSnapshotProvider
             if(-not $ready.allowed){
