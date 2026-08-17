@@ -107,3 +107,19 @@ The milestone is accepted only after the dedicated Windows machine proves at lea
 - lock after `SENT` -> `SENT` preserved and no resend;
 - bridge restart while genuinely waiting -> same review/revision resumes without duplicate work;
 - unknown/native query failure -> fail closed.
+
+## Persistent host-agent machine smoke
+
+After one-time task installation, use `Snapshot` to capture the authorized user,
+session id, console/RDP topology, lock state and ChatGPT Classic shell PID/window
+handle. With a known pending test review, capture the PID/window handle, invoke
+`HandoffToConsole`, then capture `Snapshot` again. Acceptance requires the same
+authorized session id and the same ChatGPT shell PID/window handle. Disconnect the
+RDP client and verify the host heartbeat continues, then verify a console-owned
+review can progress without reconnecting. Lock before a pending send and verify
+the adapter phase remains unchanged; unlock and verify it resumes that phase.
+
+For the existing smoke review `b96eaae0-a267-4733-85ca-a31e8e6b0395`, run one
+unlocked `Tick` (or let the installed task tick) against its project root. It must
+consume the existing validated `REVIEW_RESPONSE.json` through the bridge consumer
+and reconciliation/cleanup path. Do not publish, resend, or fabricate a response.

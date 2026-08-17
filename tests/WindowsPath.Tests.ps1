@@ -31,6 +31,9 @@ try {
     Assert-PathTest ($resolvedUnc.StartsWith("\\wsl.localhost\$WslDistribution\",[StringComparison]::OrdinalIgnoreCase)) 'wsl.localhost path remains a native UNC path'
     Assert-PathTest (Test-AidosSameFileSystemPath $uncPath "Microsoft.PowerShell.Core\FileSystem::$uncPath") 'provider-qualified WSL UNC path compares equal'
     Assert-PathTest (-not (Test-AidosSameFileSystemPath $uncPath $localOne)) 'WSL UNC and Windows local roots compare unequal'
+    $boundAssignment="\\wsl.localhost\$WslDistribution\tmp\bound-review\REVIEW_ASSIGNMENT.json"
+    Assert-PathTest ((Resolve-AidosRecordBoundPath $uncPath $boundAssignment) -eq $boundAssignment) 'a review record keeps its already-bound WSL UNC assignment path intact'
+    Assert-PathTest ((Resolve-AidosRecordBoundPath $uncPath '.aidos/reviews/review-1/REVIEW_ASSIGNMENT.json') -eq (Join-Path $uncPath '.aidos/reviews/review-1/REVIEW_ASSIGNMENT.json')) 'a project-relative review assignment is resolved against the project root'
 
     New-Item -ItemType Directory -Path (Join-Path $uncPath '.aidos') -Force | Out-Null
     $profilePath=Join-Path $uncPath '.aidos/PROJECT.json'

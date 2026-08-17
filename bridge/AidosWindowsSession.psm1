@@ -211,6 +211,72 @@ function Test-AidosInteractiveSessionPolicy {
     }
 }
 
+function Test-AidosAuthorizedInteractiveSession {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Snapshot,
+        [Parameter(Mandatory)][string]$AuthorizedUser,
+        [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$Policy='SUPERVISED'
+    )
+    $policyResult=Test-AidosInteractiveSessionPolicy -Snapshot $Snapshot -Policy $Policy
+    $observed=if([string]::IsNullOrWhiteSpace([string]$Snapshot.domain_name)){
+        [string]$Snapshot.user_name
+    } else {
+        "$($Snapshot.domain_name)\$($Snapshot.user_name)"
+    }
+    if(-not $policyResult.allowed){ return [pscustomobject]@{allowed=$false;reason=$policyResult.reason;authorized_user=$AuthorizedUser;observed_user=$observed;snapshot=$Snapshot} }
+    if([string]::IsNullOrWhiteSpace($observed) -or -not [string]::Equals($observed,$AuthorizedUser,[StringComparison]::OrdinalIgnoreCase)){
+        return [pscustomobject]@{allowed=$false;reason='AUTHORIZED_USER_MISMATCH';authorized_user=$AuthorizedUser;observed_user=$observed;snapshot=$Snapshot}
+    }
+    [pscustomobject]@{allowed=$true;reason='NONE';authorized_user=$AuthorizedUser;observed_user=$observed;snapshot=$Snapshot}
+}
+
+function Invoke-AidosAuthorizedSessionHandoffToConsole {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$AuthorizedUser,
+        [scriptblock]$SnapshotProvider,
+        [scriptblock]$TsconInvoker
+    )
+    $getSnapshot={ if($SnapshotProvider){ & $SnapshotProvider } else { Get-AidosInteractiveSessionSnapshot } }
+    $before=& $getSnapshot
+    $authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $before -AuthorizedUser $AuthorizedUser
+    if(-not $authorization.allowed){
+        return [pscustomobject]@{status='BLOCKED';reason=$authorization.reason;before=$before;after=$null;session_id=$before.session_id}
+    }
+    if([string]$before.session_kind -eq 'CONSOLE' -and [int]$before.active_console_session_id -eq [int]$before.session_id){
+        return [pscustomobject]@{status='ALREADY_CONSOLE';reason='NONE';before=$before;after=$before;session_id=$before.session_id}
+    }
+    if([string]$before.session_kind -ne 'RDP'){
+        return [pscustomobject]@{status='BLOCKED';reason='HANDOFF_SOURCE_NOT_RDP';before=$before;after=$null;session_id=$before.session_id}
+    }
+    # Re-query immediately before invoking tscon; never select a session from a stale list.
+    $immediate=& $getSnapshot
+    $immediateAuthorization=Test-AidosAuthorizedInteractiveSession -Snapshot $immediate -AuthorizedUser $AuthorizedUser
+    if(-not $immediateAuthorization.allowed -or [int]$immediate.session_id -ne [int]$before.session_id){
+        return [pscustomobject]@{status='BLOCKED';reason=if(-not $immediateAuthorization.allowed){$immediateAuthorization.reason}else{'SESSION_CHANGED_BEFORE_HANDOFF'};before=$before;after=$immediate;session_id=$before.session_id}
+    }
+    if([string]$immediate.session_kind -eq 'CONSOLE' -and [int]$immediate.active_console_session_id -eq [int]$immediate.session_id){
+        return [pscustomobject]@{status='ALREADY_CONSOLE';reason='NONE';before=$before;after=$immediate;session_id=$before.session_id}
+    }
+    if([string]$immediate.session_kind -ne 'RDP'){
+        return [pscustomobject]@{status='BLOCKED';reason='HANDOFF_SOURCE_CHANGED_BEFORE_HANDOFF';before=$before;after=$immediate;session_id=$before.session_id}
+    }
+    try {
+        $global:LASTEXITCODE=0
+        if($TsconInvoker){ & $TsconInvoker ([int]$immediate.session_id) } else { & "$env:SystemRoot\System32\tscon.exe" ([string]$immediate.session_id) '/dest:console' }
+        if($LASTEXITCODE -and $LASTEXITCODE -ne 0){ throw "tscon exited with code $LASTEXITCODE." }
+    } catch {
+        return [pscustomobject]@{status='FAILED';reason="HANDOFF_COMMAND_FAILED: $($_.Exception.Message)";before=$before;after=$null;session_id=$before.session_id}
+    }
+    $after=& $getSnapshot
+    $afterAuthorization=Test-AidosAuthorizedInteractiveSession -Snapshot $after -AuthorizedUser $AuthorizedUser
+    if(-not $afterAuthorization.allowed -or [int]$after.session_id -ne [int]$before.session_id -or [string]$after.session_kind -ne 'CONSOLE' -or [int]$after.active_console_session_id -ne [int]$after.session_id){
+        return [pscustomobject]@{status='UNPROVEN';reason='HANDOFF_TOPOLOGY_UNPROVEN';before=$before;after=$after;session_id=$before.session_id}
+    }
+    [pscustomobject]@{status='HANDOFF_COMPLETE';reason='NONE';before=$before;after=$after;session_id=$before.session_id}
+}
+
 function Wait-AidosInteractiveSession {
     [CmdletBinding()]
     param(
@@ -230,4 +296,4 @@ function Wait-AidosInteractiveSession {
     }
 }
 
-Export-ModuleMember -Function Get-AidosInteractiveSessionSnapshot,Test-AidosInteractiveSessionPolicy,Wait-AidosInteractiveSession
+Export-ModuleMember -Function Get-AidosInteractiveSessionSnapshot,Test-AidosInteractiveSessionPolicy,Test-AidosAuthorizedInteractiveSession,Invoke-AidosAuthorizedSessionHandoffToConsole,Wait-AidosInteractiveSession

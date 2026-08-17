@@ -85,3 +85,63 @@ record changes only to terminal `ABANDONED`, records the exact binding and reaso
 `REVIEW_TRANSPORT_ABANDONED`; reconciliation treats only a valid closure as terminal.
 
 Entry point: `bridge/Invoke-AidosCodex.ps1` (PowerShell 7 only).
+
+## Persistent Local Desktop Agent (Windows host)
+
+`bridge/Invoke-AidosPersistentLocalDesktopAgent.ps1` is a host-infrastructure
+wrapper around the existing desktop adapter and review consumer. It owns neither
+project state nor review decisions. Its small host-only ledger is under
+`%LOCALAPPDATA%\AIDOS\host-agent` for the bound user and contains a singleton lease, heartbeat,
+structured JSONL events and a cooperative stop marker.
+
+Install it once from an already authenticated `AIDOS\qvdm` interactive PowerShell
+session (an elevated prompt may be needed for task registration):
+
+```powershell
+pwsh -File .\bridge\Invoke-AidosPersistentLocalDesktopAgent.ps1 -Command Install -ProjectRoot '\\wsl.localhost\Ubuntu\home\aidos\repos\YOUR-PROJECT'
+```
+
+The task uses the `Interactive` task logon type for `AIDOS\qvdm`; it does not run
+as a service, store a password, use auto-logon, or create a desktop in another
+user session. Maintenance commands are `Start`, `Stop`, `Status`, `Snapshot`,
+`HandoffToConsole` and `Uninstall`. `HandoffToConsole` re-queries and identity
+checks the current session immediately before `tscon <same-session-id>
+/dest:console`, then proves the same session became the console session.
+
+All maintenance operations go through the one entrypoint (replace `PROJECT` with
+the Windows-visible project root):
+
+```powershell
+pwsh -File .\bridge\Invoke-AidosPersistentLocalDesktopAgent.ps1 -Command Start -ProjectRoot '\\wsl.localhost\Ubuntu\home\aidos\repos\PROJECT'
+pwsh -File .\bridge\Invoke-AidosPersistentLocalDesktopAgent.ps1 -Command Stop
+pwsh -File .\bridge\Invoke-AidosPersistentLocalDesktopAgent.ps1 -Command Status
+pwsh -File .\bridge\Invoke-AidosPersistentLocalDesktopAgent.ps1 -Command Snapshot
+pwsh -File .\bridge\Invoke-AidosPersistentLocalDesktopAgent.ps1 -Command HandoffToConsole
+pwsh -File .\bridge\Invoke-AidosPersistentLocalDesktopAgent.ps1 -Command Uninstall
+```
+
+`Install` is idempotent and updates only the named AIDOS scheduled task. It
+refuses registration unless it is currently running in the exact unlocked bound
+interactive session. `Uninstall` first requests a graceful stop, then removes
+only that task and the bound user's host-agent ledger.
+
+On every tick the agent re-queries WTS topology, rejects a locked/unknown/wrong
+user session, reconciles durable review state, invokes the existing gated desktop
+adapter only for the active published review, and consumes a validated
+`HANDOFF_COMPLETE` sidecar once through `Invoke-AidosReviewConsumer`. `SENT` and
+`RECEIVED` are passed back to the adapter recovery path, never sent again. A wake,
+agent restart, or RDP reconnect is therefore a fresh reconciliation, not a new
+workflow transition.
+
+Run the deterministic Windows regressions with PowerShell 7 before machine
+acceptance:
+
+```powershell
+pwsh -NoLogo -NoProfile -File .\tests\Bridge.Tests.ps1
+pwsh -NoLogo -NoProfile -File .\tests\WindowsPath.Tests.ps1
+pwsh -NoLogo -NoProfile -File .\tests\PersistentLocalDesktopAgent.Tests.ps1
+```
+
+The last test covers singleton/stale-lease recovery, lock and identity failure,
+disconnected-but-unlocked eligibility, console/RDP handoff proof, completed
+handoff consumption exactly once, and PREPARED/SENT/RECEIVED restart recovery.
