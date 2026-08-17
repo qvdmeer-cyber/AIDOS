@@ -36,7 +36,10 @@ $root=Split-Path -Parent $PSCommandPath
 $configPath=Join-Path $root 'CONFIG.json'
 $statusPath=Join-Path $root 'STATUS.json'
 $logPath=Join-Path $root 'STARTUP_ERROR.log'
+$stdoutPath=Join-Path $root 'CHILD_STDOUT.log'
+$stderrPath=Join-Path $root 'CHILD_STDERR.log'
 try {
+    Remove-Item -LiteralPath $stdoutPath,$stderrPath,$logPath -Force -ErrorAction SilentlyContinue
     $config=Get-Content -LiteralPath $configPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
     if(-not(Test-Path -LiteralPath ([string]$config.entry_point) -PathType Leaf)){throw "Agent entrypoint is unavailable: $($config.entry_point)"}
     $engine=Join-Path $PSHOME 'pwsh.exe'
@@ -49,8 +52,15 @@ try {
         '-StateRoot',([string]$config.state_root),
         '-PollSeconds',([string][int]$config.poll_seconds)
     )
-    $process=Start-Process -FilePath $engine -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
-    if($process.ExitCode -ne 0){throw "Agent child PowerShell exited with code $($process.ExitCode)."}
+    $process=Start-Process -FilePath $engine -ArgumentList $arguments -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -Wait -PassThru -WindowStyle Hidden
+    if($process.ExitCode -ne 0){
+        $stderr=if(Test-Path -LiteralPath $stderrPath){Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue}else{$null}
+        $stdout=if(Test-Path -LiteralPath $stdoutPath){Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue}else{$null}
+        $detail=@("Agent child PowerShell exited with code $($process.ExitCode).")
+        if(-not [string]::IsNullOrWhiteSpace([string]$stderr)){$detail += "STDERR:`n$stderr"}
+        if(-not [string]::IsNullOrWhiteSpace([string]$stdout)){$detail += "STDOUT:`n$stdout"}
+        throw ($detail -join "`n")
+    }
     exit 0
 } catch {
     $message=$_.Exception.ToString()
@@ -80,7 +90,19 @@ switch($Command){
  }
  'Start' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Start requires ProjectRoot.'};Start-AidosPersistentLocalDesktopAgent -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -PollSeconds $PollSeconds -Once:$Once}
  'Stop' {Stop-AidosHostAgent -StateRoot $StateRoot;[pscustomobject]@{status='STOP_REQUESTED';state_root=$StateRoot}|ConvertTo-Json}
- 'Status' {[pscustomobject]@{task=(Get-AidosPersistentAgentTaskStatus);agent=(Get-AidosHostAgentStatus -StateRoot $StateRoot);startup_error_log=if(Test-Path -LiteralPath (Join-Path $StateRoot 'STARTUP_ERROR.log')){Get-Content -LiteralPath (Join-Path $StateRoot 'STARTUP_ERROR.log') -Raw}else{$null};state_root=$StateRoot}|ConvertTo-Json -Depth 100}
+ 'Status' {
+    $startupLogPath=Join-Path $StateRoot 'STARTUP_ERROR.log'
+    $stdoutPath=Join-Path $StateRoot 'CHILD_STDOUT.log'
+    $stderrPath=Join-Path $StateRoot 'CHILD_STDERR.log'
+    [pscustomobject]@{
+        task=(Get-AidosPersistentAgentTaskStatus)
+        agent=(Get-AidosHostAgentStatus -StateRoot $StateRoot)
+        startup_error_log=if(Test-Path -LiteralPath $startupLogPath){Get-Content -LiteralPath $startupLogPath -Raw}else{$null}
+        child_stdout=if(Test-Path -LiteralPath $stdoutPath){Get-Content -LiteralPath $stdoutPath -Raw}else{$null}
+        child_stderr=if(Test-Path -LiteralPath $stderrPath){Get-Content -LiteralPath $stderrPath -Raw}else{$null}
+        state_root=$StateRoot
+    }|ConvertTo-Json -Depth 100
+ }
  'Snapshot' { $s=Get-AidosInteractiveSessionSnapshot;$expectedSessionId=-1;if($null -ne $s.session_id){$expectedSessionId=[int]$s.session_id};$h=Get-AidosHostAgentShellHealth -ProcessName $ProcessName -ExpectedSessionId $expectedSessionId;[pscustomobject]@{snapshot=$s;authorization=(Test-AidosAuthorizedInteractiveSession $s $AuthorizedUser);chatgpt=$h;agent=(Get-AidosHostAgentStatus $StateRoot);task=(Get-AidosPersistentAgentTaskStatus)}|ConvertTo-Json -Depth 100 }
  'HandoffToConsole' {Invoke-AidosAuthorizedSessionHandoffToConsole -AuthorizedUser $AuthorizedUser|ConvertTo-Json -Depth 100}
  'Tick' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Tick requires ProjectRoot.'};Invoke-AidosHostAgentTick -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot|ConvertTo-Json -Depth 100}
