@@ -16,16 +16,22 @@ if(-not (Test-Path -LiteralPath $windowsAssignment -PathType Leaf)){
     throw "Build assignment is missing: $windowsAssignment"
 }
 
-$escapedRoot=$WslRepoRoot.Replace("'","'\"'\"'")
-$escapedCodex=$CodexPath.Replace("'","'\"'\"'")
-$escapedAssignment=$assignmentName.Replace("'","'\"'\"'")
-
-# Codex exec is intentionally given a prompt read from durable repository state.
-# The human does not have to reproduce or maintain the implementation prompt.
-$command="set -euo pipefail; cd '$escapedRoot'; test -x '$escapedCodex'; test -f '$escapedAssignment'; prompt=\$(cat '$escapedAssignment'); exec '$escapedCodex' exec \"\$prompt\""
+# Pass all paths as positional bash arguments. This avoids nested PowerShell/Bash
+# quoting and keeps the durable repository assignment as the only prompt source.
+$command=@'
+set -euo pipefail
+repo_root="$1"
+codex_path="$2"
+assignment_name="$3"
+cd "$repo_root"
+test -x "$codex_path"
+test -f "$assignment_name"
+prompt="$(cat "$assignment_name")"
+exec "$codex_path" exec "$prompt"
+'@
 
 Write-Host "Starting Codex implementation from $assignmentName in $WslRepoRoot"
 Write-Host 'Codex owns repository implementation work; it must stop at any explicit human/security bootstrap gate.'
 
-& wsl.exe -d $WslDistribution -- bash -lc $command
+& wsl.exe -d $WslDistribution -- bash -lc $command -- $WslRepoRoot $CodexPath $assignmentName
 if($LASTEXITCODE -ne 0){ throw "Codex build bootstrap exited with code $LASTEXITCODE." }
