@@ -11,7 +11,11 @@ param(
     [bool]$StubConversationMatches=$true,
     [bool]$StubNoResponse=$false,
     [string]$StubResponseText,
-    [int]$ResponseTimeoutSeconds=180
+    [int]$ResponseTimeoutSeconds=180,
+    [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$SessionPolicy='SUPERVISED',
+    [bool]$WaitForInteractiveSession=$true,
+    [int]$InteractiveSessionPollSeconds=2,
+    [int]$InteractiveSessionWaitTimeoutSeconds=0
 )
 
 Set-StrictMode -Version Latest
@@ -19,22 +23,24 @@ $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -Force -DisableNameChecking
 
 $backend=if($BackendMode -eq 'Stub'){
-    New-AidosDesktopChatGPTStubBackend -InteractiveSession:$StubInteractiveSession -ConversationMatches:$StubConversationMatches -NoResponse:$StubNoResponse -ResponseText $StubResponseText -ProcessName $ProcessName
+    AidosDesktopChatGPT\New-AidosDesktopChatGPTStubBackend -InteractiveSession:$StubInteractiveSession -ConversationMatches:$StubConversationMatches -NoResponse:$StubNoResponse -ResponseText $StubResponseText -ProcessName $ProcessName
 } else {
-    New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName
+    $null
 }
 
 switch ($Mode) {
     'Enroll' {
         if([string]::IsNullOrWhiteSpace($ConversationProofText)){ throw 'Enroll mode requires ConversationProofText.' }
-        $result=Invoke-AidosDesktopChatGPTEnroll -ProjectRoot $ProjectRoot -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -Backend $backend
+        $result=Invoke-AidosDesktopChatGPTEnroll -ProjectRoot $ProjectRoot -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -Backend $backend -SessionPolicy $SessionPolicy
         $result | ConvertTo-Json -Depth 100
     }
     'Review' {
         if([string]::IsNullOrWhiteSpace($AssignmentPath)){ throw 'Review mode requires AssignmentPath.' }
-        $result=Invoke-AidosDesktopChatGPTReview -ProjectRoot $ProjectRoot -AssignmentPath $AssignmentPath -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -Backend $backend
+        $result=Invoke-AidosDesktopChatGPTReview -ProjectRoot $ProjectRoot -AssignmentPath $AssignmentPath -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -Backend $backend -SessionPolicy $SessionPolicy -WaitForInteractiveSession:$WaitForInteractiveSession -InteractiveSessionPollSeconds $InteractiveSessionPollSeconds -InteractiveSessionWaitTimeoutSeconds $InteractiveSessionWaitTimeoutSeconds
         if($result.status -eq 'HANDOFF_COMPLETE' -and $result.response){
             $result.response | ConvertTo-Json -Depth 100
         } else {
