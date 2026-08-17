@@ -36,7 +36,13 @@ function Get-AidosRuntimeNextActor {
     }
 
     $selection=switch([string]$state.state){
-        'IDLE' {[ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';priority=100;activatable=$true}}
+        'IDLE' {
+            if([string]::IsNullOrWhiteSpace([string]$state.definition_id)){
+                [ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';priority=100;activatable=$true}
+            }else{
+                [ordered]@{actor_role='HUMAN';actor_identity='HUMAN';action='WAIT_NEW_GOAL';priority=10;activatable=$false}
+            }
+        }
         'WAITING_DEFINITION' {[ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='RESUME_DEFINITION';priority=100;activatable=$true}}
         'WAITING_USER' {[ordered]@{actor_role='HUMAN';actor_identity='HUMAN';action='WAIT_HUMAN_INPUT';priority=10;activatable=$false}}
         'TASK_READY' {[ordered]@{actor_role='WORKER';actor_identity='EXECUTION_AGENT';action='DISPATCH_EXECUTION';priority=80;activatable=$true}}
