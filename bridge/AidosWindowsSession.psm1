@@ -194,11 +194,15 @@ function Test-AidosInteractiveSessionPolicy {
     )
     $reason='NONE'
     if(-not $Snapshot -or [string]$Snapshot.observation_status -ne 'OK'){ $reason='SESSION_STATE_UNKNOWN' }
-    elseif([string]$Snapshot.connection_state -ne 'ACTIVE'){ $reason=if([string]$Snapshot.connection_state -eq 'DISCONNECTED'){'SESSION_DISCONNECTED'}else{'NO_INTERACTIVE_SESSION'} }
+    elseif($null -eq $Snapshot.session_id -or $null -eq $Snapshot.process_session_id -or [int]$Snapshot.session_id -ne [int]$Snapshot.process_session_id){ $reason='NO_INTERACTIVE_SESSION' }
     elseif([string]$Snapshot.lock_state -eq 'LOCKED'){ $reason='SESSION_LOCKED' }
     elseif([string]$Snapshot.lock_state -ne 'UNLOCKED'){ $reason='SESSION_STATE_UNKNOWN' }
     elseif([string]$Snapshot.session_kind -notin @('CONSOLE','RDP')){ $reason='SESSION_STATE_UNKNOWN' }
-    elseif(-not [bool]$Snapshot.input_desktop_available){ $reason='INPUT_DESKTOP_UNAVAILABLE' }
+    elseif([string]$Snapshot.connection_state -in @('DOWN','RESET','LISTEN','INIT','UNKNOWN')){ $reason='NO_INTERACTIVE_SESSION' }
+    # RDP DISCONNECTED is deliberately allowed. Disconnecting the client does not
+    # close the Windows session and must not pause AIDOS. OpenInputDesktop/UIA
+    # readiness is checked separately by the desktop transport and transient
+    # desktop transitions are retried without becoming a human wait condition.
     [pscustomobject]@{
         allowed=($reason -eq 'NONE')
         policy=$Policy
