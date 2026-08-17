@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosPreparationRuntime.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosPreparationOnboarding.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -Force -DisableNameChecking
 
 function Get-AidosPreparationRegistryProjects {
@@ -79,7 +80,8 @@ function Invoke-AidosPreparationDispatcherTick {
         [int]$MaxItems=1,
         [switch]$Push,
         [scriptblock]$ResumeProcessor,
-        [scriptblock]$SyncProcessor
+        [scriptblock]$SyncProcessor,
+        [scriptblock]$OnboardingProcessor
     )
     if($MaxItems -lt 1){throw 'MaxItems must be at least 1.'}
     $projects=@(Get-AidosPreparationRegistryProjects -RegistryRoot $RegistryRoot)
@@ -92,6 +94,16 @@ function Invoke-AidosPreparationDispatcherTick {
             $sync=if($SyncProcessor){& $SyncProcessor $project}else{Sync-AidosRegisteredPreparationProject $project}
         }catch{
             $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$_.Exception.Message});continue
+        }
+        $project=Get-AidosRegisteredProject -RegistryRoot $RegistryRoot -ProjectId ([string]$project.project_id)
+        if([string]$project.status -eq 'READY_FOR_ONBOARDING'){
+            try{
+                $onboarding=if($OnboardingProcessor){& $OnboardingProcessor $project}else{Invoke-AidosPreparationRuntimeOnboarding -RegistryRoot $RegistryRoot -ProjectId ([string]$project.project_id) -Push:$Push}
+                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status=[string]$onboarding.status;sync=$sync;onboarding=$onboarding})
+            }catch{
+                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='ONBOARDING_ERROR';sync=$sync;error=$_.Exception.Message})
+            }
+            $processed++;continue
         }
         $inbox=@(Invoke-AidosPreparationControlInbox -Project $project -MaxItems $MaxItems)
         $requestIds=@(Get-AidosPendingPreparationResumeIds -Project $project)
@@ -114,7 +126,7 @@ function Invoke-AidosPreparationDispatcherTick {
     }
     [pscustomobject][ordered]@{
         schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);
-        status=if($processed-eq0-and$results.Count-eq0){'IDLE'}elseif(@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR')}).Count){'ERROR'}else{'PROCESSED'}
+        status=if($processed-eq0-and$results.Count-eq0){'IDLE'}elseif(@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count){'ERROR'}else{'PROCESSED'}
     }
 }
 
