@@ -40,6 +40,8 @@ try {
     $overriddenUi = @($apiWithUi.resolved_surfaces | Where-Object { $_.surface_id -eq 'ui_structure' } | Select-Object -First 1)
     Assert-ProfileTest ($overriddenUi[0].state -eq 'APPLICABLE' -and $overriddenUi[0].override_applied) 'Verified project override wins over archetype default.'
 
+    # Restore TEST-API as the active project applicability profile before creating its Definition applicability.
+    $api = & $resolver -ProjectRoot $temp -ProjectId 'TEST-API' -PresetIds @('API_SERVICE','OPENAI_API','AUTHENTICATED_USER_DATA') -SelectionSource HUMAN_ACCEPTED
     $definition = & $definitionApplicability -ProjectRoot $temp -ProjectId 'TEST-API' -DefinitionId 'DEF-1' -DefinitionVersion 1 -AffectedSurfaceIds @('api_contracts','security_privacy') -NotAffectedSurfaceIds @('performance_scale','runtime_deployment','observability','recovery_rollback','compatibility')
     $definitionUi = @($definition.development_surfaces | Where-Object { $_.surface_id -eq 'ui_structure' } | Select-Object -First 1)
     $definitionApi = @($definition.development_surfaces | Where-Object { $_.surface_id -eq 'api_contracts' } | Select-Object -First 1)
