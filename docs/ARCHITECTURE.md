@@ -11,22 +11,20 @@ AIDOS
 └─ Project C
 ```
 
-A project is an isolated development instance managed by AIDOS; it does not have its own independent AIDOS. GPT/Codex sessions are temporary actors inside those instances and are never project state or source of truth.
-
-Project preparation remains deliberately separated from private Definition/Execution orchestration:
+A project is an isolated development instance managed by AIDOS; it does not have its own independent AIDOS. GPT/Codex sessions are temporary actors and are never project state or source of truth.
 
 ```text
 AIDOS-Contracts
-  → deterministic Project Baseline + Discovery Closure interfaces
+  → shared Baseline / Decision Governance / Discovery Closure interfaces
 
 AIDOS-Builder
-  → Evidence Inventory / Project Baseline / Current Product State implementation
+  → Evidence Inventory / Project Baseline / Existing Project Discovery
 
 Project repository
-  → accepted project truth + evidence + durable project/workstream state
+  → accepted project truth + evidence + decisions + durable project/workstream state
 
 AIDOS Core/Runtime
-  → portfolio/project/workstream orchestration, Definition, execution, review, controls, learning
+  → portfolio/project/workstream orchestration, Definition, Auto Define, execution, review, controls, learning
 ```
 
 ## Preparation architecture
@@ -41,24 +39,115 @@ Accepted Project Baseline
 EXISTING_PROJECT
 Accepted Project Baseline
 → Existing Project Discovery
-→ material product graph CLOSED
+→ material product/runtime/content graph CLOSED
 → Accepted Current Product State
 → Definition
 ```
 
-Lifecycle ordering/promotion semantics may be versioned separately; the workstream/control-plane architecture in this document does not silently change that existing preparation contract.
+Lifecycle ordering/promotion semantics may be versioned separately. Auto Define and workstream/control-plane changes do not silently change that lifecycle.
 
-For an existing product, the primary repository is the discovery root, not the assumed system boundary. AIDOS-Builder recursively follows `FIRST_PARTY_MATERIAL` dependencies and reasonably observable runtime until deterministic Discovery Closure passes.
+For an existing product, the primary repository is the discovery root, not the assumed system boundary. Current closure-compatible preparation uses CPS/discovery catalog/state 0.3.0.
 
 ## Authority architecture
 
-Project/source authority, Discovery Authority and Execution Authority remain separate.
+Several authority dimensions remain distinct:
 
-- `PROJECT_ACCESS.json` describes project/source boundaries.
-- `DISCOVERY_AUTHORITY.json` governs read/runtime evidence collection.
-- AIDOS Execution envelopes govern mutation/deployment authority for a bounded accepted goal.
+- `PROJECT_ACCESS.json` — project/source boundaries;
+- `DISCOVERY_AUTHORITY.json` — read/runtime evidence collection;
+- Decision Governance — who/what may resolve an unresolved Baseline/Definition concern;
+- Execution envelopes — mutation/deployment authority for one bounded accepted goal.
 
-No access/authority is transitive across sibling projects or workstreams.
+No access or authority is transitive across sibling projects/workstreams. Confidence never expands an authority boundary.
+
+## Decision authority / Auto Define
+
+AIDOS-Contracts defines the shared decision taxonomy:
+
+```text
+SYSTEM_INVARIANT
+REPO_VERIFIABLE
+AUTO_DECIDABLE
+HUMAN_REQUIRED
+```
+
+These classes answer a different question from source/execution authority: **how may this unresolved project concern be resolved?**
+
+### Resolution paths
+
+```text
+SYSTEM_INVARIANT
+→ higher-authority AIDOS contract/governance source
+→ SYSTEM_DEFINED
+
+REPO_VERIFIABLE
+→ authorized project-local canonical evidence
+→ REPO_VERIFIED
+
+AUTO_DECIDABLE
+→ Decision Assessment
+→ policy-valid AUTO_DECISION
+→ otherwise HUMAN_REQUIRED
+
+HUMAN_REQUIRED
+→ durable Human Input Request
+→ human decision
+```
+
+`SYSTEM_INVARIANT` and `REPO_VERIFIABLE` are not AI project preferences. Only `AUTO_DECIDABLE` produces an autonomous project choice.
+
+### Auto Decision gate
+
+A Decision Assessment records confidence, reversibility, authority, material alternatives, impact dimensions and missing evidence.
+
+Current shared policy permits autonomy only when:
+
+- inside existing authority;
+- no materially equivalent competing alternative remains;
+- all product/business, security/privacy, destructive, external-cost/commitment, compatibility and blast-radius impacts are at most `LOW`;
+- missing evidence is at most `LOW`;
+- confidence is `HIGH`, or confidence is `MEDIUM` and the choice is fully `REVERSIBLE`.
+
+`LOW`, irreversible, outside-authority or materially impactful/evidence-deficient decisions become human gates.
+
+The real material decision space is preserved; AIDOS must not create artificial A/B options.
+
+### Durable decision state
+
+Definition Auto Decisions live under:
+
+```text
+.aidos/definitions/<definition_id>/v<version>/decisions/<decision_id>.json
+```
+
+They bind exact Definition version/target, choice, alternatives, rationale, assessment, provenance, actor/model/session and supersession lineage.
+
+Human, Auto, system and repository resolutions remain distinguishable in durable state and Definition progress.
+
+A new evidence state or human override supersedes/reopens rather than rewriting prior decision history.
+
+### Fixed-point convergence
+
+A Definition Thinker does not simply consume a question queue:
+
+```text
+accepted preparation + desired intent
+→ applicability/progress
+→ Auto Define fixed-point pass
+   ├─ system resolutions
+   ├─ repository resolutions
+   ├─ policy-valid Auto Decisions
+   └─ Human Input Request only when genuinely required
+→ human response
+→ fresh Auto Define pass over all remaining concerns
+→ Definition readiness validation
+→ explicit human Definition acceptance
+```
+
+Auto Define therefore reduces human questions without removing the final human Definition gate.
+
+Project Baseline uses the same shared Decision Governance policy through AIDOS-Builder; Core does not duplicate Baseline completeness.
+
+See `docs/AUTO_DEFINE.md`.
 
 ## One project, multiple workstreams
 
@@ -72,32 +161,21 @@ Project
 └─ Workstream C → Thinker → Worker
 ```
 
-Parallelization is optional. AIDOS chooses sequential versus parallel execution from:
-
-- workstream scope ownership;
-- shared contracts;
-- dependency graph;
-- blockers;
-- shared-resource lease requirements;
-- integration risk/gates.
+Parallelization is optional. AIDOS chooses sequential versus parallel execution from scope ownership, shared contracts, dependency graph, blockers, shared-resource lease requirements and integration risk/gates.
 
 Each workstream has durable identity/state under `schemas/workstream.schema.json`. See `docs/WORKSTREAM_ORCHESTRATION.md`.
 
 ## Actor-role abstraction
 
-Mature orchestration distinguishes actor roles from concrete model/chat identities:
+Mature orchestration distinguishes roles from concrete model/chat identities:
 
 - `THINKER` — bounded reasoning/planning/review;
 - `WORKER` — bounded technical execution/mutation;
 - `HUMAN` — genuine product/risk/authority decisions.
 
-To preserve current proven runtime terminology, `DEFINITION_AGENT` and the existing reasoning/review `WORKER_AGENT` can serve Thinker roles, while `EXECUTION_AGENT`/Codex serves the Worker role. Existing reviewer identity/contracts are not renamed by this abstraction.
+`DEFINITION_AGENT` and reasoning/review `WORKER_AGENT` can serve Thinker roles; `EXECUTION_AGENT`/Codex serves the technical Worker role. Existing persisted identities are not renamed merely to match the abstraction.
 
 ## AIDOS owns control flow
-
-Thinkers and Workers do not directly own each other's lifecycle.
-
-Canonical orchestration is:
 
 ```text
 AIDOS
@@ -108,93 +186,82 @@ AIDOS
 → AIDOS selects next valid actor
 ```
 
-An actor may request dispatch, repair, escalation or human input, but the AIDOS runtime/Bridge applies the transition only after validating canonical state, authority and leases.
+An actor may propose an Auto Decision, dispatch, repair, escalation or human input, but the runtime applies only transitions/resolutions that pass canonical state, policy, authority and lease validation.
 
-This keeps workflow continuity independent of any single GPT/Codex session.
+This keeps workflow continuity independent of any one GPT/Codex session.
 
 ## Durable events and projections
 
-Project/workstream state has two forms:
+Project/workstream state combines append-only events/evidence with compact current projections for routing/status. Session summaries are never a replacement for durable state.
 
-1. durable append-only events/evidence;
-2. compact current projections for routing/status.
-
-`event.schema.json` supports optional `workstream_id`, Human Input Request/control bindings and abstract actor roles while preserving existing concrete actor identities.
-
-Session summaries are never a replacement for durable state.
+Decision records, Human Input Requests and their bindings are part of this durable control plane.
 
 ## Concurrency, leases and integration
 
 The existing execution lease prevents duplicate execution of one project/revision and remains valid runtime semantics.
 
-Parallel workstreams additionally require shared-resource claims/leases for conflicting resources. General workstream resource leasing is an architectural requirement, not yet a proven runtime capability.
+Parallel workstreams additionally require shared-resource claims/leases for conflicting resources. General workstream resource leasing remains runtime integration work.
 
-A workstream may complete locally but remain `WAITING_INTEGRATION`. The combined result is accepted only after applicable integration gates pass: shared-contract compatibility, combined build/tests, migrations/data compatibility, runtime validation and Definition/release convergence.
+A workstream may complete locally but remain `WAITING_INTEGRATION`. Combined acceptance requires applicable shared-contract, build/test, migration/data, runtime, Definition and release gates.
 
 See `docs/CONCURRENCY_AND_RECOVERY.md`.
 
 ## Human Input Requests
 
-Human input is a first-class durable object, not a property of a Conversation/GPT chat.
-
-`schemas/human-input-request.schema.json` binds one concrete question/decision to project/workstream and relevant Definition/execution/revision/review state.
+Human input is first-class durable state, not a property of a GPT chat.
 
 ```text
-actor reaches genuine human boundary
+actor/Auto Define reaches genuine human boundary
 → Human Input Request WAITING
-→ any authorized channel presents it
+→ authorized channel presents it
 → response persisted/validated
 → request RESOLVED
 → AIDOS chooses next actor
 ```
 
-The currently proven top-level runtime still uses `WAITING_USER`; the Human Input Request provides the durable reason/binding behind that state without prematurely renaming existing runtime state semantics.
+For Auto Define escalation, a request may carry authority classification, Decision Assessment reference and explicit stop reason. Options represent the actual material choice space.
+
+The currently proven top-level runtime still uses `WAITING_USER`; the Human Input Request provides the exact durable reason/binding behind that projection.
 
 See `protocols/INTERRUPTION_PROTOCOL.md`.
 
+## Definition readiness validation
+
+Definition completion is not inferred from conversation confidence.
+
+`Test-AidosDefinitionReady.ps1` composes:
+
+- `Test-AidosDefinitionProgress.ps1 -RequireReady`;
+- resolved Definition Applicability when present;
+- `Test-AidosDefinitionDecisions.ps1` for exact decision binding, current Auto Decision policy validity and supersession lineage.
+
+This gate proves structural/decision-policy readiness; explicit human Definition acceptance remains separate.
+
 ## Control plane
 
-AIDOS must be controllable independently of a UI through explicit control intents:
-
-- run/start;
-- pause;
-- resume;
-- safe stop;
-- status query;
-- Human Input response;
-- recovery request.
-
-`schemas/control-intent.schema.json` defines the core envelope.
-
-Core rule:
+AIDOS must be controllable independently of a UI through explicit control intents: run/start, pause, resume, safe stop, status query, Human Input response and recovery request.
 
 > **An interface passes intent; AIDOS remains authority and decides how the intent is safely executed.**
 
 No client/UI may directly start/kill Codex, rewrite project state or mutate project files outside AIDOS orchestration.
 
-General remote control runtime implementation is roadmap work. Existing supervised-session behaviour already demonstrates part of the safe-boundary model: an already-running bounded execution may finish while the next interactive actor remains blocked.
-
-See `docs/CONTROL_PLANE.md`.
+General remote control runtime implementation remains roadmap work. See `docs/CONTROL_PLANE.md`.
 
 ## Progress and ETA
 
-AIDOS may expose probabilistic project/workstream progress and Estimated Time Remaining using `schemas/progress-estimate.schema.json`.
+AIDOS may expose probabilistic project/workstream progress and Estimated Time Remaining from Definition scope, workstreams, dependency graph, weighted remaining work and validation/integration status.
 
-Progress is not simple task-count completion. Where possible it derives from Definition scope, workstreams, dependency graph, weighted remaining work and validation/integration status.
-
-ETA carries explicit confidence (`HIGH`, `MEDIUM`, `LOW`, `NOT_RELIABLY_ESTIMABLE`). Estimated versus actual remaining time should be preserved to improve calibration.
-
-Progress/ETA are operational projections only. Definition + evidence + validation/integration/release gates determine actual completeness.
+ETA carries explicit confidence. Progress/ETA are operational projections only; Definition + evidence + validation/integration/release gates determine actual completeness.
 
 See `docs/PROGRESS_AND_ESTIMATION.md`.
 
 ## Observability, portfolio insights and learning
 
-AIDOS observes project/workstream execution, repair/revision cycles, blockers/recovery, Human Input Requests, first-pass acceptance, wait categories, phase durations, Definition gaps and estimation error.
+AIDOS observes project/workstream execution, repair/revision cycles, blockers/recovery, Human Input Requests, first-pass acceptance, waits, phase durations, Definition gaps and estimation error.
 
-Portfolio-level aggregation may analyze autonomy/reliability trends and recurring bottlenecks while preserving project isolation.
+Auto Define adds decision telemetry: authority distribution, confidence/reversibility, autonomous decisions, later supersession/revision, human overrides and escalation reasons. `schemas/auto-define-evaluation.schema.json` defines a durable per-Definition aggregate.
 
-Learning uses a strict maturity distinction:
+Learning remains:
 
 ```text
 OBSERVATION
@@ -203,9 +270,9 @@ OBSERVATION
 → ADOPTED_IMPROVEMENT
 ```
 
-A statistical pattern never directly becomes a system rule. `schemas/system-insight.schema.json` and `protocols/LEARNING_PROTOCOL.md` make this durable.
+A statistical pattern never directly becomes a system rule or expands autonomous authority.
 
-A key maturity metric is **what human attention is still needed for**, and whether that attention shifts from operational/technical intervention toward genuine product, risk and strategic decisions.
+A key maturity metric is **what human attention is still needed for**, and whether it shifts from operational/technical intervention toward genuine product, risk and strategic decisions.
 
 ## External Interface boundary
 
@@ -214,6 +281,7 @@ A future external **AIDOS Interface** is a separate layer/project above Core.
 ```text
 AIDOS Core / Runtime
 ├─ project/workstream state
+├─ decision/explainability state
 ├─ controls
 ├─ Human Input Requests
 ├─ events/metrics/estimates/insights
@@ -222,9 +290,9 @@ AIDOS Core / Runtime
 future AIDOS Interface
 ```
 
-AIDOS must function fully without the Interface. The Interface observes and submits intent through explicit contracts; it owns no essential orchestration logic.
+AIDOS must function fully without the Interface. The Interface observes/submits intent; it owns no essential orchestration or Auto Define policy logic.
 
-No Interface UI or separate Interface project is implemented in AIDOS Core here.
+No Interface UI or separate Interface project is implemented here.
 
 ## Definition and execution lifecycle
 
@@ -232,8 +300,11 @@ Once preparation is valid:
 
 ```text
 accepted preparation
-→ Definition applicability + durable progress
-→ human-accepted Definition
+→ Definition applicability + progress
+→ Auto Define fixed point
+→ Human Input only where required
+→ deterministic Definition readiness
+→ explicit human Definition acceptance
 → project/workstream planning
 → bounded executions
 → validation/review
@@ -241,23 +312,23 @@ accepted preparation
 → release governance where applicable
 ```
 
-For existing projects, Definition remains a desired delta from the accepted closure-compatible CPS.
+For existing projects, Definition remains the desired delta from accepted closure-compatible CPS.
 
 ## Fail-closed runtime binding
 
-Execution continues to bind exact project/preparation/Definition/execution identities. Workstream-enabled execution additionally requires exact workstream/scope/shared-contract/resource bindings once runtime support is implemented.
+Execution continues to bind exact project/preparation/Definition/execution identities. Workstream-enabled execution additionally binds workstream/scope/shared contracts/resources once runtime-supported.
 
-A mismatch is a control-flow failure, not something an actor may guess through.
+Decision resolution also fails closed when decision authority, assessment, evidence, Definition version or supersession state does not match canonical durable state.
 
 ## Recovery
 
-Power loss, process crash or session rotation is recovered from durable project/workstream state, events, Git bindings, leases, review transport and Human Input Requests. A session may disappear without deleting workflow state.
+Power loss, process crash or session rotation is recovered from durable project/workstream state, decisions, events, Git bindings, leases, review transport and Human Input Requests. A session may disappear without deleting workflow state.
 
 ## Separation of truth
 
-- **AIDOS-Contracts** owns generic versioned preparation contracts.
-- **AIDOS-Builder** owns distributable preparation procedures/validators.
-- **AIDOS Core** owns private orchestration/control/agents/learning contracts.
-- **Project repositories** own project-specific accepted truth and durable project/workstream state.
+- **AIDOS-Contracts** — generic versioned preparation and Decision Governance contracts.
+- **AIDOS-Builder** — distributable Baseline/Discovery procedures and validators.
+- **AIDOS Core** — private orchestration/control/Definition Auto Define/execution/review/learning capability.
+- **Project repositories** — project-specific accepted truth, evidence, decisions and durable workflow state.
 
 Principle: **Project-local truth; AIDOS-global capability and control flow.**
