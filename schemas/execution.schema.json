@@ -11,6 +11,21 @@
     "revision": {"type": "integer", "minimum": 1},
     "project_id": {"type": "string", "minLength": 1},
     "project_mode": {"type": "string", "enum": ["NEW_PROJECT", "EXISTING_PROJECT"]},
+    "workstream": {
+      "oneOf": [
+        {"type":"null"},
+        {
+          "type":"object","additionalProperties":false,
+          "required":["workstream_id","shared_contract_refs","resource_lease_ids","integration_gate_refs"],
+          "properties": {
+            "workstream_id":{"type":"string","minLength":1},
+            "shared_contract_refs":{"type":"array","items":{"type":"string"}},
+            "resource_lease_ids":{"type":"array","items":{"type":"string"}},
+            "integration_gate_refs":{"type":"array","items":{"type":"string"}}
+          }
+        }
+      ]
+    },
     "preparation": {
       "type": "object",
       "additionalProperties": false,
