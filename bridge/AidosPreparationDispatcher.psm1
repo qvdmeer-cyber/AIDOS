@@ -71,6 +71,32 @@ function Invoke-AidosPreparationControlInbox {
     @($results)
 }
 
+function Get-AidosPreparationDirtyPaths {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project)
+    $status=Invoke-AidosRegisteredGit $Project @('status','--porcelain=v1')
+    if($status.ExitCode-ne0){throw 'Unable to inspect dirty preparation worktree for recovery.'}
+    $paths=[System.Collections.Generic.List[string]]::new()
+    foreach($line in @($status.Output)){
+        if([string]::IsNullOrWhiteSpace([string]$line)){continue}
+        $path=([string]$line).Substring(3).Trim()
+        if($path -match ' -> '){$path=($path -split ' -> ')[-1]}
+        $paths.Add($path)
+    }
+    @($paths)
+}
+
+function Assert-AidosPreparationDirtyRecoveryScope {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project)
+    $paths=@(Get-AidosPreparationDirtyPaths -Project $Project)
+    if($paths.Count-eq0){throw 'Dirty-worktree recovery was requested but no changed paths were found.'}
+    foreach($path in $paths){
+        if(-not(Test-AidosAllowedPersistencePath -Project $Project -Path $path)){throw "Dirty onboarding recovery blocked by unauthorized changed path: $path"}
+    }
+    [pscustomobject][ordered]@{status='DIRTY_RECOVERY_ALLOWED';paths=@($paths)}
+}
+
 function Invoke-AidosPreparationDispatcherTick {
     [CmdletBinding()]
     param(
@@ -93,7 +119,13 @@ function Invoke-AidosPreparationDispatcherTick {
         try{
             $sync=if($SyncProcessor){& $SyncProcessor $project}else{Sync-AidosRegisteredPreparationProject $project}
         }catch{
-            $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$_.Exception.Message});continue
+            $syncError=$_.Exception.Message
+            if([string]$project.status -eq 'READY_FOR_ONBOARDING' -and $syncError -eq 'Preparation project synchronization requires a clean worktree.'){
+                try{$sync=Assert-AidosPreparationDirtyRecoveryScope -Project $project}
+                catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$_.Exception.Message});continue}
+            }else{
+                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$syncError});continue
+            }
         }
         $project=Get-AidosRegisteredProject -RegistryRoot $RegistryRoot -ProjectId ([string]$project.project_id)
         if([string]$project.status -eq 'READY_FOR_ONBOARDING'){
@@ -130,4 +162,4 @@ function Invoke-AidosPreparationDispatcherTick {
     }
 }
 
-Export-ModuleMember -Function Get-AidosPreparationRegistryProjects,Get-AidosPendingPreparationResumeIds,Invoke-AidosPreparationControlInbox,Invoke-AidosPreparationDispatcherTick
+Export-ModuleMember -Function Get-AidosPreparationRegistryProjects,Get-AidosPendingPreparationResumeIds,Invoke-AidosPreparationControlInbox,Get-AidosPreparationDirtyPaths,Assert-AidosPreparationDirtyRecoveryScope,Invoke-AidosPreparationDispatcherTick
