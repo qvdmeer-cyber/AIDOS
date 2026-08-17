@@ -1,42 +1,50 @@
 # Session rotation
 
-Chats/sessions are caches of reasoning context, not canonical project state.
+Chats/sessions are caches of reasoning/execution context, not canonical AIDOS, project or workstream state.
 
-## Codex session rotation
+## Actor-session principle
 
-Keep the existing session by default while it remains useful.
+AIDOS activates temporary actors against exact durable bindings. Replacing a GPT/Codex session must not change project/workstream identity, Definition/execution bindings, Human Input Requests, blockers or control state.
 
-Start a new Codex session when one or more apply:
+```text
+AIDOS durable state
+→ activate temporary actor session
+→ actor emits durable event/result
+→ session may be discarded
+```
 
-- a materially new development goal begins and old history has little execution value;
-- Codex is stuck in a repeated problem/context loop;
-- the session is polluted and repeatedly applies stale/wrong instructions;
-- project or official root changes;
-- a material architecture/runtime context break makes old assumptions actively harmful;
-- Worker explicitly requests `ROTATE_SESSION` after review;
-- future telemetry demonstrates a clear context/allowance threshold.
+A replacement session bootstraps from canonical AIDOS/project/workstream sources, not from implicit predecessor memory.
+
+## Codex / Worker-role session rotation
+
+Keep an existing execution session while useful. Start a new one when one or more apply:
+
+- a materially new goal/workstream begins and old history has little value;
+- repeated problem/context loops suggest stale context;
+- the session repeatedly applies stale/wrong instructions;
+- project/workstream/root binding changes;
+- material architecture/runtime context makes old assumptions harmful;
+- AIDOS validates a rotation request after review;
+- future telemetry demonstrates a useful threshold.
 
 Do not rotate merely because a session is old.
 
-## GPT session rotation
+## GPT / Thinker-role session rotation
 
-Definition and Worker chats must also be disposable.
+Definition/reasoning/review chats are disposable too. Rotate when stale project/workstream state is repeatedly used, accepted decisions are reopened without evidence, review becomes contradictory, protocol is not followed, historical context causes confusion or the human/AIDOS requests a clean context.
 
-Rotate when:
-
-- stale execution/project state is repeatedly used;
-- decisions already accepted are repeatedly reopened without new evidence;
-- reviews become contradictory without changed evidence;
-- agent protocol is no longer followed reliably;
-- responses become materially confused by historical context;
-- the human requests a clean session.
+A project may have temporary project-level and workstream-level Thinker sessions. Their reasoning scope is bound by workstream ownership/shared contracts and does not create a separate source of truth.
 
 ### ROTATE versus RESET
 
-`ROTATE` — healthy session replaced proactively; current canonical repository state bootstraps the replacement.
+`ROTATE` — healthy context replaced proactively; canonical durable state bootstraps the replacement.
 
-`RESET` — current context is considered unreliable. The replacement must bootstrap only from canonical project/AIDOS sources and machine evidence, not from a prose summary produced by the confused predecessor.
+`RESET` — predecessor context is considered unreliable. Bootstrap only from canonical repository/AIDOS state, events, Human Input Requests and machine evidence; do not use a prose summary produced by the unreliable predecessor as authority.
+
+## Waiting human input
+
+A Human Input Request survives all session rotation. Any authorized replacement channel/session may display and resolve the same durable request. A chat must never create a semantically new decision request merely because the original asking session disappeared.
 
 ## Measured optimization
 
-V1 records usage/context metrics but intentionally avoids aggressive automatic token/time thresholds. Rotation parameters should be tuned from real allowance consumption and observed failure patterns.
+V1 records usage/context metrics but avoids aggressive automatic token/time thresholds. Rotation parameters should be tuned from allowance consumption, repair rates, stale-context failures and workstream outcomes.
