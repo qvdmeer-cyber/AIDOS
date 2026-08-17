@@ -35,8 +35,10 @@ $projectRoot=Convert-WslPathToUnc $projectWslRoot
 $registryRoot=Join-Path $env:LOCALAPPDATA 'AIDOS\project-registry'
 $stateRoot=Join-Path $env:LOCALAPPDATA 'AIDOS\host-agent'
 
-Import-Module (Join-Path $aidosRoot 'bridge/AidosProjectRegistry.psm1') -Force -DisableNameChecking
+# Import runtime first because it imports/reloads the registry module internally.
+# Re-import registry afterwards so its exported commands remain available in this script's caller scope.
 Import-Module (Join-Path $aidosRoot 'bridge/AidosPreparationRuntime.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $aidosRoot 'bridge/AidosProjectRegistry.psm1') -Force -DisableNameChecking
 
 $registryPath=Get-AidosRegistryProjectPath -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
 if(Test-Path -LiteralPath $registryPath -PathType Leaf){
