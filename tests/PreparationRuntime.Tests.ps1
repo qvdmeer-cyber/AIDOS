@@ -4,8 +4,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $root 'bridge/AidosProjectRegistry.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosPreparationRuntime.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosProjectRegistry.psm1') -Force -DisableNameChecking
 $script:passed=0
 function Assert-Prep([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
 
