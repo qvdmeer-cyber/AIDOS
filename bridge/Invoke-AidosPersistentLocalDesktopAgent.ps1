@@ -5,6 +5,7 @@ param(
 )
 Set-StrictMode -Version Latest;$ErrorActionPreference='Stop'
 if(-not $IsWindows){throw 'This Windows host-agent command must be run with PowerShell 7 on Windows.'}
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosPersistentLocalDesktopAgent.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
 if(-not $StateRoot){$StateRoot=Get-AidosHostAgentDefaultStateRoot}
