@@ -1,6 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
 
@@ -165,9 +166,8 @@ function Set-AidosDesktopInteractiveOverlay {
         if($p.Name -ne 'interactive_session'){ $o[$p.Name]=$p.Value }
     }
     $o.interactive_session=New-AidosDesktopInteractiveOverlay -Decision $Decision -Status $Status
-    $hasLastError=$o.Contains('last_error')
-    $lastError=if($hasLastError){[string]$o['last_error']}else{''}
-    if($Status -eq 'AVAILABLE' -and $hasLastError -and $lastError -in @('SESSION_LOCKED','SESSION_DISCONNECTED','NO_INTERACTIVE_SESSION','INPUT_DESKTOP_UNAVAILABLE','SESSION_STATE_UNKNOWN','DESKTOP_TRANSITION_UNAVAILABLE')){
+    $lastError=if($o.Contains('last_error')){[string]$o['last_error']}else{''}
+    if($Status -eq 'AVAILABLE' -and $lastError -in @('SESSION_LOCKED','SESSION_DISCONNECTED','NO_INTERACTIVE_SESSION','INPUT_DESKTOP_UNAVAILABLE','SESSION_STATE_UNKNOWN','DESKTOP_TRANSITION_UNAVAILABLE')){
         [void]$o.Remove('last_error')
     }
     $o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
