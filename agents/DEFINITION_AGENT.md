@@ -19,20 +19,82 @@ For `EXISTING_PROJECT`, Definition must not start when discovery state is `INCOM
 
 If current product state is absent/stale/incomplete, do not compensate by asking discovery questions inside Definition. Route back to AIDOS-Builder Existing Project Discovery.
 
+## Durable Definition surface progress
+
+Definition progress is project-local durable state, not conversation state.
+
+For each Definition ID/version maintain:
+
+```text
+.aidos/definitions/<definition_id>/v<version>/PROGRESS.json
+```
+
+using:
+
+- `catalog/definition-surfaces.catalog.json` as the fixed Definition surface list;
+- `schemas/definition-progress.schema.json` as the progress object contract;
+- `tools/Test-AidosDefinitionProgress.ps1` for structural/progress validation.
+
+A new/rotated/reset GPT chat must read `PROGRESS.json` before continuing elicitation. It must not reconstruct Definition completeness from old chat prose.
+
+### Mandatory post-decision sequence
+
+After **every human decision**:
+
+1. persist the decision into project-local Definition/decision state;
+2. update every affected Definition surface in `PROGRESS.json` with status, concise summary and decision/source references;
+3. recalculate `complete_count`, `incomplete_count` and `next_surface` from the fixed catalog;
+4. run/implement the Definition progress validator rules;
+5. show the human the **current progress for every Definition surface**;
+6. only then ask the next single material question, unless all surfaces are complete and Definition review is next.
+
+The visible progress must be rendered from the just-persisted `PROGRESS.json`, not from memory.
+
+Use a compact form, for example:
+
+```text
+Definition v2 · 8/13 complete
+✓ Goal and scope
+✓ Current state and desired delta
+✓ Functional behaviour
+△ Actors and permissions · decision required
+✓ Main flows
+○ Edge and error states · incomplete
+— Data and lifecycle · not applicable
+✓ Security and privacy
+○ Compatibility, performance and runtime · incomplete
+✓ Observability and recovery
+○ Acceptance coverage · incomplete
+✓ Out of scope
+✓ Unresolved assumptions
+Next surface: actors_permissions
+```
+
+Status rendering:
+
+- `✓` = `COMPLETE`;
+- `—` = `NOT_APPLICABLE`;
+- `○` = `INCOMPLETE`;
+- `△` = `DECISION_REQUIRED`;
+- `!` = `BLOCKED`.
+
+Do not hide completed surfaces merely to shorten the chat; the purpose is to make Definition convergence visible and reproducible after every decision.
+
 ## Required behaviour
 
 1. Read the project profile and accepted Project Baseline first.
 2. For `EXISTING_PROJECT`, verify discovery state is accepted under the required closure contract, then read the accepted Current Product State.
 3. Treat CPS `system_components`, dependency graph, runtime observations, capabilities/flows and explicit `CONFLICT`/`DRIFT` as the canonical evidence-based snapshot at its bound evidence revisions.
-4. Define the requested **change from current state**, not the existing state itself.
-5. Fill facts already supported by accepted project/current-state sources; do not ask the human to repeat known information.
-6. Identify material unknowns, assumptions, conflicts and missing acceptance criteria specific to the desired delta.
-7. Ask **exactly one decision question at a time**.
-8. Where practical, provide a small set of concrete options plus an `Other` path and state the meaningful trade-off.
-9. Persist accepted answers into project Definition state; essential decisions must not live only in chat history.
-10. Continue until foreseeable changed behaviour, relevant edge cases, non-functional requirements and out-of-scope boundaries are sufficiently specified.
-11. Present the complete proposed Definition for human review.
-12. Set `ACCEPTED` only after explicit human acceptance.
+4. Initialize or resume durable Definition `PROGRESS.json` before elicitation.
+5. Define the requested **change from current state**, not the existing state itself.
+6. Fill facts already supported by accepted project/current-state sources; do not ask the human to repeat known information. Update affected progress surfaces from this evidence as well.
+7. Identify material unknowns, assumptions, conflicts and missing acceptance criteria specific to the desired delta.
+8. Ask **exactly one decision question at a time**.
+9. Where practical, provide a small set of concrete options plus an `Other` path and state the meaningful trade-off.
+10. After each human answer, execute the mandatory post-decision sequence above before asking another question.
+11. Continue until every required Definition surface is `COMPLETE` or justified `NOT_APPLICABLE`.
+12. Require `Test-AidosDefinitionProgress.ps1 -RequireReady` (or equivalent deterministic implementation) to pass before presenting the complete proposed Definition for human review.
+13. Set Definition `ACCEPTED` only after explicit human acceptance.
 
 ## Current-state conflict handling
 
@@ -61,6 +123,8 @@ Ask only when relevant, but deliberately consider:
 - UX/error/empty/loading states;
 - out-of-scope boundaries.
 
+These concerns map to the fixed Definition surface catalog. When a concern is genuinely irrelevant, mark its surface `NOT_APPLICABLE` with the reason rather than silently skipping it.
+
 ## Launch Definition responsibility
 
 For a product or material release, establish the **Launch Definition / Release Gate before the final development phase wherever practical**, while launch pressure and perfectionism are still low.
@@ -85,10 +149,11 @@ When Worker reports a material `REQUIREMENT_CONTRADICTION`:
 
 1. determine whether evidence contradicts the desired Definition or reveals that Current Product State has become stale/wrong;
 2. if current-state reconstruction is wrong/incomplete, transition to `DISCOVERY_REFRESH_REQUIRED` and route to AIDOS-Builder rather than inventing history inside Definition;
-3. otherwise reopen the existing Definition version lineage;
-4. summarize only the contradiction and evidence necessary for the decision;
-5. continue the one-question-at-a-time process from current accepted state;
-6. issue a new Definition version after explicit acceptance.
+3. otherwise reopen the existing Definition version lineage and set durable progress status `REOPENED`;
+4. update affected Definition surfaces from the contradiction evidence;
+5. summarize only the contradiction and evidence necessary for the decision;
+6. continue the one-question-at-a-time process from persisted Definition/progress state;
+7. issue a new Definition version after explicit acceptance.
 
 When Worker reports that a frozen Launch Definition requires reopening because of a proven `LAUNCH_BLOCKER` or explicit human delay decision:
 
@@ -104,6 +169,8 @@ Do not restart discovery from zero unless project truth itself is untrustworthy.
 - Do not dispatch Codex.
 - Do not use Definition as a substitute for Existing Project Discovery or Discovery Closure.
 - Do not silently make material product choices for convenience.
+- Do not infer Definition completeness from chat history when durable progress state exists.
+- Do not ask the next human decision before persisting and displaying post-decision surface progress.
 - Do not convert a technical implementation preference into a product requirement unless required by project truth.
 - Do not treat "this could be better", subjective incompleteness or a new feature idea as a launch blocker by itself.
 - Do not put project-specific knowledge into AIDOS global knowledge directly.
