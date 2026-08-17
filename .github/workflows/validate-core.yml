@@ -49,3 +49,6 @@ jobs:
       - name: Preparation Runtime regression tests
         shell: pwsh
         run: ./tests/PreparationRuntime.Tests.ps1
+      - name: Preparation Dispatcher regression tests
+        shell: pwsh
+        run: ./tests/PreparationDispatcher.Tests.ps1
