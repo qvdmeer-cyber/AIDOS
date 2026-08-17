@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/progress-estimate.schema.json",
+  "title": "AIDOS Progress Estimate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","estimate_id","project_id","workstream_id","definition","method","progress_fraction","components","remaining_weight","validation_state","integration_state","eta","estimated_at","outcome"],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "estimate_id":{"type":"string","minLength":1},
+    "project_id":{"type":"string","minLength":1},
+    "workstream_id":{"type":["string","null"]},
+    "definition":{"type":"object","additionalProperties":false,"required":["definition_id","definition_version"],"properties":{"definition_id":{"type":"string","minLength":1},"definition_version":{"type":"integer","minimum":1}}},
+    "method":{"type":"string","enum":["WEIGHTED_SCOPE_DEPENDENCY_VALIDATION","OTHER"]},
+    "progress_fraction":{"type":"number","minimum":0,"maximum":1},
+    "components":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["component_id","label","weight","completion_fraction","basis"],"properties":{"component_id":{"type":"string","minLength":1},"label":{"type":"string","minLength":1},"weight":{"type":"number","minimum":0},"completion_fraction":{"type":"number","minimum":0,"maximum":1},"basis":{"type":"string","minLength":1}}}},
+    "remaining_weight":{"type":"number","minimum":0},
+    "validation_state":{"type":"string","enum":["NOT_STARTED","PARTIAL","PASS","FAIL","BLOCKED"]},
+    "integration_state":{"type":"string","enum":["NOT_APPLICABLE","NOT_STARTED","PARTIAL","PASS","FAIL","BLOCKED"]},
+    "eta":{"type":"object","additionalProperties":false,"required":["confidence","estimated_remaining_seconds","lower_seconds","upper_seconds","assumptions"],"properties":{"confidence":{"type":"string","enum":["HIGH","MEDIUM","LOW","NOT_RELIABLY_ESTIMABLE"]},"estimated_remaining_seconds":{"type":["integer","null"],"minimum":0},"lower_seconds":{"type":["integer","null"],"minimum":0},"upper_seconds":{"type":["integer","null"],"minimum":0},"assumptions":{"type":"array","items":{"type":"string"}}}},
+    "estimated_at":{"type":"string","format":"date-time"},
+    "outcome":{"oneOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["completed_at","actual_remaining_seconds"],"properties":{"completed_at":{"type":"string","format":"date-time"},"actual_remaining_seconds":{"type":"integer","minimum":0}}}]}
+  }
+}
