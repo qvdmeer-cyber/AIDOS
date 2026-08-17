@@ -1,11 +1,12 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ProjectRoot,
-    [ValidateSet('Publish','Recover','RepairLegacyCorrelation','Consume','Cleanup','Reconcile')][string]$Mode = 'Consume',
+    [ValidateSet('Publish','Recover','RepairLegacyCorrelation','Consume','Cleanup','Abandon','Reconcile')][string]$Mode = 'Consume',
     [string]$ExecutionPath,
     [string]$ReviewId,
     [string]$ResponseJson,
     [string]$ResponsePath,
+    [string]$Reason,
     [ValidateSet('HUMAN','DEFINITION_AGENT','WORKER_AGENT','EXECUTION_AGENT','BRIDGE','SYSTEM')][string]$Actor = 'WORKER_AGENT'
 )
 
@@ -29,11 +30,19 @@ switch ($Mode) {
     }
     'Consume' {
         if (-not $ResponseJson -and -not $ResponsePath) { throw 'Consume mode requires ResponseJson or ResponsePath.' }
-        Invoke-AidosReviewConsumer -ProjectRoot $ProjectRoot -ResponseJson $ResponseJson -ResponsePath $ResponsePath -Actor $Actor | ConvertTo-Json -Depth 100
+        $consumerArgs=@{ProjectRoot=$ProjectRoot;Actor=$Actor}
+        if($ResponseJson){ $consumerArgs.ResponseJson=$ResponseJson }
+        if($ResponsePath){ $consumerArgs.ResponsePath=$ResponsePath }
+        Invoke-AidosReviewConsumer @consumerArgs | ConvertTo-Json -Depth 100
     }
     'Cleanup' {
         if (-not $ReviewId) { throw 'Cleanup mode requires ReviewId.' }
         Invoke-AidosReviewCleanup -ProjectRoot $ProjectRoot -ReviewId $ReviewId -Actor $Actor | ConvertTo-Json -Depth 100
+    }
+    'Abandon' {
+        if (-not $ReviewId) { throw 'Abandon mode requires ReviewId.' }
+        if ([string]::IsNullOrWhiteSpace($Reason)) { throw 'Abandon mode requires Reason.' }
+        Abandon-AidosReview -ProjectRoot $ProjectRoot -ReviewId $ReviewId -Reason $Reason -Actor $Actor | ConvertTo-Json -Depth 100
     }
     'Reconcile' {
         Invoke-AidosReviewReconciliation -ProjectRoot $ProjectRoot | ConvertTo-Json -Depth 100

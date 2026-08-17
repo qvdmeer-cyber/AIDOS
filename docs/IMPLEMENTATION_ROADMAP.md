@@ -85,6 +85,9 @@ External Builder/Contracts implement the closure procedure; AIDOS Core must prov
 - [ ] Windows locked → `WAITING_INTERACTIVE_SESSION` proof in supervised mode;
 - [ ] unlock/resume behaviour;
 - [ ] end-to-end Worker review → Git state → Codex continuation proof.
+- [ ] explicit one-time conversation enrollment and re-identification through Windows UI Automation / accessibility APIs;
+- [ ] adapter-side PREPARED → SENT → RECEIVED → VALIDATED → HANDOFF_COMPLETE state recovery without blind resend;
+- [ ] separate-process desktop adapter seam that emits a strict `REVIEW_RESPONSE` envelope for the bridge consumer.
 
 ## Definition Agent integration
 

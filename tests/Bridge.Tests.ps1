@@ -2,6 +2,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $modulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/AidosBridge.psm1'
 Import-Module $modulePath -Force
+$desktopAdapterModulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/AidosDesktopChatGPT.psm1'
+Import-Module $desktopAdapterModulePath -Force -DisableNameChecking
 $script:Passed = 0
 
 function Assert-True([bool]$Condition,[string]$Message) { if(-not $Condition){throw "ASSERTION FAILED: $Message"};$script:Passed++ }
@@ -20,6 +22,76 @@ function Invoke-ExternalReviewWorker {
     if($LASTEXITCODE -ne 0){throw "Worker stub failed with exit code $LASTEXITCODE."}
     [string]::Join([Environment]::NewLine, @($response))
 }
+$desktopAdapterPublicCommands = @(
+    'Test-AidosDesktopChatGPTInteractiveSession',
+    'Invoke-AidosDesktopChatGPTEnroll',
+    'Invoke-AidosDesktopChatGPTReview'
+)
+foreach($commandName in $desktopAdapterPublicCommands){
+    Assert-True ([bool](Get-Command $commandName -ErrorAction SilentlyContinue)) "desktop adapter exports $commandName"
+}
+if($IsWindows){
+    Assert-True (Test-AidosDesktopChatGPTInteractiveSession) 'desktop adapter detects the interactive Windows session'
+    Assert-True (Test-AidosDesktopChatGPTInteractiveSession) 'desktop adapter can initialize its versioned native helper repeatedly'
+    Assert-True ([bool]([type]'AidosNativeDesktopV3')) 'versioned native helper type is available after repeated initialization'
+}
+$desktopAdapterSource=Get-Content -LiteralPath $desktopAdapterModulePath -Raw -Encoding UTF8
+Assert-True ($desktopAdapterSource -match 'GetWindowTextW\(IntPtr hWnd, System\.Text\.StringBuilder lpString, int nMaxCount\)' -and $desktopAdapterSource -match 'GetClassNameW\(IntPtr hWnd, System\.Text\.StringBuilder lpString, int nMaxCount\)' -and $desktopAdapterSource -match 'CharSet=CharSet\.Unicode') 'native Win32 title/class retrieval declares Unicode StringBuilder marshalling'
+function Invoke-DesktopChatGPTAdapter {
+    param(
+        [ValidateSet('Enroll','Review')][string]$Mode='Review',
+        [string]$ProjectRoot,
+        [string]$ConversationProofText='',
+        [string]$AccountProofText='',
+        [string]$AssignmentPath,
+        [ValidateSet('Real','Stub')][string]$BackendMode='Stub',
+        [bool]$StubInteractiveSession=$true,
+        [bool]$StubConversationMatches=$true,
+        [bool]$StubNoResponse=$false,
+        [string]$StubResponseText,
+        [string]$ProcessName='ChatGPT',
+        [int]$ResponseTimeoutSeconds=30
+    )
+    $adapterScript=Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/Invoke-AidosDesktopChatGPT.ps1'
+    $pwshExe=Get-PwshExecutable
+    $args=@('-NoLogo','-NoProfile','-File',$adapterScript,'-ProjectRoot',$ProjectRoot,'-Mode',$Mode,'-ProcessName',$ProcessName,'-BackendMode',$BackendMode,'-StubInteractiveSession',([string]$StubInteractiveSession),'-StubConversationMatches',([string]$StubConversationMatches),'-StubNoResponse',([string]$StubNoResponse),'-ResponseTimeoutSeconds',([string]$ResponseTimeoutSeconds))
+    if($ConversationProofText){ $args += @('-ConversationProofText',$ConversationProofText) }
+    if($AccountProofText){ $args += @('-AccountProofText',$AccountProofText) }
+    if($AssignmentPath){ $args += @('-AssignmentPath',$AssignmentPath) }
+    if($StubResponseText){ $args += @('-StubResponseText',$StubResponseText) }
+    $response=& $pwshExe @args
+    if($LASTEXITCODE -ne 0){throw "Desktop adapter failed with exit code $LASTEXITCODE."}
+    [string]::Join([Environment]::NewLine, @($response))
+}
+
+$selectorHelperProcesses=@(
+    [pscustomobject]@{present=$true;process_id=10676;process_name='ChatGPT Classic';session_id=1;main_window_handle='0';window_handle='657871';window_title='';window_class_name='Chrome_RenderWidgetHostHWND';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$true;window_source='helper';usable_application_window=$false;proof_reason='internal render helper'}
+    [pscustomobject]@{present=$true;process_id=10677;process_name='ChatGPT Classic';session_id=1;main_window_handle='0';window_handle='781234';window_title='';window_class_name='IME';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$true;window_source='helper';usable_application_window=$false;proof_reason='IME window'}
+    [pscustomobject]@{present=$true;process_id=17376;process_name='ChatGPT Classic';session_id=1;main_window_handle='657418';window_handle='657418';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$true;window_source='MainWindowHandle';uia_process_id=17376;uia_native_window_handle='657418';uia_class_name='Chrome_WidgetWin_1';uia_control_type='System.Windows.Automation.ControlType.Window';uia_name='ChatGPT Classic';usable_application_window=$true;proof_reason='Accepted application shell candidate.'}
+)
+$selectedSelectorProcess=Select-AidosDesktopChatGPTProcessContext $selectorHelperProcesses
+Assert-True ($selectedSelectorProcess.process_id -eq 17376 -and $selectedSelectorProcess.window_handle -eq '657418') 'selector chooses the actual usable visible ChatGPT top-level window over helper processes'
+
+$selectorMinimizedWindow=@([pscustomobject]@{present=$true;process_id=17376;process_name='ChatGPT Classic';session_id=1;main_window_handle='657418';window_handle='657418';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1';window_is_minimized=$true;window_is_foreground=$false;window_is_visible=$true;window_source='MainWindowHandle';uia_process_id=17376;uia_native_window_handle='657418';uia_class_name='Chrome_WidgetWin_1';uia_control_type='System.Windows.Automation.ControlType.Window';uia_name='ChatGPT Classic';usable_application_window=$true;proof_reason='Accepted application shell candidate.'})
+$selectedMinimizedProcess=Select-AidosDesktopChatGPTProcessContext $selectorMinimizedWindow
+Assert-True ($selectedMinimizedProcess.window_is_minimized -and $selectedMinimizedProcess.window_handle -eq '657418') 'selector preserves an identifiable minimized ChatGPT window'
+
+$selectorHelperOnly=@(
+    [pscustomobject]@{present=$true;process_id=10676;process_name='ChatGPT Classic';session_id=1;main_window_handle='0';window_handle='657871';window_title='';window_class_name='Chrome_RenderWidgetHostHWND';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$true;window_source='helper';usable_application_window=$false;proof_reason='internal render helper'}
+    [pscustomobject]@{present=$true;process_id=10677;process_name='ChatGPT Classic';session_id=1;main_window_handle='0';window_handle='781234';window_title='';window_class_name='IME';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$true;window_source='helper';usable_application_window=$false;proof_reason='IME window'}
+)
+Assert-Throws { Select-AidosDesktopChatGPTProcessContext $selectorHelperOnly } 'No usable ChatGPT application shell window was discovered'
+
+$selectorNoWindow=@([pscustomobject]@{present=$true;process_id=17376;process_name='ChatGPT Classic';session_id=1;main_window_handle='0';window_handle='0';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$false;window_source='EnumWindows';usable_application_window=$false;proof_reason='Window handle is zero.'})
+Assert-Throws { Select-AidosDesktopChatGPTProcessContext $selectorNoWindow } 'No usable ChatGPT application shell window was discovered'
+
+Assert-Throws {
+    Select-AidosDesktopChatGPTProcessContext @(
+        [pscustomobject]@{present=$true;process_id=17376;process_name='ChatGPT Classic';session_id=1;main_window_handle='657418';window_handle='657418';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$true;window_source='MainWindowHandle';uia_process_id=17376;uia_native_window_handle='657418';uia_class_name='Chrome_WidgetWin_1';uia_control_type='System.Windows.Automation.ControlType.Window';uia_name='ChatGPT Classic';usable_application_window=$true;proof_reason='Accepted application shell candidate.'}
+        [pscustomobject]@{present=$true;process_id=17377;process_name='ChatGPT Classic';session_id=1;main_window_handle='657419';window_handle='657419';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1';window_is_minimized=$false;window_is_foreground=$false;window_is_visible=$true;window_source='MainWindowHandle';uia_process_id=17377;uia_native_window_handle='657419';uia_class_name='Chrome_WidgetWin_1';uia_control_type='System.Windows.Automation.ControlType.Window';uia_name='ChatGPT Classic';usable_application_window=$true;proof_reason='Accepted application shell candidate.'}
+    )
+} 'Multiple usable ChatGPT top-level windows'
+
 function New-TestProject {
     $root=Join-Path ([IO.Path]::GetTempPath()) ('aidos-bridge-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $root|Out-Null
     &git -C $root init -q;&git -C $root config user.email test@example.invalid;&git -C $root config user.name 'AIDOS Test';&git -C $root remote add origin https://github.com/test-owner/test-project.git
@@ -35,6 +107,16 @@ function New-TestProject {
     $execution=[ordered]@{schema_version='0.1';execution_id='EXEC-1';revision=1;project_id='TEST';project_mode='NEW_PROJECT';preparation=[ordered]@{baseline_commit='abcdef1234567890';access_sha256=$snapshot.access_sha256;evidence_inventory_sha256=$snapshot.evidence_inventory_sha256;current_product_state_id=$null;current_product_state_commit=$null;current_product_state_contract_version=$null;discovery_catalog_version=$null};definition=@{id='DEF-1';version=1};goal='Test';scope=@{};acceptance=@(@{criterion='passes'});authority=@{filesystem_write=@('SMOKE_RESULT.txt')};knowledge_selection=@();executor_profile=@{model='fake';reasoning_effort='low'};validation=[ordered]@{mode='ALL';requirements=@([ordered]@{type='FILE_CONTENT_EXACT';path='SMOKE_RESULT.txt';expected='AIDOS_BRIDGE_SMOKE_PASS';trim_trailing_newline=$true})}}
     $executionPath=Join-Path $root '.aidos/executions/EXEC-1/revision-1/EXECUTION.json';Write-Json $executionPath $execution
     [pscustomobject]@{Root=$root;Execution=$execution;ExecutionPath=$executionPath}
+}
+
+$selectorEnrollmentProject=New-TestProject
+try {
+    $enrollmentBackend=New-AidosDesktopChatGPTStubBackend -InteractiveSession:$true -ConversationMatches:$true -ProcessName 'ChatGPT Classic' -WindowTitle 'ChatGPT Classic' -WindowClassName 'Chrome_WidgetWin_1'
+    $enrollmentResult=Invoke-AidosDesktopChatGPTEnroll -ProjectRoot $selectorEnrollmentProject.Root -ConversationProofText 'Deze chat is vanaf nu de AIDOS Worker.' -AccountProofText 'AIDOS Account Proof' -ProcessName 'ChatGPT Classic' -Backend $enrollmentBackend
+    $enrollmentRecord=Read-AidosDesktopChatGPTEnrollment $selectorEnrollmentProject.Root
+    Assert-True ($enrollmentResult.status -eq 'ENROLLED' -and $enrollmentRecord.conversation_fingerprint_sha256) 'one usable candidate reaches enrollment'
+} finally {
+    Remove-Item -LiteralPath $selectorEnrollmentProject.Root -Recurse -Force
 }
 
 $project=New-TestProject
@@ -213,7 +295,30 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         Assert-Throws { Invoke-AidosReviewConsumer -ProjectRoot $reviewProject.Root -ResponseJson $tamperedResponseJson } 'bridge-bound|mismatched'
         $reviewEvents=@(Get-ChildItem (Join-Path $reviewProject.Root '.aidos/events') -Filter '*.jsonl' | ForEach-Object { Get-Content $_.FullName } | ForEach-Object { ($_ | ConvertFrom-Json).event_type })
         Assert-True ($reviewEvents -contains 'REVIEW_ASSIGNMENT_PUBLISHED' -and $reviewEvents -contains 'REVIEW_RESPONSE_RECEIVED' -and $reviewEvents -contains 'REVIEW_RESPONSE_ACCEPTED' -and $reviewEvents -contains 'REVIEW_DECISION_RECORDED' -and $reviewEvents -contains 'REVIEW_PACKAGE_CONSUMED' -and $reviewEvents -contains 'REVIEW_CLEANUP_CONFIRMED') 'review lifecycle events are emitted'
+        Assert-Throws { Abandon-AidosReview -ProjectRoot $reviewProject.Root -ReviewId $published.review_id -Reason 'should not be allowed' -Actor BRIDGE } 'accepted durable response|decision|consume acknowledgement|cleanup'
     } finally { Remove-Item -LiteralPath $reviewProject.Root -Recurse -Force }
+
+    $abandonProject=New-TestProject
+    try {
+        $abandonRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$abandonProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $abandonExecution=Invoke-AidosCodexExecution $abandonProject.Root $abandonProject.ExecutionPath $abandonRuntime 'abandon review smoke'
+        Assert-True ($abandonExecution.validation_status -eq 'PASS') 'abandonment fixture reaches reviewable evidence'
+        $abandonPublished=Publish-AidosReviewPackage $abandonProject.Root $abandonProject.ExecutionPath
+        $null=Set-AidosState $abandonProject.Root 'RECOVERY_REQUIRED' 'BRIDGE' @{review_id=$null}
+        $rejectedEvidence=Join-Path $abandonProject.Root ".aidos/runtime/chatgpt/reviews/$($abandonPublished.review_id)/RESPONSE_REJECTED.json"
+        Write-Json $rejectedEvidence ([ordered]@{review_id=$abandonPublished.review_id;reason='strict response validation rejected the external payload'})
+        $packageBefore=Join-Path $abandonProject.Root $abandonPublished.package_path
+        $abandoned=Abandon-AidosReview -ProjectRoot $abandonProject.Root -ReviewId $abandonPublished.review_id -Reason 'External response was rejected before bridge acceptance.' -Actor BRIDGE
+        $abandonedRecord=Read-AidosReviewRecord $abandonProject.Root $abandonPublished.review_id
+        Assert-True ($abandoned.transport_state -eq 'ABANDONED' -and -not $abandoned.idempotent -and -not $abandonedRecord.decision -and -not $abandonedRecord.response -and $abandonedRecord.abandonment.reason) 'rejected unconsumed review is explicitly abandoned without a fabricated decision'
+        Assert-True ((Test-Path -LiteralPath $packageBefore) -and (Test-Path -LiteralPath $rejectedEvidence)) 'abandonment preserves package and rejected response evidence'
+        $abandonedAgain=Abandon-AidosReview -ProjectRoot $abandonProject.Root -ReviewId $abandonPublished.review_id -Reason 'External response was rejected before bridge acceptance.' -Actor BRIDGE
+        Assert-True $abandonedAgain.idempotent 'repeated identical abandonment is idempotent'
+        Assert-True ((Invoke-AidosReviewReconciliation -ProjectRoot $abandonProject.Root).status -eq 'CLEAN') 'valid abandoned historical review is terminal for reconciliation'
+        $abandonEvents=@(Get-ChildItem (Join-Path $abandonProject.Root '.aidos/events') -Filter '*.jsonl' | ForEach-Object { Get-Content $_.FullName } | ForEach-Object { ($_ | ConvertFrom-Json).event_type })
+        Assert-True ($abandonEvents -contains 'REVIEW_TRANSPORT_ABANDONED') 'review abandonment emits durable event evidence'
+        Assert-True ((@($abandonEvents|Where-Object {$_ -eq 'REVIEW_TRANSPORT_ABANDONED'}).Count -eq 1)) 'idempotent abandonment does not append a second closure event'
+    } finally { Remove-Item -LiteralPath $abandonProject.Root -Recurse -Force }
 
     $recoveryProject=New-TestProject
     try {
@@ -393,6 +498,130 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         Assert-True ($failedState.codex_session_id -eq '22222222-2222-2222-2222-222222222222' -and -not(Test-Path (Join-Path $validationFailure.Root '.aidos/runtime/lease.json'))) 'failed validation preserves session and releases lease'
         Assert-True ((Read-AidosJson (Join-Path $validationFailure.Root $failedState.validation_result)).requirements[0].passed -eq $false) 'validation failure evidence is durable'
     } finally { Remove-Item -LiteralPath $validationFailure.Root -Recurse -Force }
+
+    $desktopProject=New-TestProject
+    try {
+        $desktopRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$desktopProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+        $desktopExecution=Invoke-AidosCodexExecution $desktopProject.Root $desktopProject.ExecutionPath $desktopRuntime 'desktop adapter review smoke'
+        Assert-True ($desktopExecution.validation_status -eq 'PASS') 'desktop adapter smoke reaches publishable evidence'
+        $desktopPublished=Publish-AidosReviewPackage $desktopProject.Root $desktopProject.ExecutionPath
+        $assignmentPath=Join-Path $desktopProject.Root $desktopPublished.assignment_path
+        $assignment=Read-AidosJson $assignmentPath
+        $conversationProofText='desktop adapter smoke conversation'
+        $accountProofText='desktop account proof'
+        $enrollJson=Invoke-DesktopChatGPTAdapter -Mode Enroll -ProjectRoot $desktopProject.Root -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub
+        $enroll=$enrollJson | ConvertFrom-Json -Depth 100
+        Assert-True ($enroll.status -eq 'ENROLLED' -and $enroll.idempotent -eq $false) 'desktop adapter enrollment succeeds once'
+        $enrollPath=Join-Path $desktopProject.Root '.aidos/runtime/chatgpt/ENROLLMENT.json'
+        Assert-True (Test-Path -LiteralPath $enrollPath -PathType Leaf) 'desktop adapter enrollment is durably recorded'
+        $enrollAgainJson=Invoke-DesktopChatGPTAdapter -Mode Enroll -ProjectRoot $desktopProject.Root -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub
+        $enrollAgain=$enrollAgainJson | ConvertFrom-Json -Depth 100
+        Assert-True ($enrollAgain.idempotent -and $enrollAgain.conversation_fingerprint_sha256 -eq $enroll.conversation_fingerprint_sha256) 'desktop adapter enrollment is idempotent for the same conversation'
+        $responseObject=[ordered]@{
+            schema_version='0.1'
+            envelope_type='REVIEW_RESPONSE'
+            review_id=$desktopPublished.review_id
+            project_id=$assignment.project_id
+            project_root=$assignment.project_root
+            project_mode=$assignment.project_mode
+            definition_id=$assignment.definition_id
+            definition_version=$assignment.definition_version
+            execution_id=$assignment.execution_id
+            revision=$assignment.revision
+            reviewer_role=$assignment.reviewer_role
+            reviewer_identity=$assignment.reviewer_identity
+            assignment_sha256=$desktopPublished.assignment_sha256
+            package_manifest_sha256=$desktopPublished.manifest_sha256
+            outcome='PASS'
+            reason='desktop adapter smoke approved'
+            evidence_refs=@($assignment.evidence_refs)
+            repair_guidance=@()
+            responded_at=[DateTimeOffset]::UtcNow.ToString('o')
+            responded_by=$assignment.reviewer_identity
+        }
+        $responseText=$responseObject | ConvertTo-Json -Depth 100
+        $reviewJson=Invoke-DesktopChatGPTAdapter -Mode Review -ProjectRoot $desktopProject.Root -AssignmentPath $assignmentPath -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub -StubResponseText $responseText -ResponseTimeoutSeconds 1
+        $review=$reviewJson | ConvertFrom-Json -Depth 100
+        Assert-True ($review.envelope_type -eq 'REVIEW_RESPONSE' -and $review.review_id -eq $desktopPublished.review_id -and $review.assignment_sha256 -eq $desktopPublished.assignment_sha256) 'desktop adapter returns a strict REVIEW_RESPONSE envelope'
+        Assert-True ((Read-AidosDesktopChatGPTState $desktopProject.Root $desktopPublished.review_id).status -eq 'HANDOFF_COMPLETE') 'desktop adapter durable state reaches HANDOFF_COMPLETE'
+        Assert-True ((Read-AidosDesktopChatGPTJson (Get-AidosDesktopChatGPTResponsePath $desktopProject.Root $desktopPublished.review_id)).outcome -eq 'PASS') 'desktop adapter persists the response envelope durably'
+        $consumer=Invoke-AidosReviewConsumer -ProjectRoot $desktopProject.Root -ResponseJson $reviewJson
+        Assert-True ((Get-AidosState $desktopProject.Root).state -eq 'IDLE') 'desktop adapter response is accepted by the bridge consumer'
+        $replayed=Invoke-AidosDesktopChatGPTReview -ProjectRoot $desktopProject.Root -AssignmentPath $assignmentPath -Backend (New-AidosDesktopChatGPTStubBackend -InteractiveSession:$true -ConversationMatches:$true -ResponseText $responseText)
+        Assert-True ($replayed.idempotent -and $replayed.status -eq 'HANDOFF_COMPLETE') 'desktop adapter replay is idempotent without resending'
+        $resumeProject=New-TestProject
+        try {
+            $resumeRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$resumeProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+            $resumeExecution=Invoke-AidosCodexExecution $resumeProject.Root $resumeProject.ExecutionPath $resumeRuntime 'desktop adapter resume smoke'
+            Assert-True ($resumeExecution.validation_status -eq 'PASS') 'desktop adapter resume smoke reaches publishable evidence'
+            $resumePublished=Publish-AidosReviewPackage $resumeProject.Root $resumeProject.ExecutionPath
+            $resumeAssignmentPath=Join-Path $resumeProject.Root $resumePublished.assignment_path
+            $resumeAssignment=Read-AidosJson $resumeAssignmentPath
+            Invoke-DesktopChatGPTAdapter -Mode Enroll -ProjectRoot $resumeProject.Root -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub | Out-Null
+            $resumableBackend=New-AidosDesktopChatGPTStubBackend -InteractiveSession:$true -ConversationMatches:$true -NoResponse:$true
+            $sentResult=Invoke-AidosDesktopChatGPTReview -ProjectRoot $resumeProject.Root -AssignmentPath $resumeAssignmentPath -Backend $resumableBackend
+            Assert-True ($sentResult.status -eq 'SENT' -and $sentResult.waiting_for_response) 'desktop adapter records SENT without a response'
+            Assert-True ($resumableBackend.State.send_count -eq 1) 'desktop adapter sends exactly once before a crash'
+            $resumeResponseObject=[ordered]@{
+                schema_version='0.1'
+                envelope_type='REVIEW_RESPONSE'
+                review_id=$resumePublished.review_id
+                project_id=$resumeAssignment.project_id
+                project_root=$resumeAssignment.project_root
+                project_mode=$resumeAssignment.project_mode
+                definition_id=$resumeAssignment.definition_id
+                definition_version=$resumeAssignment.definition_version
+                execution_id=$resumeAssignment.execution_id
+                revision=$resumeAssignment.revision
+                reviewer_role=$resumeAssignment.reviewer_role
+                reviewer_identity=$resumeAssignment.reviewer_identity
+                assignment_sha256=$resumePublished.assignment_sha256
+                package_manifest_sha256=$resumePublished.manifest_sha256
+                outcome='PASS'
+                reason='desktop adapter crash recovery approved'
+                evidence_refs=@($resumeAssignment.evidence_refs)
+                repair_guidance=@()
+                responded_at=[DateTimeOffset]::UtcNow.ToString('o')
+                responded_by=$resumeAssignment.reviewer_identity
+            }
+            Write-AidosDesktopChatGPTJsonAtomic (Get-AidosDesktopChatGPTResponsePath $resumeProject.Root $resumePublished.review_id) $resumeResponseObject
+            $resumed=Invoke-AidosDesktopChatGPTReview -ProjectRoot $resumeProject.Root -AssignmentPath $resumeAssignmentPath -Backend $resumableBackend
+            Assert-True ($resumed.idempotent -and $resumed.status -eq 'HANDOFF_COMPLETE') 'desktop adapter resumes by reading the response without resending'
+            Assert-True ($resumableBackend.State.send_count -eq 1) 'desktop adapter does not resend after crash recovery'
+        } finally { Remove-Item -LiteralPath $resumeProject.Root -Recurse -Force }
+        $wrongConversationProject=New-TestProject
+        try {
+            $wrongRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$wrongConversationProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+            $wrongExecution=Invoke-AidosCodexExecution $wrongConversationProject.Root $wrongConversationProject.ExecutionPath $wrongRuntime 'wrong conversation review smoke'
+            Assert-True ($wrongExecution.validation_status -eq 'PASS') 'wrong-conversation smoke reaches publishable evidence'
+            $wrongPublished=Publish-AidosReviewPackage $wrongConversationProject.Root $wrongConversationProject.ExecutionPath
+            $wrongAssignmentPath=Join-Path $wrongConversationProject.Root $wrongPublished.assignment_path
+            Invoke-DesktopChatGPTAdapter -Mode Enroll -ProjectRoot $wrongConversationProject.Root -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub | Out-Null
+            Assert-Throws { Invoke-DesktopChatGPTAdapter -Mode Review -ProjectRoot $wrongConversationProject.Root -AssignmentPath $wrongAssignmentPath -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub -StubConversationMatches:$false -StubResponseText $responseText -ResponseTimeoutSeconds 1 } 'not active|not present'
+        } finally { Remove-Item -LiteralPath $wrongConversationProject.Root -Recurse -Force }
+        $lockedProject=New-TestProject
+        try {
+            $lockedRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$lockedProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+            $lockedExecution=Invoke-AidosCodexExecution $lockedProject.Root $lockedProject.ExecutionPath $lockedRuntime 'locked session review smoke'
+            Assert-True ($lockedExecution.validation_status -eq 'PASS') 'locked-session smoke reaches publishable evidence'
+            $lockedPublished=Publish-AidosReviewPackage $lockedProject.Root $lockedProject.ExecutionPath
+            $lockedAssignmentPath=Join-Path $lockedProject.Root $lockedPublished.assignment_path
+            Invoke-DesktopChatGPTAdapter -Mode Enroll -ProjectRoot $lockedProject.Root -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub | Out-Null
+            $lockedJson=Invoke-DesktopChatGPTAdapter -Mode Review -ProjectRoot $lockedProject.Root -AssignmentPath $lockedAssignmentPath -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub -StubInteractiveSession:$false -StubResponseText $responseText -ResponseTimeoutSeconds 1
+            $lockedResult=$lockedJson | ConvertFrom-Json -Depth 100
+            Assert-True ($lockedResult.status -eq 'WAITING_INTERACTIVE_SESSION' -and (Read-AidosDesktopChatGPTState $lockedProject.Root $lockedPublished.review_id).status -eq 'WAITING_INTERACTIVE_SESSION') 'locked Windows session fails closed without sending'
+        } finally { Remove-Item -LiteralPath $lockedProject.Root -Recurse -Force }
+        $malformedProject=New-TestProject
+        try {
+            $malformedRuntime=[pscustomobject]@{kind='WSL_LOCAL';project_root=$malformedProject.Root;codex_path=$fake;codex_capabilities=$runtime.codex_capabilities}
+            $malformedExecution=Invoke-AidosCodexExecution $malformedProject.Root $malformedProject.ExecutionPath $malformedRuntime 'malformed response review smoke'
+            Assert-True ($malformedExecution.validation_status -eq 'PASS') 'malformed-response smoke reaches publishable evidence'
+            $malformedPublished=Publish-AidosReviewPackage $malformedProject.Root $malformedProject.ExecutionPath
+            $malformedAssignmentPath=Join-Path $malformedProject.Root $malformedPublished.assignment_path
+            Invoke-AidosDesktopChatGPTAdapter -Mode Enroll -ProjectRoot $malformedProject.Root -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub | Out-Null
+            Assert-Throws { Invoke-DesktopChatGPTAdapter -Mode Review -ProjectRoot $malformedProject.Root -AssignmentPath $malformedAssignmentPath -ConversationProofText $conversationProofText -AccountProofText $accountProofText -BackendMode Stub -StubResponseText 'extra prose only' -ResponseTimeoutSeconds 1 } 'single JSON object|valid JSON'
+        } finally { Remove-Item -LiteralPath $malformedProject.Root -Recurse -Force }
+    } finally { Remove-Item -LiteralPath $desktopProject.Root -Recurse -Force }
 
     $partial=New-TestProject
     try {

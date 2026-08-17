@@ -14,7 +14,7 @@
     "definition_version": {"type": "integer", "minimum": 1},
     "execution_id": {"type": "string", "minLength": 1},
     "revision": {"type": "integer", "minimum": 1},
-    "transport_state": {"type": "string", "enum": ["PUBLISHED", "DECIDED", "CONSUMED", "CLEANED", "RECOVERY_REQUIRED"]},
+    "transport_state": {"type": "string", "enum": ["PUBLISHED", "DECIDED", "CONSUMED", "CLEANED", "ABANDONED", "RECOVERY_REQUIRED"]},
     "package_path": {"type": "string", "minLength": 1},
     "package_manifest_path": {"type": "string", "minLength": 1},
     "package_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
@@ -76,6 +76,24 @@
     "consumed_at": {"type": ["string", "null"], "format": "date-time"},
     "consumed_by": {"type": ["string", "null"]},
     "cleaned_at": {"type": ["string", "null"], "format": "date-time"},
+    "abandonment": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["reason", "abandoned_at", "abandoned_by", "review_id", "project_id", "definition_id", "definition_version", "execution_id", "revision", "package_manifest_sha256", "assignment_sha256"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1},
+        "abandoned_at": {"type": "string", "format": "date-time"},
+        "abandoned_by": {"type": "string", "minLength": 1},
+        "review_id": {"type": "string", "minLength": 1},
+        "project_id": {"type": "string", "minLength": 1},
+        "definition_id": {"type": "string", "minLength": 1},
+        "definition_version": {"type": "integer", "minimum": 1},
+        "execution_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
+        "package_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "assignment_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
     "updated_at": {"type": "string", "format": "date-time"}
   }
 }

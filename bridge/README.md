@@ -33,6 +33,8 @@ A direct supported ChatGPT event/deep-link API is not assumed. Windows desktop a
 4. supervised Windows-lock behaviour proven;
 5. failure leaves durable work in `REVIEW_READY` rather than losing it.
 
+The current desktop adapter is transport-only and lives in `bridge/AidosDesktopChatGPT.psm1` with a separate process entrypoint at `bridge/Invoke-AidosDesktopChatGPT.ps1`. It requires an explicit one-time conversation enrollment, stores only transport-routing metadata in `.aidos/runtime/chatgpt`, and uses Windows UI Automation / accessibility APIs as the primary selector with keyboard/clipboard fallback only after exact process/window/conversation proof. The Windows selector starts from a same-session process `MainWindowHandle`, verifies the visible Win32 shell, then correlates that exact handle and process ID with a UIA `Window` root; helper/IME/Electron child windows are not candidates. Explicit `W` Win32 calls use Unicode output marshalling, and conversation proof searches UIA `TextPattern` content because Chromium/WebView controls may split rendered message text across separate accessibility elements. It never changes review decisions; the bridge consumer remains the sole authority for response acceptance, durable decision recording, consume acknowledgement and cleanup.
+
 ## Implementation stages
 
 1. contracts + project binding + event/state persistence;
@@ -77,5 +79,9 @@ legacy case where the assignment file is already canonical but the durable assig
 `Invoke-AidosReviewCleanup` removes the ephemeral package only after the durable record is complete.
 The entrypoint exposes `-Mode Recover` for the assignment-materialization path and
 `-Mode RepairLegacyCorrelation` for the hash-correlation repair path.
+`-Mode Abandon -ReviewId <id> -Reason <reason>` explicitly closes an inactive, unconsumed,
+rejected review transport without deleting its package or inventing a review decision. The durable
+record changes only to terminal `ABANDONED`, records the exact binding and reason, and emits
+`REVIEW_TRANSPORT_ABANDONED`; reconciliation treats only a valid closure as terminal.
 
 Entry point: `bridge/Invoke-AidosCodex.ps1` (PowerShell 7 only).

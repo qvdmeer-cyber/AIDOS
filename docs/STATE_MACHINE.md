@@ -139,6 +139,10 @@ AIDOS must not return to feature discovery merely because another improvement is
 - `REVIEW_READY` — execution evidence passed; review transport has not yet been published.
 - `GPT_REVIEWING` — review transport is published, the assignment envelope is available and a
   Worker/GPT consumer is permitted to return a bound response.
+- `ABANDONED` is a terminal **review transport status**, not a project state. It records an
+  explicit reason and exact review/execution/manifest identity for an unconsumed rejected review;
+  package and rejected-response evidence remain preserved. It is permitted only when no bridge
+  response, accepted response, decision, consume acknowledgement, or cleanup exists.
 - `REVIEW_RECOVERY_REQUIRED` — a published review needs explicit bridge recovery before it can be
   consumed safely.
 - `EXECUTION_VALIDATION_FAILED` — Codex terminated, but declared deterministic execution evidence is absent or failed; session and terminal evidence remain available for a bounded repair revision.
@@ -167,6 +171,10 @@ BLOCKER                    → WAITING_USER
 DISCOVERY_REFRESH_REQUIRED → DISCOVERY_REFRESH_REQUIRED
 WAITING_INTERACTIVE_SESSION→ WAITING_INTERACTIVE_SESSION
 ```
+
+An explicit review abandonment never fabricates one of these outcomes and never changes project
+state. A valid `ABANDONED` transport closure is terminal for project-wide reconciliation; a
+missing, mismatched, or tampered closure remains fail-closed recovery work.
 
 ## Fail-closed transitions
 
