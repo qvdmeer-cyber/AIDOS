@@ -18,6 +18,7 @@ $humanInput = Read-Json 'schemas/human-input-request.schema.json'
 $control = Read-Json 'schemas/control-intent.schema.json'
 $progress = Read-Json 'schemas/progress-estimate.schema.json'
 $insight = Read-Json 'schemas/system-insight.schema.json'
+$statusProjection = Read-Json 'schemas/runtime-status.schema.json'
 $event = Read-Json 'schemas/event.schema.json'
 
 foreach ($required in @('workstream_id','scope_ownership','shared_contract_refs','dependencies','blockers','resource_claims','integration_gate_refs')) {
@@ -42,6 +43,10 @@ Assert-CoreContract ($progress.properties.outcome -ne $null) 'progress estimate 
 foreach ($kind in @('OBSERVATION','HYPOTHESIS','ADOPTED_IMPROVEMENT')) {
     Assert-CoreContract (@($insight.properties.kind.enum) -contains $kind) "system insight missing $kind"
 }
+
+Assert-CoreContract ($statusProjection.properties.projects -ne $null) 'runtime status projection must expose projects'
+Assert-CoreContract ($statusProjection.'$defs'.projectStatus.properties.workstreams -ne $null) 'runtime status projection must expose workstreams'
+Assert-CoreContract ($statusProjection.'$defs'.projectStatus.properties.open_human_input_request_ids -ne $null) 'runtime status projection must expose waiting human input'
 
 Assert-CoreContract ($event.properties.workstream_id -ne $null) 'events must support workstream binding'
 Assert-CoreContract ($event.properties.human_input_request_id -ne $null) 'events must support Human Input Request binding'
