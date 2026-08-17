@@ -2,6 +2,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
@@ -73,8 +74,12 @@ function Invoke-AidosHostAgentTick {
     $snapshot=if($SnapshotProvider){& $SnapshotProvider}else{Get-AidosInteractiveSessionSnapshot}
     $auth=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $AuthorizedUser
     $shell=if($auth.allowed){if($ShellHealthProvider){& $ShellHealthProvider $ProcessName ([int]$snapshot.session_id)}else{Get-AidosHostAgentShellHealth -ProcessName $ProcessName -ExpectedSessionId ([int]$snapshot.session_id)}}else{[pscustomobject]@{status='NOT_CHECKED';reason=$auth.reason}}
-    $result=[ordered]@{status='IDLE';authorized=$auth.allowed;reason=$auth.reason;snapshot=$snapshot;shell=$shell;project_result=$null}
+    $result=[ordered]@{status='IDLE';authorized=$auth.allowed;reason=$auth.reason;snapshot=$snapshot;shell=$shell;control=$null;project_result=$null}
     if(-not $auth.allowed){$result.status='WAITING_INFRASTRUCTURE';return [pscustomobject]$result}
+    $control=Get-AidosOperatorControlState -ProjectRoot $ProjectRoot
+    $result.control=$control
+    if([string]$control.mode -eq 'PAUSED'){$result.status='PAUSED';$result.reason='OPERATOR_CONTROL';return [pscustomobject]$result}
+    if([string]$control.mode -eq 'SAFE_STOPPED'){$result.status='SAFE_STOPPED';$result.reason='OPERATOR_CONTROL';return [pscustomobject]$result}
     $reconciled=if($ReviewReconciler){& $ReviewReconciler $ProjectRoot}else{Invoke-AidosReviewReconciliation -ProjectRoot $ProjectRoot}
     $result.project_result=$reconciled
     if([string]$reconciled.status -ne 'PUBLISHED'){ $result.status=[string]$reconciled.status;return [pscustomobject]$result }
