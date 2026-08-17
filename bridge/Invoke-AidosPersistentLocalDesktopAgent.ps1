@@ -41,8 +41,13 @@ function Write-AidosPersistentAgentLocalLauncher {
     if(-not(Test-Path -LiteralPath $Root -PathType Container)){New-Item -ItemType Directory -Path $Root -Force|Out-Null}
     $configPath=Join-Path $Root 'CONFIG.json'
     $launcherPath=Join-Path $Root 'LAUNCHER.ps1'
+    $vbsPath=Join-Path $Root 'LAUNCHER.vbs'
+    $enginePath=Join-Path $Root 'ENGINE.txt'
+    $engine=Join-Path $PSHOME 'pwsh.exe'
+    if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'PowerShell 7 engine is unavailable.'}
     $config=[ordered]@{schema_version='0.1';entry_point=$EntryPoint;project_root=$BoundProjectRoot;authorized_user=$BoundAuthorizedUser;process_name=$BoundProcessName;state_root=$Root;poll_seconds=$BoundPollSeconds}
     $config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
+    Set-Content -LiteralPath $enginePath -Value $engine -Encoding utf8NoBOM -NoNewline
     $launcher=@'
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -50,48 +55,12 @@ $root=Split-Path -Parent $PSCommandPath
 $configPath=Join-Path $root 'CONFIG.json'
 $statusPath=Join-Path $root 'STATUS.json'
 $logPath=Join-Path $root 'STARTUP_ERROR.log'
-$stdoutPath=Join-Path $root 'CHILD_STDOUT.log'
-$stderrPath=Join-Path $root 'CHILD_STDERR.log'
 try {
-    Remove-Item -LiteralPath $stdoutPath,$stderrPath,$logPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
     $config=Get-Content -LiteralPath $configPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
     if(-not(Test-Path -LiteralPath ([string]$config.entry_point) -PathType Leaf)){throw "Agent entrypoint is unavailable: $($config.entry_point)"}
-    $engine=Join-Path $PSHOME 'pwsh.exe'
-    $arguments=@(
-        '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',([string]$config.entry_point),
-        '-Command','Start',
-        '-ProjectRoot',([string]$config.project_root),
-        '-AuthorizedUser',([string]$config.authorized_user),
-        '-ProcessName',([string]$config.process_name),
-        '-StateRoot',([string]$config.state_root),
-        '-PollSeconds',([string][int]$config.poll_seconds)
-    )
-    $startInfo=[Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName=$engine
-    $startInfo.UseShellExecute=$false
-    $startInfo.CreateNoWindow=$true
-    $startInfo.RedirectStandardOutput=$true
-    $startInfo.RedirectStandardError=$true
-    foreach($argument in $arguments){$null=$startInfo.ArgumentList.Add([string]$argument)}
-    $process=[Diagnostics.Process]::new()
-    $process.StartInfo=$startInfo
-    if(-not $process.Start()){throw 'Agent child PowerShell did not start.'}
-    $stdoutTask=$process.StandardOutput.ReadToEndAsync()
-    $stderrTask=$process.StandardError.ReadToEndAsync()
-    $process.WaitForExit()
-    $stdout=$stdoutTask.GetAwaiter().GetResult()
-    $stderr=$stderrTask.GetAwaiter().GetResult()
-    [IO.File]::WriteAllText($stdoutPath,[string]$stdout,[Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText($stderrPath,[string]$stderr,[Text.UTF8Encoding]::new($false))
-    $exitCode=$process.ExitCode
-    $process.Dispose()
-    if($exitCode -ne 0){
-        $detail=@("Agent child PowerShell exited with code $exitCode.")
-        if(-not [string]::IsNullOrWhiteSpace([string]$stderr)){$detail += "STDERR:`n$stderr"}
-        if(-not [string]::IsNullOrWhiteSpace([string]$stdout)){$detail += "STDOUT:`n$stdout"}
-        throw ($detail -join "`n")
-    }
-    exit 0
+    & ([string]$config.entry_point) -Command Start -ProjectRoot ([string]$config.project_root) -AuthorizedUser ([string]$config.authorized_user) -ProcessName ([string]$config.process_name) -StateRoot ([string]$config.state_root) -PollSeconds ([int]$config.poll_seconds)
+    exit $LASTEXITCODE
 } catch {
     $message=$_.Exception.ToString()
     $message|Set-Content -LiteralPath $logPath -Encoding utf8NoBOM
@@ -100,7 +69,22 @@ try {
 }
 '@
     Set-Content -LiteralPath $launcherPath -Value $launcher -Encoding utf8NoBOM
-    [pscustomobject]@{launcher_path=$launcherPath;config_path=$configPath}
+    $vbs=@'
+Option Explicit
+Dim shell, fso, root, engineFile, engine, launcher, command, rc
+Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+root = fso.GetParentFolderName(WScript.ScriptFullName)
+Set engineFile = fso.OpenTextFile(root & "\ENGINE.txt", 1, False)
+engine = engineFile.ReadAll
+engineFile.Close
+launcher = root & "\LAUNCHER.ps1"
+command = Chr(34) & engine & Chr(34) & " -NoLogo -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & launcher & Chr(34)
+rc = shell.Run(command, 0, True)
+WScript.Quit rc
+'@
+    Set-Content -LiteralPath $vbsPath -Value $vbs -Encoding ascii
+    [pscustomobject]@{launcher_path=$launcherPath;vbs_path=$vbsPath;config_path=$configPath;engine_path=$enginePath}
 }
 switch($Command){
  'Install' {
@@ -110,14 +94,16 @@ switch($Command){
     $engine=Join-Path $PSHOME 'pwsh.exe';if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'Install requires PowerShell 7 (pwsh.exe); do not register a Windows PowerShell 5 task.'}
     Stop-AidosPersistentAgentForReinstall -Root $StateRoot
     $local=Write-AidosPersistentAgentLocalLauncher -Root $StateRoot -EntryPoint $self -BoundProjectRoot $ProjectRoot -BoundAuthorizedUser $AuthorizedUser -BoundProcessName $ProcessName -BoundPollSeconds $PollSeconds
-    $arg="-NoLogo -NoProfile -WindowStyle Hidden -File `"$($local.launcher_path)`""
-    $action=New-ScheduledTaskAction -Execute $engine -Argument $arg
+    $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+    if(-not(Test-Path -LiteralPath $wscript -PathType Leaf)){throw 'Windows Script Host is unavailable.'}
+    $arg="`"$($local.vbs_path)`""
+    $action=New-ScheduledTaskAction -Execute $wscript -Argument $arg
     $principal=New-ScheduledTaskPrincipal -UserId $AuthorizedUser -LogonType Interactive -RunLevel Limited
     $trigger=New-ScheduledTaskTrigger -AtLogOn -User $AuthorizedUser
     $settings=New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
     Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'AIDOS host-only desktop review transport agent; requires existing unlocked interactive user session.' -Force|Out-Null
     Start-ScheduledTask -TaskName $taskName
-    [pscustomobject]@{status='INSTALLED';task_name=$taskName;state_root=$StateRoot;launcher_path=$local.launcher_path}|ConvertTo-Json -Depth 20
+    [pscustomobject]@{status='INSTALLED';task_name=$taskName;state_root=$StateRoot;launcher_path=$local.launcher_path;task_launcher=$local.vbs_path}|ConvertTo-Json -Depth 20
  }
  'Start' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Start requires ProjectRoot.'};Start-AidosPersistentLocalDesktopAgent -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -PollSeconds $PollSeconds -Once:$Once}
  'Stop' {Stop-AidosHostAgent -StateRoot $StateRoot;[pscustomobject]@{status='STOP_REQUESTED';state_root=$StateRoot}|ConvertTo-Json}
