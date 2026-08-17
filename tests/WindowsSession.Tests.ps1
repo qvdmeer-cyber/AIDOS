@@ -67,6 +67,23 @@ Assert-SessionTest (-not $decision.allowed -and $decision.reason -eq 'SESSION_ST
 $decision=Test-AidosInteractiveSessionPolicy (New-TestSessionSnapshot -Observation PARTIAL)
 Assert-SessionTest (-not $decision.allowed -and $decision.reason -eq 'SESSION_STATE_UNKNOWN') 'partial native observation fails closed'
 
+# A second desktop assertion can fail after an eligible WTS snapshot. The wrapper
+# must convert that race into an explicit blocking decision, never WAITING/NONE.
+$raceGate=[pscustomobject]@{snapshot=$null;decision=$null}
+$raceBackend=[pscustomobject]@{
+    AssertInteractiveSession={ throw 'Windows session is locked or unavailable.' }
+}
+$eligibleProvider={ New-TestSessionSnapshot -Kind RDP }
+$gated=New-AidosDesktopSessionGateBackend -Backend $raceBackend -Policy SUPERVISED -SnapshotProvider $eligibleProvider -GateState $raceGate
+try {
+    & $gated.AssertInteractiveSession | Out-Null
+    throw 'Expected transient input desktop assertion failure.'
+} catch {
+    Assert-SessionTest ($raceGate.decision -and -not $raceGate.decision.allowed) 'underlying desktop assertion failure becomes a blocking decision'
+    Assert-SessionTest ($raceGate.decision.reason -eq 'INPUT_DESKTOP_UNAVAILABLE') 'desktop assertion race is classified as INPUT_DESKTOP_UNAVAILABLE'
+    Assert-SessionTest (-not $raceGate.decision.snapshot.input_desktop_available) 'desktop assertion race records input desktop unavailable'
+}
+
 # Legacy waiting state normalization must preserve exact send phase.
 $legacySent=[pscustomobject]@{
     schema_version='0.1';review_id='review-1';status='WAITING_INTERACTIVE_SESSION';delivery_status='SENT'
