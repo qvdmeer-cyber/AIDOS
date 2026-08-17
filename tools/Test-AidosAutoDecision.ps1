@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$DecisionPath,
-    [string]$ContractsRoot,
+    [Parameter(Mandatory)][string]$ContractsRoot,
     [switch]$Json,
     [switch]$NoExit
 )
@@ -22,26 +22,14 @@ if ($null -ne $decision.superseded_by) { $errors.Add('Decision is superseded and
 $a = $decision.assessment
 if ($null -eq $a) { $errors.Add('Decision assessment is required.') }
 else {
-    if ($a.contract_version -ne '0.1.0') { $errors.Add('Unsupported Decision Assessment contract.') }
-    if ($a.authority_classification -ne 'AUTO_DECIDABLE') { $errors.Add('Only AUTO_DECIDABLE may be persisted as AUTO_DECISION.') }
-    if ($a.within_authority -ne $true) { $errors.Add('Decision is outside authority.') }
-    if ($a.materially_equivalent_alternatives -eq $true) { $errors.Add('Materially equivalent alternatives require human input.') }
-    if ($a.confidence -in @('LOW','NOT_APPLICABLE')) { $errors.Add("Confidence '$($a.confidence)' does not permit autonomous decision.") }
-    if ($a.reversibility -eq 'IRREVERSIBLE') { $errors.Add('Irreversible decision requires human input.') }
-    foreach ($name in @('product_business','security_privacy','destructive','external_cost_commitment','compatibility','blast_radius')) {
-        if ([string]$a.impacts.$name -in @('MEDIUM','HIGH')) { $errors.Add("Material $name impact requires human input.") }
-    }
-    if ([string]$a.missing_evidence -in @('MEDIUM','HIGH')) { $errors.Add('Material missing evidence requires human input.') }
-    if ($a.confidence -eq 'MEDIUM' -and $a.reversibility -ne 'REVERSIBLE') { $errors.Add('MEDIUM-confidence decision must be fully REVERSIBLE.') }
     if ([int]$a.alternatives_count -ne @($decision.alternatives_considered).Count) { $errors.Add('alternatives_count does not match alternatives_considered.') }
-}
-
-if (-not [string]::IsNullOrWhiteSpace($ContractsRoot)) {
-    $catalogPath = Join-Path ([System.IO.Path]::GetFullPath($ContractsRoot)) 'catalog\decision-authority.catalog.json'
-    if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) { $errors.Add("Decision Governance catalog not found: $catalogPath") }
+    $contracts = [System.IO.Path]::GetFullPath($ContractsRoot)
+    $policyTool = Join-Path $contracts 'tools\Test-AidosDecisionAssessment.ps1'
+    if (-not (Test-Path -LiteralPath $policyTool -PathType Leaf)) { $errors.Add("Canonical Decision Assessment evaluator not found: $policyTool") }
     else {
-        $catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json -Depth 100
-        if ($catalog.contract_version -ne '0.1.0') { $errors.Add('Decision Governance catalog version mismatch.') }
+        $assessmentJson = $a | ConvertTo-Json -Depth 100 -Compress
+        $policy = & $policyTool -AssessmentJson $assessmentJson -ContractsRoot $contracts -NoExit
+        if (-not $policy.pass -or -not $policy.decision_allowed) { foreach ($e in @($policy.errors)) { $errors.Add("Decision Governance: $e") } }
     }
 }
 
