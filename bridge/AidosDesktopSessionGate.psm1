@@ -23,7 +23,28 @@ function New-AidosDesktopSessionGateBackend {
         $gate.snapshot=$snapshot
         $gate.decision=$decision
         if(-not $decision.allowed){ throw "Interactive ChatGPT action blocked by session policy: $($decision.reason)." }
-        if($assertUnderlying){ & $assertUnderlying | Out-Null }
+        if($assertUnderlying){
+            try {
+                & $assertUnderlying | Out-Null
+            } catch {
+                # The Windows backend's underlying interactive assertion is a second
+                # OpenInputDesktop check immediately before UIA use. If that check
+                # fails after the native policy snapshot was eligible, availability
+                # changed inside the race window. Persist the stricter observation;
+                # WAITING must never be paired with reason=NONE.
+                $strict=[ordered]@{}
+                foreach($p in $snapshot.PSObject.Properties){ $strict[$p.Name]=$p.Value }
+                $strict.input_desktop_available=$false
+                $strict.observation_status='OK'
+                $strict.error="UNDERLYING_INTERACTIVE_ASSERTION_FAILED: $($_.Exception.Message)"
+                $strict.observed_at=[DateTimeOffset]::UtcNow.ToString('o')
+                $snapshot=[pscustomobject]$strict
+                $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $Policy
+                $gate.snapshot=$snapshot
+                $gate.decision=$decision
+                throw "Interactive ChatGPT action blocked by session policy: $($decision.reason)."
+            }
+        }
         $true
     }).GetNewClosure()
     [pscustomobject]$props
@@ -163,9 +184,22 @@ function Invoke-AidosDesktopChatGPTReview {
 
         if([string]$result.status -eq 'WAITING_INTERACTIVE_SESSION'){
             $decision=$gateState.decision
-            if(-not $decision){
+            if(-not $decision -or $decision.allowed){
+                # A WAITING result must always have a blocking availability reason.
+                # A still-allowed decision means the underlying desktop assertion
+                # failed outside/between snapshots; refresh and, if still eligible,
+                # fail closed as an input-desktop race rather than persisting NONE.
                 $snapshot=if($SessionSnapshotProvider){ & $SessionSnapshotProvider }else{ Get-AidosInteractiveSessionSnapshot }
                 $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $SessionPolicy
+                if($decision.allowed){
+                    $strict=[ordered]@{}
+                    foreach($p in $snapshot.PSObject.Properties){ $strict[$p.Name]=$p.Value }
+                    $strict.input_desktop_available=$false
+                    $strict.error='INTERACTIVE_ASSERTION_RACE'
+                    $strict.observed_at=[DateTimeOffset]::UtcNow.ToString('o')
+                    $snapshot=[pscustomobject]$strict
+                    $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $SessionPolicy
+                }
             }
             $raw=Read-AidosDesktopChatGPTState $ProjectRoot $reviewId
             $normalized=ConvertTo-AidosDesktopWaitingState -State $raw -Decision $decision
