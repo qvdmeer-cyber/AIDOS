@@ -23,23 +23,23 @@ if(-not $root){ throw 'ChatGPT UI Automation root is unavailable.' }
 
 function Get-ElementTexts {
     param([Parameter(Mandatory)]$Element)
-    $values=[System.Collections.Generic.List[string]]::new()
+    $values=@()
     try {
         $pattern=$Element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
         if($pattern){
             $text=[string]$pattern.DocumentRange.GetText(-1)
-            if(-not [string]::IsNullOrWhiteSpace($text)){ $null=$values.Add($text) }
+            if(-not [string]::IsNullOrWhiteSpace($text)){ $values += $text }
         }
     } catch {}
     try {
         $pattern=$Element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
         if($pattern){
             $text=[string]$pattern.Current.Value
-            if(-not [string]::IsNullOrWhiteSpace($text)){ $null=$values.Add($text) }
+            if(-not [string]::IsNullOrWhiteSpace($text)){ $values += $text }
         }
     } catch {}
     foreach($text in @($Element.Current.Name,$Element.Current.HelpText)){
-        if(-not [string]::IsNullOrWhiteSpace([string]$text)){ $null=$values.Add([string]$text) }
+        if(-not [string]::IsNullOrWhiteSpace([string]$text)){ $values += [string]$text }
     }
     @($values | Select-Object -Unique)
 }
@@ -52,25 +52,25 @@ function Get-TextSha256 {
 function Get-AncestorChain {
     param([Parameter(Mandatory)]$Element)
     $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
-    $items=[System.Collections.Generic.List[object]]::new()
+    $items=@()
     $current=$Element
     for($depth=0;$current -and $depth -lt 12;$depth++){
-        $items.Add([pscustomobject]@{
+        $items += [pscustomobject]@{
             depth=$depth
             control_type=[string]$current.Current.ControlType.ProgrammaticName
             localized_control_type=[string]$current.Current.LocalizedControlType
             automation_id=[string]$current.Current.AutomationId
             class_name=[string]$current.Current.ClassName
             name=[string]$current.Current.Name
-        })
+        }
         try { $current=$walker.GetParent($current) } catch { $current=$null }
     }
     @($items)
 }
 
 $all=@($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))
-$matches=[System.Collections.Generic.List[object]]::new()
-$seen=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$matches=@()
+$seen=@{}
 
 foreach($element in $all){
     foreach($text in @(Get-ElementTexts $element)){
@@ -80,12 +80,13 @@ foreach($element in $all){
         if(-not ($hasReviewId -and $hasEnvelope)){ continue }
         $sha=Get-TextSha256 $text
         $identity="$sha|$([string]$element.Current.AutomationId)|$([string]$element.Current.ControlType.ProgrammaticName)"
-        if(-not $seen.Add($identity)){ continue }
+        if($seen.ContainsKey($identity)){ continue }
+        $seen[$identity]=$true
         $trim=$text.Trim()
         $shape=if($trim -match '^\{[\s\S]*\}$'){'RAW_JSON_SHAPE'}elseif($trim -match '^```(?:json)?\s*[\s\S]*?\s*```$'){'FENCED_JSON_SHAPE'}else{'MIXED_TEXT'}
         $prefix=if($trim.Length -gt 120){$trim.Substring(0,120)}else{$trim}
         $suffix=if($trim.Length -gt 120){$trim.Substring($trim.Length-120)}else{$trim}
-        $matches.Add([pscustomobject]@{
+        $matches += [pscustomobject]@{
             text_sha256=$sha
             text_length=$text.Length
             text_shape=$shape
@@ -97,7 +98,7 @@ foreach($element in $all){
             class_name=[string]$element.Current.ClassName
             name=[string]$element.Current.Name
             ancestors=Get-AncestorChain $element
-        })
+        }
     }
 }
 
