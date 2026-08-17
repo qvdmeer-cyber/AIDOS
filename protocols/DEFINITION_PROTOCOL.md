@@ -28,6 +28,76 @@ If discovery is missing, `DISCOVERY_REFRESH_REQUIRED`, based on an incompatible 
 
 The primary repository is not assumed to represent the whole current product; Definition relies on the accepted CPS material component/dependency graph.
 
+## Project and Definition applicability
+
+AIDOS may resolve reusable project applicability from versioned profile presets before asking Definition questions.
+
+Profile composition:
+
+```text
+PRODUCT_ARCHETYPE
++ zero/more CAPABILITY
++ zero/more INTEGRATION
++ zero/more STACK
++ zero/more INFRASTRUCTURE
++ zero/more EXPOSURE_RISK
+→ PROJECT_APPLICABILITY
+```
+
+Exactly one `PRODUCT_ARCHETYPE` identifies what/where the product fundamentally is. A capability describes what it can do; an integration describes an external provider/system it communicates with. Calling OpenAI therefore does not make a web/mobile/API product a `CHATGPT_APP`; it composes the `OPENAI_API` integration with its actual archetype.
+
+Reusable development surfaces are owned by:
+
+```text
+catalog/development-surfaces.catalog.json
+```
+
+and composed presets by:
+
+```text
+catalog/profile-presets.catalog.json
+```
+
+The durable project projection is:
+
+```text
+.aidos/profile/PROJECT_APPLICABILITY.json
+```
+
+Profiles classify project development surfaces as `APPLICABLE`, `CONDITIONAL` or `NOT_APPLICABLE`, but they are **hypotheses/accelerators rather than project truth**.
+
+Precedence:
+
+```text
+verified current project evidence / explicit accepted project decision
+> explicit project applicability override
+> composed preset result
+> generic AIDOS heuristic
+```
+
+For each Definition version maintain:
+
+```text
+.aidos/definitions/<definition_id>/v<version>/APPLICABILITY.json
+```
+
+Project applicability answers which development surfaces exist/may exist in the product. Definition applicability separately classifies whether each relevant project surface is `AFFECTED`, `NOT_AFFECTED` or still `DECISION_REQUIRED` for the requested delta. A project-level `NOT_APPLICABLE` surface is automatically outside the Definition.
+
+This is a coverage control: a project-applicable surface may not be silently omitted until its delta applicability is durably resolved.
+
+Six Definition concerns are always core regardless of product shape:
+
+1. goal/scope;
+2. current state and desired delta;
+3. intended functional behaviour;
+4. acceptance coverage;
+5. out of scope;
+6. unresolved assumptions.
+
+Conditional development surfaces supplement these core concerns. The current 13-surface progress contract remains the active convergence gate until explicitly versioned; applicability should be used to close irrelevant current surfaces with durable `NOT_APPLICABLE` rationale and to avoid asking irrelevant questions.
+
+See `docs/PROFILE_PRESETS.md`.
+
 ## Definition surface catalog
 
 Definition completeness/progress is tracked against the fixed private AIDOS catalog:
@@ -81,7 +151,7 @@ The object conforms to `schemas/definition-progress.schema.json` and stores, per
 
 It also stores total complete/incomplete counts, next incomplete surface and the last human decision identity/time.
 
-Chats are not the source of Definition progress. A rotated/reset/new Definition chat resumes from durable Definition state + `PROGRESS.json`.
+Chats are not the source of Definition progress. A rotated/reset/new Definition chat resumes from durable Definition state + `PROGRESS.json` + `APPLICABILITY.json` when present.
 
 ## Minimum Definition content
 
@@ -108,7 +178,7 @@ These concerns map to the fixed Definition surfaces above. A concern may be `NOT
 
 ## One-question elicitation
 
-Ask one material decision at a time. Skip questions already settled reliably by the accepted Project Baseline, closure-compatible CPS or canonical project truth.
+Ask one material decision at a time. Skip questions already settled reliably by the accepted Project Baseline, closure-compatible CPS, canonical project truth or resolved applicability.
 
 Existing capability/component/runtime discovery is not a Definition question. Definition asks only what should change.
 
@@ -119,9 +189,10 @@ A human answer is not considered fully consumed until the following transaction 
 ```text
 human decision
 → persist decision
+→ update affected Definition applicability when needed
 → update affected Definition surfaces
 → recalculate PROGRESS.json
-→ validate progress structure/counts
+→ validate applicability/progress structure and counts
 → render current progress for every surface
 → ask next single material question
 ```
@@ -171,6 +242,8 @@ Test-AidosDefinitionProgress -RequireReady
 
 must pass, meaning all 13 surfaces are `COMPLETE` or justified `NOT_APPLICABLE`.
 
+In addition, no material project development surface may remain `DECISION_REQUIRED` in `APPLICABILITY.json`.
+
 This validator proves Definition **coverage state**, not semantic correctness of product choices. Human acceptance and consistency/convergence review remain separate gates.
 
 ## Current-state conflict/drift/closure gaps
@@ -203,6 +276,8 @@ Do not ask the human to invent a product decision as a substitute for objective 
 Before `ACCEPTED`, check:
 
 - Definition surface progress is `READY_FOR_REVIEW` and validator passes;
+- no material development-surface applicability remains unresolved;
+- profile defaults have not been mistaken for verified project truth;
 - internal Definition contradictions;
 - contradictions with accepted Project Baseline/CPS evidence;
 - required behaviour without acceptance coverage;
@@ -216,11 +291,11 @@ Before `ACCEPTED`, check:
 
 Definition is immutable once accepted except through a new version.
 
-- Desired future requirement contradiction → reopen Definition and durable surface progress.
+- Desired future requirement contradiction → reopen Definition and durable surface progress/applicability.
 - Pre-existing current-product discovery/closure failure → refresh CPS first.
 - Launch gate change after scope freeze → explicit Launch Definition reopen/version.
 
-When reopening a Definition, preserve the prior progress snapshot as lineage; initialize the new version from still-valid surfaces and mark only affected surfaces incomplete/decision-required rather than restarting from chat history.
+When reopening a Definition, preserve the prior progress/applicability snapshot as lineage; initialize the new version from still-valid surfaces and mark only affected surfaces incomplete/decision-required rather than restarting from chat history.
 
 ## Launch Definition / Release Gate
 
