@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/system-insight.schema.json",
+  "title": "AIDOS System Insight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","insight_id","kind","scope","statement","evidence_refs","confidence","status","related_insight_ids","adoption","created_at","updated_at"],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "insight_id":{"type":"string","minLength":1},
+    "kind":{"type":"string","enum":["OBSERVATION","HYPOTHESIS","ADOPTED_IMPROVEMENT"]},
+    "scope":{"type":"string","enum":["WORKSTREAM","PROJECT","PORTFOLIO","AIDOS"]},
+    "project_id":{"type":["string","null"]},
+    "workstream_id":{"type":["string","null"]},
+    "statement":{"type":"string","minLength":1},
+    "evidence_refs":{"type":"array","items":{"type":"string"}},
+    "confidence":{"type":"string","enum":["HIGH","MEDIUM","LOW","NOT_APPLICABLE"]},
+    "status":{"type":"string","enum":["OPEN","ACCEPTED","REJECTED","SUPERSEDED"]},
+    "related_insight_ids":{"type":"array","items":{"type":"string"}},
+    "adoption":{"oneOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["decision_ref","change_ref","accepted_at"],"properties":{"decision_ref":{"type":"string","minLength":1},"change_ref":{"type":"string","minLength":1},"accepted_at":{"type":"string","format":"date-time"}}}]},
+    "created_at":{"type":"string","format":"date-time"},
+    "updated_at":{"type":"string","format":"date-time"}
+  }
+}
