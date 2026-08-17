@@ -64,3 +64,6 @@ jobs:
       - name: Preparation Module Graph regression tests
         shell: pwsh
         run: ./tests/PreparationModuleGraph.Tests.ps1
+      - name: Dirty Onboarding Recovery regression tests
+        shell: pwsh
+        run: ./tests/PreparationDirtyOnboardingRecovery.Tests.ps1
