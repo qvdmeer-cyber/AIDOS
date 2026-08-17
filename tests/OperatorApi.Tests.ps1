@@ -4,8 +4,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $root 'bridge/AidosOperator.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosPersistentLocalDesktopAgent.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosOperator.psm1') -Force -DisableNameChecking
 
 $script:passed=0
 function Assert-Operator([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
