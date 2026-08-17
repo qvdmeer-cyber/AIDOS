@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 
 function ConvertTo-AidosRegistryRepositoryIdentity {
     param([Parameter(Mandatory)][string]$Repository)
