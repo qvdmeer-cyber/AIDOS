@@ -39,8 +39,19 @@ $logPath=Join-Path $root 'STARTUP_ERROR.log'
 try {
     $config=Get-Content -LiteralPath $configPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
     if(-not(Test-Path -LiteralPath ([string]$config.entry_point) -PathType Leaf)){throw "Agent entrypoint is unavailable: $($config.entry_point)"}
-    & ([string]$config.entry_point) -Command Start -ProjectRoot ([string]$config.project_root) -AuthorizedUser ([string]$config.authorized_user) -ProcessName ([string]$config.process_name) -StateRoot ([string]$config.state_root) -PollSeconds ([int]$config.poll_seconds)
-    exit $LASTEXITCODE
+    $engine=Join-Path $PSHOME 'pwsh.exe'
+    $arguments=@(
+        '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',([string]$config.entry_point),
+        '-Command','Start',
+        '-ProjectRoot',([string]$config.project_root),
+        '-AuthorizedUser',([string]$config.authorized_user),
+        '-ProcessName',([string]$config.process_name),
+        '-StateRoot',([string]$config.state_root),
+        '-PollSeconds',([string][int]$config.poll_seconds)
+    )
+    $process=Start-Process -FilePath $engine -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+    if($process.ExitCode -ne 0){throw "Agent child PowerShell exited with code $($process.ExitCode)."}
+    exit 0
 } catch {
     $message=$_.Exception.ToString()
     $message|Set-Content -LiteralPath $logPath -Encoding utf8NoBOM
