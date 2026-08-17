@@ -11,10 +11,12 @@
     "status": {"type": "string", "enum": ["CANDIDATE", "PROVEN", "TOOLIZED", "DEPRECATED"]},
     "classification": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["level", "tags"],
       "properties": {
-        "level": {"type": "string", "enum": ["CORE", "CAPABILITY", "GOAL"]},
-        "tags": {"type": "array", "items": {"type": "string"}}
+        "level": {"type": "string", "enum": ["CORE", "PROFILE", "CAPABILITY", "GOAL"]},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "profile_refs": {"type": "array", "items": {"type": "string"}}
       }
     },
     "statement": {"type": "string", "minLength": 1},
