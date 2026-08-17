@@ -4,68 +4,43 @@ This repository is the single source of truth for the **private AIDOS runtime me
 
 ## System model
 
-There is conceptually one AIDOS runtime managing multiple isolated project instances:
-
-```text
-AIDOS
-├─ Project A
-├─ Project B
-└─ Project C
-```
-
-A project is not its own AIDOS. GPT/Codex chats and sessions are temporary actors and are never canonical project/workflow state.
+There is conceptually one AIDOS runtime managing multiple isolated project instances. A project is not its own AIDOS. GPT/Codex sessions are temporary actors and never canonical workflow state.
 
 ## Ecosystem boundaries
 
-- Project Baseline + Discovery Closure/CPS contracts belong in `qvdmeer-cyber/AIDOS-Contracts`.
-- Distributable Project Baseline + Existing Project Discovery procedures belong in `qvdmeer-cyber/AIDOS-Builder`.
-- Project/customer truth and durable project/workstream state belong in the project repository.
-- The future external AIDOS Interface is a separate client layer/project; do not implement its UI/orchestration in Core.
+- Shared stable preparation/decision contracts belong in `qvdmeer-cyber/AIDOS-Contracts`.
+- Distributable Project Baseline + Existing Project Discovery belong in `qvdmeer-cyber/AIDOS-Builder`.
+- Project/customer truth and durable project/workstream/decision state belong in the project repository.
+- The external AIDOS Interface is a separate client layer/project; do not implement its UI/orchestration in Core.
 
 ## Hard boundaries
 
-- Do not add organisation-documentation procedures to AIDOS.
-- Do not reimplement Builder preparation/completeness logic here.
+- Do not reimplement Builder Baseline/Discovery completeness logic in Core.
 - Do not copy project strategy, customer context or secrets into AIDOS Core.
 - For `EXISTING_PROJECT`, do not begin Definition/Execution without current closure-compatible preparation.
 - Discovery Authority never grants execution/write authority.
-- Definition progress/applicability is durable project-local state, not chat memory.
-- After every human Definition decision, persist/update/validate progress before asking the next question.
+- Definition progress/applicability/decision state is durable project-local state, not chat memory.
+- **No silent inference becomes durable project truth.** Every Definition resolution must be system-defined, evidence-verifiable, a policy-valid Auto Decision or a human decision.
+- **Classify authority before asking:** `SYSTEM_INVARIANT`, `REPO_VERIFIABLE`, `AUTO_DECIDABLE`, `HUMAN_REQUIRED`.
+- **Confidence never expands authority.** Fail closed on low confidence, irreversibility, material impact/evidence gaps, materially equivalent alternatives or uncertain/out-of-bounds authority.
+- **Do not manufacture binary choices.** Human options must match the real material decision space.
+- **After every human Definition answer, rerun Auto Define over all remaining unresolved concerns before asking again.**
 - Composable profiles are hypotheses/accelerators only; verified/accepted project truth wins.
 - A project-applicable development surface may not be silently omitted from a Definition.
-- **AIDOS owns control flow.** Thinkers/Workers emit durable results/events/requests; they do not directly start or resume each other.
-- **Workstream scope is explicit.** A workstream may not silently mutate sibling-owned scope or shared contracts.
-- **Human input is first-class.** Genuine human boundaries publish a durable Human Input Request; do not rely on a specific chat surviving.
-- **External controls carry intent only.** No client/UI may directly manipulate Codex processes, state files or project files outside AIDOS orchestration.
+- **AIDOS owns control flow.** Thinkers/Workers emit durable results/events/requests; they do not directly start/resume each other.
+- Workstream scope is explicit; sibling-owned scope/shared contracts may not be silently mutated.
+- Human input is first-class and channel-independent through durable Human Input Requests.
+- External controls carry intent only; no client/UI manipulates Codex/state/project files outside orchestration.
 - Progress/ETA are estimates only; Definition/evidence/validation/integration/release gates determine actual completion.
-- Statistical patterns are observations, not automatic system rules. Adoption requires explicit governance.
+- Statistical patterns are observations, not automatic system rules.
 - Generic AIDOS knowledge may never silently override accepted project truth, Definition or frozen Launch Definition.
 - Once accepted launch criteria pass, improvement alone is insufficient grounds to delay release.
 
 ## Actor model
 
-Mature actor roles:
-
-```text
-THINKER
-WORKER
-HUMAN
-```
-
-- Thinker: reasoning/planning/review.
-- Worker: bounded technical execution/mutation.
-- Human: genuine product/risk/authority decisions.
-
-Preserve existing concrete runtime identities:
-
-- `DEFINITION_AGENT` and current reasoning/review `WORKER_AGENT` may serve Thinker roles.
-- `EXECUTION_AGENT` / Codex serves the technical Worker role.
-
-Do not rename current persisted reviewer identities/contracts merely to match the abstraction.
+Abstract actor roles are `THINKER`, `WORKER`, `HUMAN`. Preserve existing concrete identities: `DEFINITION_AGENT` and reasoning/review `WORKER_AGENT` serve Thinker roles; `EXECUTION_AGENT`/Codex serves technical Worker role.
 
 ## AIDOS-owned actor transition
-
-Canonical pattern:
 
 ```text
 AIDOS selects actor from durable state
@@ -77,54 +52,58 @@ AIDOS selects actor from durable state
 
 Session replacement must preserve this pattern.
 
-## Workstreams
+## Auto Define / decision authority
 
-An accepted Definition may be decomposed into zero/one/many workstreams. Parallelization is optional and dependency-driven.
-
-Use:
+Read shared AIDOS-Contracts Decision Governance 0.1.0 and `docs/AUTO_DEFINE.md`.
 
 ```text
-schemas/workstream.schema.json
-docs/WORKSTREAM_ORCHESTRATION.md
+SYSTEM_INVARIANT
+→ resolve from AIDOS contract/governance source
+
+REPO_VERIFIABLE
+→ resolve from authorized project-local evidence
+
+AUTO_DECIDABLE
+→ Decision Assessment
+→ persist AUTO_DECISION only when policy passes
+→ otherwise HUMAN_REQUIRED
+
+HUMAN_REQUIRED
+→ durable Human Input Request
 ```
 
-Each workstream carries identity, Definition binding, scope ownership, shared contracts, dependencies, blockers, resource claims and integration gates.
+Only `AUTO_DECIDABLE` is an autonomous project choice. System invariants and repository facts are direct resolution classes, not Auto Decisions.
 
-A local workstream result is not automatically an integrated project result. Applicable integration gates must pass.
+Definition Auto Decisions live at:
 
-Current execution lease semantics remain authoritative. Generic shared-resource/workstream leases are architecture/roadmap requirements until runtime-proven.
+```text
+.aidos/definitions/<definition_id>/v<version>/decisions/<decision_id>.json
+```
+
+Use `tools/New-AidosDefinitionAutoDecision.ps1` / `tools/Test-AidosAutoDecision.ps1`. Bind affected surfaces through `PROGRESS.json` decision refs. Preserve supersession lineage rather than rewriting history.
+
+Auto Define runs to a fixed point at Definition start/resume, after human answers, after material new evidence and after reopen/supersession. Final Definition `ACCEPTED` remains explicit human governance.
+
+Project Baseline Auto Define is Builder-owned under the same shared Contracts policy. Do not reimplement Baseline completeness here.
+
+## Workstreams
+
+An accepted Definition may be decomposed into zero/one/many workstreams. Parallelization is optional and dependency-driven. Use `schemas/workstream.schema.json` and `docs/WORKSTREAM_ORCHESTRATION.md`.
+
+A local workstream result is not automatically an integrated project result. Applicable integration gates must pass. Current execution lease semantics remain authoritative; generic shared-resource/workstream leases remain roadmap until runtime-proven.
 
 ## Control plane and Human Input
 
-Use:
+Use `schemas/control-intent.schema.json`, `schemas/human-input-request.schema.json`, `docs/CONTROL_PLANE.md`, `protocols/INTERRUPTION_PROTOCOL.md`.
 
-```text
-schemas/control-intent.schema.json
-schemas/human-input-request.schema.json
-docs/CONTROL_PLANE.md
-protocols/INTERRUPTION_PROTOCOL.md
-```
-
-Supported conceptual control intents include `RUN`, `PAUSE`, `RESUME`, `SAFE_STOP`, `QUERY_STATUS`, `SUBMIT_HUMAN_INPUT`, `REQUEST_RECOVERY`.
-
-A control intent is validated/applied by AIDOS; it is not itself a forced state transition.
-
-The current top-level `WAITING_USER` state remains valid runtime semantics. A durable Human Input Request records the exact waiting reason/binding.
+The current top-level `WAITING_USER` state remains valid runtime semantics. Human Input Requests now may retain Auto Define authority classification, assessment ref and stop reason.
 
 ## Project/Definition applicability
 
-Reusable profile categories:
+Reusable profile categories remain `PRODUCT_ARCHETYPE`, `CAPABILITY`, `INTEGRATION`, `STACK`, `INFRASTRUCTURE`, `EXPOSURE_RISK`.
 
-```text
-PRODUCT_ARCHETYPE
-CAPABILITY
-INTEGRATION
-STACK
-INFRASTRUCTURE
-EXPOSURE_RISK
-```
-
-Project applicability lives at `.aidos/profile/PROJECT_APPLICABILITY.json`; per-Definition applicability lives at `.aidos/definitions/<definition_id>/v<version>/APPLICABILITY.json`.
+Project applicability: `.aidos/profile/PROJECT_APPLICABILITY.json`.
+Definition applicability: `.aidos/definitions/<definition_id>/v<version>/APPLICABILITY.json`.
 
 Precedence:
 
@@ -135,31 +114,23 @@ verified/accepted project truth
 > generic heuristic
 ```
 
-See `docs/PROFILE_PRESETS.md`.
-
 ## Definition progress
 
-Definition convergence lives at:
+Definition convergence lives at `.aidos/definitions/<definition_id>/v<version>/PROGRESS.json`. A new/rotated chat reads durable progress/decisions/Human Input Requests before continuing.
 
-```text
-.aidos/definitions/<definition_id>/v<version>/PROGRESS.json
-```
-
-A new/rotated chat reads durable progress before continuing. The progress display is a control surface, not conversational decoration.
+After any resolution, persist → update affected surfaces/applicability → validate → rerun Auto Define. After a human decision, show full current surface progress before any next human question.
 
 ## Progress / ETA
 
-Use `schemas/progress-estimate.schema.json` and `docs/PROGRESS_AND_ESTIMATION.md`.
-
-Progress should be weighted from Definition/workstreams/dependencies/validation/integration where possible. ETA must carry confidence and may be `NOT_RELIABLY_ESTIMABLE`.
-
-Never use an estimate as acceptance authority.
+Use `schemas/progress-estimate.schema.json` and `docs/PROGRESS_AND_ESTIMATION.md`. Never use an estimate as acceptance authority.
 
 ## Observability and learning
 
-Use `docs/TELEMETRY.md`, `protocols/LEARNING_PROTOCOL.md` and `schemas/system-insight.schema.json`.
+Use `docs/TELEMETRY.md`, `protocols/LEARNING_PROTOCOL.md`, `schemas/system-insight.schema.json`.
 
-Learning maturity:
+Auto Define telemetry includes autonomous decision counts/confidence, revision/supersession rates, human overrides and reasons. These may create observations/hypotheses but may never automatically loosen Decision Governance.
+
+Learning maturity remains:
 
 ```text
 OBSERVATION
@@ -168,24 +139,12 @@ OBSERVATION
 → ADOPTED_IMPROVEMENT
 ```
 
-A key maturity metric is whether human attention shifts from operational/technical intervention toward product, risk and strategy.
-
 ## Durable state and recovery
 
-Chats/sessions are disposable. Essential state is reconstructed from project/workstream objects, events, Git bindings, leases, reviews, Human Input Requests and canonical project sources.
+Chats/sessions are disposable. Essential state is reconstructed from project/workstream objects, Definition/Baseline decisions, events, Git bindings, leases, reviews, Human Input Requests and canonical project sources.
 
-Do not recover workflow authority from prose summaries when durable state exists.
+Do not recover authority from prose summaries when durable state exists.
 
 ## Changes to AIDOS itself
 
-Prefer:
-
-```text
-observed evidence
-→ generalized observation/hypothesis
-→ provenance/review
-→ adopted profile/knowledge/protocol change
-→ validator/tool/skill where possible
-```
-
-Executable prevention is preferred when the failure class is machine-detectable, but only after explicit adoption.
+Prefer evidence → observation/hypothesis → provenance/review → explicit adoption → validator/tool/skill where possible. Executable prevention is preferred when machine-detectable, but only after explicit adoption.
