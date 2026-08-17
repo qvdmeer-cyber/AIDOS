@@ -1,0 +1,269 @@
+{
+  "catalog_version": "0.1.0",
+  "resolution_policy": {
+    "product_archetype_required": true,
+    "exactly_one_product_archetype": true,
+    "explicit_project_override_wins": true,
+    "preset_never_overrides_verified_project_truth": true,
+    "surface_state_precedence": ["APPLICABLE", "CONDITIONAL", "NOT_APPLICABLE"],
+    "conflicting_preset_states_are_recorded": true,
+    "principle": "Profiles accelerate applicability and defaults; they are reusable hypotheses, never project truth."
+  },
+  "presets": [
+    {
+      "preset_id":"STATIC_MARKETING_SITE","version":1,"category":"PRODUCT_ARCHETYPE","label":"Static marketing site","description":"Public informational site with primarily static pages.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"APPLICABLE","reason":"User-facing visual product."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Visitor interaction/navigation is a product surface."},
+        {"surface_id":"visual_design","state":"APPLICABLE","reason":"Visible product requires visual design."},
+        {"surface_id":"responsive_behavior","state":"APPLICABLE","reason":"Browser viewport behaviour is material."},
+        {"surface_id":"accessibility_ui","state":"APPLICABLE","reason":"User-facing UI requires accessibility consideration."},
+        {"surface_id":"content_information_architecture","state":"APPLICABLE","reason":"Content structure is primary behaviour."},
+        {"surface_id":"seo_discoverability","state":"APPLICABLE","reason":"Public marketing content is normally discoverable."},
+        {"surface_id":"localization","state":"CONDITIONAL","reason":"Localization is optional unless enabled by capability."},
+        {"surface_id":"api_contracts","state":"NOT_APPLICABLE","reason":"No API is inherent to the archetype."},
+        {"surface_id":"authentication","state":"NOT_APPLICABLE","reason":"Visitor authentication is not inherent."},
+        {"surface_id":"data_persistence_lifecycle","state":"NOT_APPLICABLE","reason":"Application persistence is not inherent."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"The site has a deployment target."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Browser/device compatibility is material."}
+      ],"defaults":[],"knowledge_tags":["web","marketing","frontend"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"CONTENT_WEBSITE","version":1,"category":"PRODUCT_ARCHETYPE","label":"Content website","description":"Multi-page content-oriented website, potentially CMS-backed.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"APPLICABLE","reason":"Public web UI is inherent."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Navigation/content interaction is inherent."},
+        {"surface_id":"visual_design","state":"APPLICABLE","reason":"Visual presentation is inherent."},
+        {"surface_id":"responsive_behavior","state":"APPLICABLE","reason":"Browser viewport behaviour is material."},
+        {"surface_id":"accessibility_ui","state":"APPLICABLE","reason":"Public UI accessibility is relevant."},
+        {"surface_id":"content_information_architecture","state":"APPLICABLE","reason":"Content hierarchy is core."},
+        {"surface_id":"seo_discoverability","state":"APPLICABLE","reason":"Public content is normally discoverable."},
+        {"surface_id":"localization","state":"CONDITIONAL","reason":"May be multilingual."},
+        {"surface_id":"data_persistence_lifecycle","state":"CONDITIONAL","reason":"May be CMS/database backed."},
+        {"surface_id":"authentication","state":"CONDITIONAL","reason":"Editorial access may exist."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"A deployed runtime is expected."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Browser compatibility is relevant."}
+      ],"defaults":[],"knowledge_tags":["web","content"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"WEB_APPLICATION","version":1,"category":"PRODUCT_ARCHETYPE","label":"Web application","description":"Interactive browser-based application.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"APPLICABLE","reason":"Interactive browser UI is inherent."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"User interaction is core."},
+        {"surface_id":"visual_design","state":"APPLICABLE","reason":"Visible product has visual behaviour."},
+        {"surface_id":"responsive_behavior","state":"APPLICABLE","reason":"Browser viewport behaviour is material."},
+        {"surface_id":"accessibility_ui","state":"APPLICABLE","reason":"Interactive UI accessibility is relevant."},
+        {"surface_id":"api_contracts","state":"CONDITIONAL","reason":"May consume or expose APIs."},
+        {"surface_id":"authentication","state":"CONDITIONAL","reason":"Authentication may be required."},
+        {"surface_id":"authorization","state":"CONDITIONAL","reason":"Authorization may be required."},
+        {"surface_id":"data_persistence_lifecycle","state":"CONDITIONAL","reason":"Persistent state is common but not universal."},
+        {"surface_id":"background_processing","state":"CONDITIONAL","reason":"Async work may exist."},
+        {"surface_id":"integrations_external_io","state":"CONDITIONAL","reason":"External integrations may exist."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Interactive applications require security/privacy consideration."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Application runtime/deployment is material."},
+        {"surface_id":"observability","state":"APPLICABLE","reason":"Operational diagnostics are material."},
+        {"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Failure recovery is material."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Supported browsers/clients are material."}
+      ],"defaults":[],"knowledge_tags":["web","application"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"MOBILE_APPLICATION","version":1,"category":"PRODUCT_ARCHETYPE","label":"Mobile application","description":"Native or cross-platform mobile application.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"APPLICABLE","reason":"Mobile app is user-facing."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Touch/device interaction is core."},
+        {"surface_id":"visual_design","state":"APPLICABLE","reason":"Visual design is core."},
+        {"surface_id":"responsive_behavior","state":"CONDITIONAL","reason":"Orientation/device adaptation may be relevant."},
+        {"surface_id":"accessibility_ui","state":"APPLICABLE","reason":"Mobile accessibility is relevant."},
+        {"surface_id":"device_platform","state":"APPLICABLE","reason":"OS/device capabilities and lifecycle are material."},
+        {"surface_id":"distribution_packaging","state":"APPLICABLE","reason":"App packaging/store distribution is material."},
+        {"surface_id":"offline_sync","state":"CONDITIONAL","reason":"Offline/synchronization may be relevant."},
+        {"surface_id":"api_contracts","state":"CONDITIONAL","reason":"Mobile apps commonly consume APIs."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Device data/permissions are material."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Build/release/runtime environments are material."},
+        {"surface_id":"observability","state":"APPLICABLE","reason":"Crash/runtime visibility is material."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Supported OS/device versions are material."},
+        {"surface_id":"seo_discoverability","state":"NOT_APPLICABLE","reason":"Search-engine page indexing is not inherent to the app."}
+      ],"defaults":[],"knowledge_tags":["mobile","application"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"DESKTOP_APPLICATION","version":1,"category":"PRODUCT_ARCHETYPE","label":"Desktop application","description":"Installed desktop graphical application.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"APPLICABLE","reason":"Desktop app is user-facing."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Desktop interaction is core."},
+        {"surface_id":"visual_design","state":"APPLICABLE","reason":"Visual design is core."},
+        {"surface_id":"accessibility_ui","state":"APPLICABLE","reason":"Desktop accessibility is relevant."},
+        {"surface_id":"device_platform","state":"APPLICABLE","reason":"Desktop OS/platform behaviour is material."},
+        {"surface_id":"distribution_packaging","state":"APPLICABLE","reason":"Installation/package distribution is material."},
+        {"surface_id":"api_contracts","state":"CONDITIONAL","reason":"May consume or expose APIs."},
+        {"surface_id":"data_persistence_lifecycle","state":"CONDITIONAL","reason":"Local/remote persisted state may exist."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Local/system access requires security consideration."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Install/update/runtime behaviour is material."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Supported OS/runtime versions are material."},
+        {"surface_id":"seo_discoverability","state":"NOT_APPLICABLE","reason":"Search indexing is not inherent."}
+      ],"defaults":[],"knowledge_tags":["desktop","application"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"API_SERVICE","version":1,"category":"PRODUCT_ARCHETYPE","label":"API service","description":"Service whose primary product surface is an API or machine interface.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"NOT_APPLICABLE","reason":"No visual UI is inherent."},
+        {"surface_id":"ux_interaction","state":"NOT_APPLICABLE","reason":"No end-user UI interaction is inherent."},
+        {"surface_id":"visual_design","state":"NOT_APPLICABLE","reason":"No visual design is inherent."},
+        {"surface_id":"responsive_behavior","state":"NOT_APPLICABLE","reason":"No responsive layout is inherent."},
+        {"surface_id":"accessibility_ui","state":"NOT_APPLICABLE","reason":"No UI accessibility surface is inherent."},
+        {"surface_id":"seo_discoverability","state":"NOT_APPLICABLE","reason":"Search indexing is not inherent."},
+        {"surface_id":"api_contracts","state":"APPLICABLE","reason":"API contract is the primary product surface."},
+        {"surface_id":"authentication","state":"CONDITIONAL","reason":"API authentication may be required."},
+        {"surface_id":"authorization","state":"CONDITIONAL","reason":"API authorization may be required."},
+        {"surface_id":"data_persistence_lifecycle","state":"CONDITIONAL","reason":"Persistent state may exist."},
+        {"surface_id":"background_processing","state":"CONDITIONAL","reason":"Async processing may exist."},
+        {"surface_id":"integrations_external_io","state":"CONDITIONAL","reason":"External dependencies may exist."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Machine interfaces require security/privacy consideration."},
+        {"surface_id":"performance_scale","state":"APPLICABLE","reason":"Latency/throughput/capacity are material."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Service runtime/deployment is material."},
+        {"surface_id":"observability","state":"APPLICABLE","reason":"Operational visibility is material."},
+        {"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Service recovery is material."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"API/version compatibility is material."},
+        {"surface_id":"migration_backward_compatibility","state":"CONDITIONAL","reason":"Version/data migrations may be required."}
+      ],"defaults":[],"knowledge_tags":["api","service"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"BACKGROUND_SERVICE","version":1,"category":"PRODUCT_ARCHETYPE","label":"Background service","description":"Worker, daemon, scheduler or queue consumer without a primary user UI.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"NOT_APPLICABLE","reason":"No primary visual UI."},
+        {"surface_id":"visual_design","state":"NOT_APPLICABLE","reason":"No visual surface."},
+        {"surface_id":"background_processing","state":"APPLICABLE","reason":"Background processing is primary behaviour."},
+        {"surface_id":"api_contracts","state":"CONDITIONAL","reason":"May expose health/control APIs."},
+        {"surface_id":"data_persistence_lifecycle","state":"CONDITIONAL","reason":"Persistent state may exist."},
+        {"surface_id":"integrations_external_io","state":"CONDITIONAL","reason":"External I/O is common."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Service/data boundaries require consideration."},
+        {"surface_id":"performance_scale","state":"APPLICABLE","reason":"Throughput/concurrency are material."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Runtime/deployment is material."},
+        {"surface_id":"observability","state":"APPLICABLE","reason":"Background work must be observable."},
+        {"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Retry/recovery semantics are material."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Runtime/dependency compatibility is material."}
+      ],"defaults":[],"knowledge_tags":["worker","service"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"CLI_APPLICATION","version":1,"category":"PRODUCT_ARCHETYPE","label":"CLI application","description":"Command-line application used interactively or in automation.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"NOT_APPLICABLE","reason":"No graphical UI is inherent."},
+        {"surface_id":"visual_design","state":"NOT_APPLICABLE","reason":"No graphical visual design is inherent."},
+        {"surface_id":"ux_interaction","state":"CONDITIONAL","reason":"Command ergonomics/output interaction may be material."},
+        {"surface_id":"tool_contracts","state":"CONDITIONAL","reason":"CLI may be machine-invokable."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Execution/install environment is material."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Shell/OS/runtime compatibility is material."},
+        {"surface_id":"distribution_packaging","state":"APPLICABLE","reason":"Distribution/install packaging is material."}
+      ],"defaults":[],"knowledge_tags":["cli"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"LIBRARY_PACKAGE","version":1,"category":"PRODUCT_ARCHETYPE","label":"Library/package","description":"Reusable package consumed by other software.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"NOT_APPLICABLE","reason":"No UI is inherent."},
+        {"surface_id":"visual_design","state":"NOT_APPLICABLE","reason":"No visual design is inherent."},
+        {"surface_id":"api_contracts","state":"APPLICABLE","reason":"Public package API is the product contract."},
+        {"surface_id":"runtime_deployment","state":"NOT_APPLICABLE","reason":"Library is distributed rather than independently deployed."},
+        {"surface_id":"distribution_packaging","state":"APPLICABLE","reason":"Packaging/registry distribution is core."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Consumer/runtime compatibility is core."},
+        {"surface_id":"migration_backward_compatibility","state":"APPLICABLE","reason":"API compatibility and migration are material."}
+      ],"defaults":[],"knowledge_tags":["library","package"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"BROWSER_EXTENSION","version":1,"category":"PRODUCT_ARCHETYPE","label":"Browser extension","description":"Browser-installed extension with browser APIs and optional UI.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"CONDITIONAL","reason":"Popup/options/content UI may exist."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Browser interaction is core."},
+        {"surface_id":"visual_design","state":"CONDITIONAL","reason":"Visible extension UI may exist."},
+        {"surface_id":"accessibility_ui","state":"CONDITIONAL","reason":"Visible UI may exist."},
+        {"surface_id":"device_platform","state":"APPLICABLE","reason":"Browser permission/platform model is material."},
+        {"surface_id":"distribution_packaging","state":"APPLICABLE","reason":"Extension packaging/store distribution is material."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Browser permissions/data access are material."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Extension runtime/release are material."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Browser/version compatibility is material."}
+      ],"defaults":[],"knowledge_tags":["browser","extension"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"CMS_APPLICATION","version":1,"category":"PRODUCT_ARCHETYPE","label":"CMS application","description":"Content-management application with operator/admin UI and persisted content.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"ui_structure","state":"APPLICABLE","reason":"CMS has operator-facing UI."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Editorial workflows are core."},
+        {"surface_id":"visual_design","state":"APPLICABLE","reason":"Operator UI has visual behaviour."},
+        {"surface_id":"responsive_behavior","state":"APPLICABLE","reason":"Browser UI needs viewport behaviour."},
+        {"surface_id":"accessibility_ui","state":"APPLICABLE","reason":"Operator UI accessibility is relevant."},
+        {"surface_id":"content_information_architecture","state":"APPLICABLE","reason":"Content structure is core."},
+        {"surface_id":"authentication","state":"APPLICABLE","reason":"Operator authentication is inherent."},
+        {"surface_id":"authorization","state":"APPLICABLE","reason":"Editorial/admin permissions are inherent."},
+        {"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"Content persistence/lifecycle is core."},
+        {"surface_id":"file_storage_uploads","state":"CONDITIONAL","reason":"Media/file management is common."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Admin/content boundaries are material."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Runtime/deployment is material."},
+        {"surface_id":"observability","state":"APPLICABLE","reason":"Operational visibility is material."},
+        {"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Content/system recovery is material."}
+      ],"defaults":[],"knowledge_tags":["cms"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"CHATGPT_APP","version":1,"category":"PRODUCT_ARCHETYPE","label":"ChatGPT app","description":"Application whose primary host/user experience is ChatGPT and which may expose tools and optional hosted UI.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"tool_contracts","state":"APPLICABLE","reason":"Tool contracts are a primary product surface."},
+        {"surface_id":"conversation_interaction","state":"APPLICABLE","reason":"Conversation-driven interaction is core."},
+        {"surface_id":"ui_structure","state":"CONDITIONAL","reason":"Hosted app UI may be present but is not mandatory."},
+        {"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Conversation/tool interaction requires explicit UX behaviour."},
+        {"surface_id":"visual_design","state":"CONDITIONAL","reason":"Only applies when visual hosted UI exists."},
+        {"surface_id":"responsive_behavior","state":"CONDITIONAL","reason":"Only applies when visual hosted UI exists."},
+        {"surface_id":"accessibility_ui","state":"CONDITIONAL","reason":"Only applies when visual hosted UI exists."},
+        {"surface_id":"api_contracts","state":"CONDITIONAL","reason":"Backend APIs may support the app."},
+        {"surface_id":"authentication","state":"CONDITIONAL","reason":"Account linking may be required."},
+        {"surface_id":"authorization","state":"CONDITIONAL","reason":"Tool/resource authorization may be required."},
+        {"surface_id":"integrations_external_io","state":"APPLICABLE","reason":"Host/app tool integration is inherent."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Tool data sharing and side effects are material."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"App/tool backend runtime is material."},
+        {"surface_id":"observability","state":"APPLICABLE","reason":"Tool execution needs visibility."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Host/tool contract compatibility is material."},
+        {"surface_id":"seo_discoverability","state":"NOT_APPLICABLE","reason":"Search-engine page indexing is not inherent."}
+      ],"defaults":[],"knowledge_tags":["chatgpt","app","tools"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+    {
+      "preset_id":"MCP_SERVER","version":1,"category":"PRODUCT_ARCHETYPE","label":"MCP server","description":"Model Context Protocol server exposing machine-invokable tools/resources.","maturity":"CANDIDATE",
+      "applicability_rules":[
+        {"surface_id":"tool_contracts","state":"APPLICABLE","reason":"Tool/resource contracts are the primary product surface."},
+        {"surface_id":"api_contracts","state":"CONDITIONAL","reason":"Transport/backend APIs may exist."},
+        {"surface_id":"conversation_interaction","state":"NOT_APPLICABLE","reason":"Conversation presentation is owned by clients, not inherently the server."},
+        {"surface_id":"ui_structure","state":"NOT_APPLICABLE","reason":"No user-facing UI is inherent."},
+        {"surface_id":"visual_design","state":"NOT_APPLICABLE","reason":"No visual design is inherent."},
+        {"surface_id":"authentication","state":"CONDITIONAL","reason":"Server authentication may be required."},
+        {"surface_id":"authorization","state":"CONDITIONAL","reason":"Tool/resource authorization may be required."},
+        {"surface_id":"integrations_external_io","state":"APPLICABLE","reason":"Tool integration is core."},
+        {"surface_id":"security_privacy","state":"APPLICABLE","reason":"Tool access/data exposure are material."},
+        {"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Server runtime/deployment is material."},
+        {"surface_id":"observability","state":"APPLICABLE","reason":"Tool execution must be diagnosable."},
+        {"surface_id":"compatibility","state":"APPLICABLE","reason":"Protocol/client compatibility is material."}
+      ],"defaults":[],"knowledge_tags":["mcp","tools","service"],"validator_refs":[],"execution_guidance_refs":[]
+    },
+
+    {"preset_id":"MULTILINGUAL","version":1,"category":"CAPABILITY","label":"Multilingual","description":"Product supports multiple languages/locales.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"localization","state":"APPLICABLE","reason":"Capability directly requires locale/language behaviour."},{"surface_id":"content_information_architecture","state":"APPLICABLE","reason":"Content structure must account for localized variants."},{"surface_id":"seo_discoverability","state":"CONDITIONAL","reason":"Public localized content may require locale-aware discoverability."}],"defaults":[],"knowledge_tags":["localization","i18n"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"AUTHENTICATION","version":1,"category":"CAPABILITY","label":"Authentication","description":"Product authenticates users or service identities.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"authentication","state":"APPLICABLE","reason":"Capability explicitly enables authentication."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Identity/session handling is security-sensitive."},{"surface_id":"ux_interaction","state":"CONDITIONAL","reason":"Interactive login/session UX may exist."}],"defaults":[],"knowledge_tags":["auth"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"ROLE_BASED_AUTHORIZATION","version":1,"category":"CAPABILITY","label":"Role-based authorization","description":"Product differentiates permissions by role/policy.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"authorization","state":"APPLICABLE","reason":"Capability explicitly requires authorization."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Permission enforcement is a security boundary."}],"defaults":[],"knowledge_tags":["authorization","rbac"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"CMS_MANAGED_CONTENT","version":1,"category":"CAPABILITY","label":"CMS-managed content","description":"Content is created/managed through editorial workflows.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"content_information_architecture","state":"APPLICABLE","reason":"Managed content structure is material."},{"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"Managed content is persisted/lifecycle-managed."},{"surface_id":"ui_structure","state":"CONDITIONAL","reason":"Editorial UI may be part of the product graph."}],"defaults":[],"knowledge_tags":["cms","content"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"PUBLIC_API","version":1,"category":"CAPABILITY","label":"Public API","description":"Product exposes a supported external API.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"api_contracts","state":"APPLICABLE","reason":"External API contract is explicit."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Public interface needs security/privacy boundaries."},{"surface_id":"compatibility","state":"APPLICABLE","reason":"External consumers create compatibility obligations."},{"surface_id":"migration_backward_compatibility","state":"APPLICABLE","reason":"Contract evolution requires migration/versioning consideration."}],"defaults":[],"knowledge_tags":["api"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"ADMIN_BACKOFFICE","version":1,"category":"CAPABILITY","label":"Admin/back-office UI","description":"Product contains an operator/admin interface.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"ui_structure","state":"APPLICABLE","reason":"Admin UI is explicit."},{"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Admin workflows are interactive."},{"surface_id":"visual_design","state":"APPLICABLE","reason":"Admin UI has visual behaviour."},{"surface_id":"authentication","state":"APPLICABLE","reason":"Admin access must authenticate."},{"surface_id":"authorization","state":"APPLICABLE","reason":"Admin operations require authorization."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Admin surfaces are privileged."}],"defaults":[],"knowledge_tags":["admin","backoffice"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"DATABASE_PERSISTENCE","version":1,"category":"CAPABILITY","label":"Database persistence","description":"Product persists material state in a database.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"Persistent database state is explicit."},{"surface_id":"migration_backward_compatibility","state":"CONDITIONAL","reason":"Schema/data evolution may require migration."},{"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Persistent state requires recovery consideration."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Stored data needs security/privacy consideration."}],"defaults":[],"knowledge_tags":["database","persistence"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"BACKGROUND_JOBS","version":1,"category":"CAPABILITY","label":"Background jobs","description":"Product executes scheduled/queued/asynchronous jobs.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"background_processing","state":"APPLICABLE","reason":"Capability explicitly requires background processing."},{"surface_id":"observability","state":"APPLICABLE","reason":"Background execution must be diagnosable."},{"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Retry/failure semantics are material."},{"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Worker scheduling/runtime is material."}],"defaults":[],"knowledge_tags":["jobs","worker"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"AI_ASSISTANT","version":1,"category":"CAPABILITY","label":"AI assistant","description":"Product offers AI-generated or agentic assistance.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"integrations_external_io","state":"APPLICABLE","reason":"Model/provider/tool I/O is material."},{"surface_id":"conversation_interaction","state":"CONDITIONAL","reason":"Assistant may use conversational interaction."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Prompt/context/data sharing is material."},{"surface_id":"observability","state":"CONDITIONAL","reason":"Model/tool behaviour may need tracing/evaluation."}],"defaults":[],"knowledge_tags":["ai","assistant"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"OPENAI_API","version":1,"category":"INTEGRATION","label":"OpenAI API integration","description":"Product uses OpenAI APIs/services; this does not make the product a ChatGPT app.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"integrations_external_io","state":"APPLICABLE","reason":"External model API integration is explicit."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Data sent to an external AI service is material."},{"surface_id":"observability","state":"CONDITIONAL","reason":"Request/model diagnostics may be relevant."}],"defaults":[],"knowledge_tags":["openai","ai"],"validator_refs":[],"execution_guidance_refs":[]},
+
+    {"preset_id":"DOTNET_FRAMEWORK_MVC","version":1,"category":"STACK","label":".NET Framework MVC","description":".NET Framework MVC application stack.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Framework runtime/hosting compatibility is material."},{"surface_id":"compatibility","state":"APPLICABLE","reason":"Framework/OS/runtime versions are material."},{"surface_id":"ui_structure","state":"CONDITIONAL","reason":"MVC may render browser UI."},{"surface_id":"api_contracts","state":"CONDITIONAL","reason":"MVC may expose API routes."}],"defaults":[],"knowledge_tags":["dotnet","mvc"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"ASP_NET_CORE","version":1,"category":"STACK","label":"ASP.NET Core","description":"ASP.NET Core application/service stack.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Runtime/deployment compatibility is material."},{"surface_id":"compatibility","state":"APPLICABLE","reason":"Runtime/platform versions are material."},{"surface_id":"api_contracts","state":"CONDITIONAL","reason":"Stack may expose APIs."},{"surface_id":"ui_structure","state":"CONDITIONAL","reason":"Stack may render web UI."}],"defaults":[],"knowledge_tags":["dotnet","aspnetcore"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"REACT","version":1,"category":"STACK","label":"React","description":"React user-interface stack.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"ui_structure","state":"APPLICABLE","reason":"React indicates a UI component."},{"surface_id":"ux_interaction","state":"APPLICABLE","reason":"React implements interactive UI."},{"surface_id":"visual_design","state":"APPLICABLE","reason":"Rendered UI has visual behaviour."},{"surface_id":"responsive_behavior","state":"CONDITIONAL","reason":"Responsive behaviour depends on product requirements."},{"surface_id":"accessibility_ui","state":"APPLICABLE","reason":"React UI requires accessibility consideration."}],"defaults":[],"knowledge_tags":["react","frontend"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"MYSQL","version":1,"category":"STACK","label":"MySQL","description":"MySQL database technology.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"Database technology indicates persisted data."},{"surface_id":"migration_backward_compatibility","state":"CONDITIONAL","reason":"Schema migration may be required."},{"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Database backup/recovery is material."}],"defaults":[],"knowledge_tags":["mysql","database"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"SQL_SERVER","version":1,"category":"STACK","label":"SQL Server","description":"Microsoft SQL Server database technology.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"Database technology indicates persisted data."},{"surface_id":"migration_backward_compatibility","state":"CONDITIONAL","reason":"Schema migration may be required."},{"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Database backup/recovery is material."}],"defaults":[],"knowledge_tags":["sqlserver","database"],"validator_refs":[],"execution_guidance_refs":[]},
+
+    {"preset_id":"SHARED_WINDOWS_HOSTING","version":1,"category":"INFRASTRUCTURE","label":"Shared Windows hosting","description":"Generic shared Windows-hosting environment; provider-specific facts require evidence-backed derived presets.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Hosting target constrains deployment/runtime."},{"surface_id":"compatibility","state":"APPLICABLE","reason":"Supported runtime/platform versions are material."},{"surface_id":"recovery_rollback","state":"CONDITIONAL","reason":"Provider capabilities determine rollback/recovery."}],"defaults":[],"knowledge_tags":["windows","shared-hosting"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"SHARED_LINUX_HOSTING","version":1,"category":"INFRASTRUCTURE","label":"Shared Linux hosting","description":"Generic shared Linux-hosting environment; provider-specific facts require evidence-backed derived presets.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Hosting target constrains deployment/runtime."},{"surface_id":"compatibility","state":"APPLICABLE","reason":"Supported runtime/platform versions are material."},{"surface_id":"recovery_rollback","state":"CONDITIONAL","reason":"Provider capabilities determine rollback/recovery."}],"defaults":[],"knowledge_tags":["linux","shared-hosting"],"validator_refs":[],"execution_guidance_refs":[]},
+
+    {"preset_id":"PUBLIC_INFORMATIONAL","version":1,"category":"EXPOSURE_RISK","label":"Public informational","description":"Publicly accessible product primarily exposes informational content.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"seo_discoverability","state":"APPLICABLE","reason":"Public informational content is normally discoverable."},{"surface_id":"security_privacy","state":"CONDITIONAL","reason":"Security/privacy depends on collection/integrations."}],"defaults":[],"knowledge_tags":["public","informational"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"PUBLIC_INTERACTIVE","version":1,"category":"EXPOSURE_RISK","label":"Public interactive","description":"Unauthenticated public users can interact with application behaviour.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"ux_interaction","state":"APPLICABLE","reason":"Public interaction is explicit."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Untrusted public input is a material security boundary."},{"surface_id":"observability","state":"APPLICABLE","reason":"Public failures/abuse need visibility."}],"defaults":[],"knowledge_tags":["public","interactive"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"AUTHENTICATED_USER_DATA","version":1,"category":"EXPOSURE_RISK","label":"Authenticated user data","description":"Authenticated users access or mutate persisted user data.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"authentication","state":"APPLICABLE","reason":"Authenticated access is inherent."},{"surface_id":"authorization","state":"CONDITIONAL","reason":"Resource/action authorization may be required."},{"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"User data persistence/lifecycle is material."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"User data is privacy/security sensitive."},{"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Persistent user data requires recovery."}],"defaults":[],"knowledge_tags":["authenticated","user-data"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"BUSINESS_CRITICAL","version":1,"category":"EXPOSURE_RISK","label":"Business critical","description":"Failure materially disrupts business operations.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"performance_scale","state":"APPLICABLE","reason":"Capacity/performance constraints need explicit treatment."},{"surface_id":"runtime_deployment","state":"APPLICABLE","reason":"Operational runtime is critical."},{"surface_id":"observability","state":"APPLICABLE","reason":"Fast diagnosis is required."},{"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Recovery guarantees are material."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Material operational risk requires security consideration."}],"defaults":[],"knowledge_tags":["criticality"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"PRIVACY_SENSITIVE","version":1,"category":"EXPOSURE_RISK","label":"Privacy sensitive","description":"Product processes materially sensitive or personal information.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Privacy/security is inherently material."},{"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"Retention/deletion/data lifecycle must be explicit."}],"defaults":[],"knowledge_tags":["privacy"],"validator_refs":[],"execution_guidance_refs":[]},
+    {"preset_id":"TRANSACTIONAL","version":1,"category":"EXPOSURE_RISK","label":"Transactional","description":"Stateful transactions whose duplication/loss has material consequences.","maturity":"CANDIDATE","applicability_rules":[{"surface_id":"data_persistence_lifecycle","state":"APPLICABLE","reason":"Transaction state must be durable/reconciled."},{"surface_id":"security_privacy","state":"APPLICABLE","reason":"Transactional integrity is security-sensitive."},{"surface_id":"observability","state":"APPLICABLE","reason":"Transaction outcomes need traceability."},{"surface_id":"recovery_rollback","state":"APPLICABLE","reason":"Idempotency/recovery/reconciliation are material."},{"surface_id":"integrations_external_io","state":"CONDITIONAL","reason":"Transactions may cross external systems."}],"defaults":[],"knowledge_tags":["transactional"],"validator_refs":[],"execution_guidance_refs":[]}
+  ]
+}
