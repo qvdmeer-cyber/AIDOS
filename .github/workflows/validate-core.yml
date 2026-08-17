@@ -58,3 +58,6 @@ jobs:
       - name: Remote Preparation Control regression tests
         shell: pwsh
         run: ./tests/PreparationRemoteControl.Tests.ps1
+      - name: Preparation Onboarding regression tests
+        shell: pwsh
+        run: ./tests/PreparationOnboarding.Tests.ps1
