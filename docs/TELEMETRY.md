@@ -1,35 +1,89 @@
-# Telemetry
+# Telemetry, observability and insights
 
-AIDOS measures first and optimizes later.
+AIDOS measures first and optimizes later. Telemetry is evidence for operations, estimation and learning; it does not automatically change system policy.
 
-## Per execution
+## Per execution / revision
 
 Record where available:
 
-- project/goal/execution/revision;
-- Codex model and reasoning effort;
-- Codex session ID and whether reused/rotated;
-- input/cached-input/output/reasoning token counts;
+- project/workstream/goal/execution/revision;
+- model/reasoning profile and session identity/rotation;
+- token/allowance usage;
 - execution duration;
 - repair cycles;
 - terminal outcome;
-- acceptance readiness/results;
-- context-stuck signals;
-- GPT review count/revisions;
+- deterministic validation result;
+- first-pass acceptance versus repair;
+- GPT/Thinker review count;
 - queue/wait time;
-- peak/representative RAM, CPU and disk-free metrics;
-- review artefact size/lifecycle;
-- human interruptions/decision count.
+- human interruptions/input requests and reasons;
+- blocker/recovery events;
+- representative resource metrics;
+- review artefact lifecycle;
+- Definition gaps first exposed during execution.
+
+## Project/workstream insights
+
+Aggregate where useful:
+
+- executions/revisions per workstream;
+- repair frequency and first-pass acceptance;
+- blocker and recovery frequency/types;
+- human interventions and reason classes;
+- time spent waiting for human versus waiting for agent/resource/dependency;
+- phase/workstream throughput and duration;
+- integration-gate failures/retries;
+- Definition surfaces or assumptions repeatedly reopened during execution;
+- estimate-versus-actual remaining time.
+
+## Portfolio/AIDOS-level insights
+
+AIDOS may aggregate across isolated projects without mixing project-specific truth into another project's context. Portfolio metrics include:
+
+- active projects/workstreams and local concurrency;
+- human interventions over time;
+- autonomy trend;
+- first-pass reliability;
+- repair frequency;
+- blocker/recovery taxonomy;
+- waiting-for-human versus waiting-for-agent/resource;
+- recurring dependency/integration bottlenecks;
+- estimation calibration;
+- profile/preset effectiveness.
+
+The primary maturity question is:
+
+> **Where does AIDOS still need human attention, and is that attention moving over time from operational/technical problems toward genuine product, risk and strategic decisions?**
+
+Low human-input count alone is not a success metric.
+
+## Progress/ETA evidence
+
+Progress and ETA use `schemas/progress-estimate.schema.json` and the rules in `docs/PROGRESS_AND_ESTIMATION.md`.
+
+Estimates are projections, not acceptance evidence. Preserve estimate timestamps/confidence and, after completion, actual remaining duration so calibration can improve.
+
+## Insight maturity
+
+Metrics/patterns may be persisted as `OBSERVATION` objects under `schemas/system-insight.schema.json`.
+
+```text
+telemetry/evidence
+→ OBSERVATION
+→ HYPOTHESIS
+→ explicit review/adoption
+→ ADOPTED_IMPROVEMENT
+```
+
+A statistical pattern never directly becomes a new AIDOS rule.
 
 ## Primary optimization question
 
-> How much correct, pre-accepted product progress is produced per hour of human attention and per unit of model allowance?
+> How much correct, pre-accepted product progress is produced per hour of human attention and per unit of model allowance, without weakening Definition/validation/release gates?
 
-AIDOS should not optimize for maximum autonomy as an end in itself.
+## Runtime policy
 
-## V1 policy
-
-- No wall-clock kill for productive Codex execution.
+- No wall-clock kill for productive bounded Codex execution.
 - Loop/usage thresholds start deliberately generous.
-- Resource limits protect against concrete host damage/exhaustion rather than merely long work.
-- Tighten thresholds only after real data shows allowance waste or recurring failure patterns.
+- Resource limits protect against concrete host damage/exhaustion.
+- Tighten thresholds only after evidence shows waste or recurring failure.
