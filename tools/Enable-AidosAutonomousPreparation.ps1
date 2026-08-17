@@ -42,8 +42,10 @@ $registryPath=Get-AidosRegistryProjectPath -RegistryRoot $registryRoot -ProjectI
 if(Test-Path -LiteralPath $registryPath -PathType Leaf){
     $registered=Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
     if([string]$registered.repository -ne $PreparationRepository -or [string]$registered.local_root -ne [string](Get-Item -LiteralPath $projectRoot).FullName){throw 'Existing preparation registry binding differs from requested AIDOS Interface binding.'}
+    if($registered.PSObject.Properties['project_mode'] -and [string]$registered.project_mode -ne 'NEW_PROJECT'){throw 'Existing preparation registry project_mode is not NEW_PROJECT.'}
+    if($registered.PSObject.Properties['runner_policy'] -and [string]$registered.runner_policy -ne 'UNATTENDED_ALLOWED'){throw 'Existing preparation registry runner_policy is not UNATTENDED_ALLOWED.'}
 }else{
-    $registered=Register-AidosPreparationProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Repository $PreparationRepository -LocalRoot $projectRoot -GitRuntimeKind WINDOWS_WSL -WslDistribution $Distribution -WslProjectRoot $projectWslRoot -AllowedPersistencePaths @('.aidos')
+    $registered=Register-AidosPreparationProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Repository $PreparationRepository -LocalRoot $projectRoot -ProjectMode NEW_PROJECT -DefaultBranch main -RunnerPolicy UNATTENDED_ALLOWED -GitRuntimeKind WINDOWS_WSL -WslDistribution $Distribution -WslProjectRoot $projectWslRoot -AllowedPersistencePaths @('.aidos')
 }
 Test-AidosRegistryProjectBinding $registered|Out-Null
 
