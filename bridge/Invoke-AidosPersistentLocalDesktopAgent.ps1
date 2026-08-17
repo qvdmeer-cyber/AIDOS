@@ -22,6 +22,19 @@ function Get-AidosPersistentAgentTaskStatus {
         next_run_time=if($info){$info.NextRunTime}else{$null}
     }
 }
+function Stop-AidosPersistentAgentForReinstall {
+    param([Parameter(Mandatory)][string]$Root)
+    $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if(-not $task -or [string]$task.State -ne 'Running'){return}
+    Stop-AidosHostAgent -StateRoot $Root
+    for($attempt=0;$attempt -lt 40;$attempt++){
+        Start-Sleep -Milliseconds 250
+        $current=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if(-not $current -or [string]$current.State -ne 'Running'){return}
+    }
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
 function Write-AidosPersistentAgentLocalLauncher {
     param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$EntryPoint,[Parameter(Mandatory)][string]$BoundProjectRoot,[Parameter(Mandatory)][string]$BoundAuthorizedUser,[Parameter(Mandatory)][string]$BoundProcessName,[Parameter(Mandatory)][int]$BoundPollSeconds)
     if(-not(Test-Path -LiteralPath $Root -PathType Container)){New-Item -ItemType Directory -Path $Root -Force|Out-Null}
@@ -79,6 +92,7 @@ switch($Command){
     $installationAuthorization=Test-AidosAuthorizedInteractiveSession -Snapshot (Get-AidosInteractiveSessionSnapshot) -AuthorizedUser $AuthorizedUser
     if(-not $installationAuthorization.allowed){throw "Install requires the existing unlocked interactive token for '$AuthorizedUser': $($installationAuthorization.reason)."}
     $engine=Join-Path $PSHOME 'pwsh.exe';if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'Install requires PowerShell 7 (pwsh.exe); do not register a Windows PowerShell 5 task.'}
+    Stop-AidosPersistentAgentForReinstall -Root $StateRoot
     $local=Write-AidosPersistentAgentLocalLauncher -Root $StateRoot -EntryPoint $self -BoundProjectRoot $ProjectRoot -BoundAuthorizedUser $AuthorizedUser -BoundProcessName $ProcessName -BoundPollSeconds $PollSeconds
     $arg="-NoLogo -NoProfile -WindowStyle Hidden -File `"$($local.launcher_path)`""
     $action=New-ScheduledTaskAction -Execute $engine -Argument $arg
