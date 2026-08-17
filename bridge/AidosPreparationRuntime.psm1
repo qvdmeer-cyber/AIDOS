@@ -24,6 +24,13 @@ function Set-AidosPreparationResumeRecord {
     $Record
 }
 
+function New-AidosPreparationBaselineAcceptanceRequest {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$BuilderRoot,[Parameter(Mandatory)][string]$ContractsRoot)
+    $tool=Join-Path ([IO.Path]::GetFullPath($BuilderRoot)) 'tools/New-AidosBaselineAcceptanceHumanInputRequest.ps1'
+    if(-not(Test-Path -LiteralPath $tool -PathType Leaf)){throw "Builder baseline acceptance request tool not found: $tool"}
+    & $tool -ProjectRoot $ProjectRoot -ContractsRoot ([IO.Path]::GetFullPath($ContractsRoot)) -RequestedByActor 'AIDOS_PREPARATION_RUNTIME'
+}
+
 function Invoke-AidosPreparationResume {
     [CmdletBinding()]
     param(
@@ -65,18 +72,46 @@ function Invoke-AidosPreparationResume {
         $valueProperty=$binding.option_values.PSObject.Properties[$selected]
         if($null -eq $valueProperty){throw "Resolution binding has no value for selected option '$selected'."}
         $value=$valueProperty.Value
+        $processor=[string]$binding.processor
+        $reopened=$false
 
         if($ApplyProcessor){
             $applyResult=& $ApplyProcessor $project $request $binding $value
         } else {
-            if([string]$binding.processor -ne 'BASELINE_ITEM_HUMAN_ACCEPTED'){throw "Unsupported deterministic preparation processor '$($binding.processor)'."}
-            if([string]::IsNullOrWhiteSpace($BuilderRoot)){throw 'BuilderRoot is required for BASELINE_ITEM_HUMAN_ACCEPTED.'}
-            $setTool=Join-Path ([IO.Path]::GetFullPath($BuilderRoot)) 'tools/Set-AidosBaselineItem.ps1'
-            if(-not(Test-Path -LiteralPath $setTool -PathType Leaf)){throw "Builder baseline setter not found: $setTool"}
-            $valueJson=$value|ConvertTo-Json -Depth 100 -Compress
-            $rationale=('{0} {1} for Human Input Request {2}.' -f [string]$binding.rationale_prefix,$selected,$RequestId).Trim()
-            & $setTool -ProjectRoot $root -ItemKey ([string]$binding.target.item_key) -HumanAccepted -AcceptedBy ([string]$request.response.responded_by) -Rationale $rationale -ValueJson $valueJson|Out-Null
-            $applyResult=[pscustomobject]@{processor=[string]$binding.processor;item_key=[string]$binding.target.item_key;selected_option_id=$selected}
+            if([string]::IsNullOrWhiteSpace($BuilderRoot)){throw "BuilderRoot is required for deterministic preparation processor '$processor'."}
+            switch($processor){
+                'BASELINE_ITEM_HUMAN_ACCEPTED' {
+                    $setTool=Join-Path ([IO.Path]::GetFullPath($BuilderRoot)) 'tools/Set-AidosBaselineItem.ps1'
+                    if(-not(Test-Path -LiteralPath $setTool -PathType Leaf)){throw "Builder baseline setter not found: $setTool"}
+                    $valueJson=$value|ConvertTo-Json -Depth 100 -Compress
+                    $rationale=('{0} {1} for Human Input Request {2}.' -f [string]$binding.rationale_prefix,$selected,$RequestId).Trim()
+                    & $setTool -ProjectRoot $root -ItemKey ([string]$binding.target.item_key) -HumanAccepted -AcceptedBy ([string]$request.response.responded_by) -Rationale $rationale -ValueJson $valueJson|Out-Null
+                    $applyResult=[pscustomobject]@{processor=$processor;item_key=[string]$binding.target.item_key;selected_option_id=$selected}
+                }
+                'BASELINE_ACCEPTANCE' {
+                    if(-[bool]$value){
+                        $reopened=$true
+                        $applyResult=[pscustomobject]@{processor=$processor;accepted=$false;selected_option_id=$selected}
+                    }else{
+                        if([string]::IsNullOrWhiteSpace($ContractsRoot)){throw 'ContractsRoot is required for BASELINE_ACCEPTANCE.'}
+                        $head=Invoke-AidosRegisteredGit $project @('rev-parse','HEAD')
+                        if($head.ExitCode-ne0-or$head.Output.Count-eq0){throw 'Unable to bind Project Baseline acceptance to current source commit.'}
+                        $acceptTool=Join-Path ([IO.Path]::GetFullPath($BuilderRoot)) 'tools/Accept-AidosProjectBaseline.ps1'
+                        if(-not(Test-Path -LiteralPath $acceptTool -PathType Leaf)){throw "Builder baseline acceptance tool not found: $acceptTool"}
+                        & $acceptTool -ProjectRoot $root -ContractsRoot ([IO.Path]::GetFullPath($ContractsRoot)) -AcceptedBy ([string]$request.response.responded_by) -AcceptedCommit ([string]$head.Output[0])|Out-Null
+                        $applyResult=[pscustomobject]@{processor=$processor;accepted=$true;accepted_commit=[string]$head.Output[0];selected_option_id=$selected}
+                    }
+                }
+                default { throw "Unsupported deterministic preparation processor '$processor'." }
+            }
+        }
+
+        if($reopened){
+            $git=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS consume Human Input $RequestId") -Push:$Push
+            $result=[ordered]@{apply=$applyResult;validation=$null;git=$git}
+            Set-AidosPreparationResumeRecord -Path $resumePath -Record $resume -Status APPLIED -Result $result|Out-Null
+            Set-AidosPreparationProjectPhase -RegistryRoot $RegistryRoot -ProjectId $ProjectId -Phase 'PROJECT_BASELINE' -Status WAITING_HUMAN|Out-Null
+            return [pscustomobject][ordered]@{status='REOPENED';request_id=$RequestId;git=$git}
         }
 
         if($Validator){
@@ -85,16 +120,28 @@ function Invoke-AidosPreparationResume {
             if([string]::IsNullOrWhiteSpace($BuilderRoot)-or[string]::IsNullOrWhiteSpace($ContractsRoot)){throw 'BuilderRoot and ContractsRoot are required for Project Baseline validation.'}
             $validatorTool=Join-Path ([IO.Path]::GetFullPath($BuilderRoot)) 'tools/Test-AidosProjectBaseline.ps1'
             if(-not(Test-Path -LiteralPath $validatorTool -PathType Leaf)){throw "Builder baseline validator not found: $validatorTool"}
-            $validation=& $validatorTool -ProjectRoot $root -ContractsRoot ([IO.Path]::GetFullPath($ContractsRoot)) -NoExit
+            if($processor -eq 'BASELINE_ACCEPTANCE'){
+                $validation=& $validatorTool -ProjectRoot $root -ContractsRoot ([IO.Path]::GetFullPath($ContractsRoot)) -RequireAcceptance -NoExit
+            }else{
+                $validation=& $validatorTool -ProjectRoot $root -ContractsRoot ([IO.Path]::GetFullPath($ContractsRoot)) -NoExit
+            }
         }
         if($null -eq $validation -or $null -eq $validation.PSObject.Properties['pass']){throw 'Preparation validator returned no canonical pass result.'}
         if(-not[bool]$validation.pass){throw "Preparation validation failed; next unresolved item: $($validation.next_item)"}
 
+        $nextHumanInput=$null
+        if($processor -eq 'BASELINE_ITEM_HUMAN_ACCEPTED' -and -not$Validator){
+            $nextHumanInput=New-AidosPreparationBaselineAcceptanceRequest -ProjectRoot $root -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot
+        }
         $git=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS consume Human Input $RequestId") -Push:$Push
-        $result=[ordered]@{apply=$applyResult;validation=$validation;git=$git}
+        $result=[ordered]@{apply=$applyResult;validation=$validation;next_human_input=$nextHumanInput;git=$git}
         Set-AidosPreparationResumeRecord -Path $resumePath -Record $resume -Status APPLIED -Result $result|Out-Null
-        Set-AidosPreparationProjectPhase -RegistryRoot $RegistryRoot -ProjectId $ProjectId -Phase 'BASELINE_ACCEPTANCE' -Status WAITING_HUMAN|Out-Null
-        [pscustomobject][ordered]@{status='APPLIED';request_id=$RequestId;validation=$validation;git=$git}
+        if($processor -eq 'BASELINE_ACCEPTANCE'){
+            Set-AidosPreparationProjectPhase -RegistryRoot $RegistryRoot -ProjectId $ProjectId -Phase 'RUNTIME_ONBOARDING' -Status READY_FOR_ONBOARDING|Out-Null
+        }else{
+            Set-AidosPreparationProjectPhase -RegistryRoot $RegistryRoot -ProjectId $ProjectId -Phase 'BASELINE_ACCEPTANCE' -Status WAITING_HUMAN|Out-Null
+        }
+        [pscustomobject][ordered]@{status='APPLIED';request_id=$RequestId;validation=$validation;next_human_input=$nextHumanInput;git=$git}
     }catch{
         $failure=[ordered]@{reason=$_.Exception.Message}
         Set-AidosPreparationResumeRecord -Path $resumePath -Record $resume -Status FAILED -Result $failure|Out-Null
@@ -103,4 +150,4 @@ function Invoke-AidosPreparationResume {
     }
 }
 
-Export-ModuleMember -Function Get-AidosHumanInputResolutionBindingPath,Get-AidosPreparationResumePath,Invoke-AidosPreparationResume
+Export-ModuleMember -Function Get-AidosHumanInputResolutionBindingPath,Get-AidosPreparationResumePath,New-AidosPreparationBaselineAcceptanceRequest,Invoke-AidosPreparationResume
