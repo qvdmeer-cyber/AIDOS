@@ -1,16 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aidos.local/schema/human-input-request.schema.json",
-  "title": "AIDOS Human Input Request",
+  "title": "AIDOS Human Input Request — Core mirror of Contracts 0.1.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version","request_id","project_id","workstream_id","request_type","status","context_summary","question","options","binding","requested_by_actor","resume_actor_role","response","evidence_refs","created_at","updated_at"],
+  "required": [
+    "contract_version","request_id","project_id","workstream_id","phase","request_type","status",
+    "context_summary","question","options","authority_classification","decision_assessment_ref",
+    "auto_define_stop_reason","binding","requested_by","resume_actor_role","response","evidence_refs",
+    "source_refs","created_at","updated_at"
+  ],
   "properties": {
-    "schema_version":{"type":"string","const":"0.1"},
+    "contract_version":{"type":"string","const":"0.1.0"},
     "request_id":{"type":"string","minLength":1},
     "project_id":{"type":"string","minLength":1},
     "workstream_id":{"type":["string","null"]},
-    "request_type":{"type":"string","enum":["PRODUCT_DECISION","AUTHORITY","RISK","RECOVERY","CLARIFICATION","DISCOVERY_AUTHORITY","RELEASE_DECISION","OTHER"]},
+    "phase":{"type":"string","enum":["PROJECT_BASELINE","EXISTING_PROJECT_DISCOVERY","DEFINITION","EXECUTION","REVIEW","RELEASE","RECOVERY","OTHER"]},
+    "request_type":{"type":"string","enum":["PRODUCT_DECISION","BUSINESS_DECISION","AUTHORITY","RISK","RECOVERY","CLARIFICATION","DISCOVERY_AUTHORITY","RELEASE_DECISION","OTHER"]},
     "status":{"type":"string","enum":["WAITING","RESOLVED","CANCELLED","SUPERSEDED"]},
     "context_summary":{"type":"string","minLength":1},
     "question":{"type":"string","minLength":1},
@@ -18,11 +24,12 @@
     "authority_classification":{"type":["string","null"],"enum":["SYSTEM_INVARIANT","REPO_VERIFIABLE","AUTO_DECIDABLE","HUMAN_REQUIRED",null]},
     "decision_assessment_ref":{"type":["string","null"]},
     "auto_define_stop_reason":{"type":["string","null"]},
-    "binding":{"type":"object","additionalProperties":false,"required":["definition_id","definition_version","execution_id","revision","review_id"],"properties":{"definition_id":{"type":["string","null"]},"definition_version":{"type":["integer","null"],"minimum":1},"execution_id":{"type":["string","null"]},"revision":{"type":["integer","null"],"minimum":1},"review_id":{"type":["string","null"]}}},
-    "requested_by_actor":{"type":"string","enum":["DEFINITION_AGENT","WORKER_AGENT","EXECUTION_AGENT","BRIDGE","SYSTEM"]},
-    "resume_actor_role":{"type":"string","enum":["THINKER","WORKER","SYSTEM"]},
+    "binding":{"type":"object","additionalProperties":false,"required":["baseline_version","definition_id","definition_version","execution_id","revision","review_id"],"properties":{"baseline_version":{"type":["integer","null"],"minimum":1},"definition_id":{"type":["string","null"]},"definition_version":{"type":["integer","null"],"minimum":1},"execution_id":{"type":["string","null"]},"revision":{"type":["integer","null"],"minimum":1},"review_id":{"type":["string","null"]}}},
+    "requested_by":{"type":"object","additionalProperties":false,"required":["actor"],"properties":{"actor":{"type":"string","minLength":1},"model":{"type":["string","null"]},"session_id":{"type":["string","null"]}}},
+    "resume_actor_role":{"type":"string","enum":["THINKER","WORKER","BUILDER","SYSTEM"]},
     "response":{"oneOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["responded_by","responded_at","selected_option_id","text"],"properties":{"responded_by":{"type":"string","minLength":1},"responded_at":{"type":"string","format":"date-time"},"selected_option_id":{"type":["string","null"]},"text":{"type":["string","null"]}}}]},
     "evidence_refs":{"type":"array","items":{"type":"string"}},
+    "source_refs":{"type":"array","items":{"type":"string"}},
     "created_at":{"type":"string","format":"date-time"},
     "updated_at":{"type":"string","format":"date-time"}
   }
