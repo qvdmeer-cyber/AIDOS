@@ -90,10 +90,66 @@ For existing projects, execution binds the exact closure-compatible Current Prod
 3. **Definition is delta-only for existing projects.** Existing functionality is evidence, not a product question to rediscover.
 4. **Definition before execution.** The human explicitly accepts foreseeable changed behaviour, constraints and acceptance criteria.
 5. **Project-local truth.** Baseline, evidence, component graph, runtime observations, CPS, Definitions and project-specific truth stay in the project repository.
-6. **AIDOS-global capability.** Generic runtime agents, protocols, validators and reusable learning live once in AIDOS.
-7. **Goal-scoped context.** Agents load only relevant generic capability/goal knowledge plus bound project truth.
+6. **AIDOS-global capability.** Generic runtime agents, protocols, validators, reusable profiles and reusable learning live once in AIDOS.
+7. **Goal-scoped context.** Agents load only relevant generic profile/capability/goal knowledge plus bound project truth.
 8. **Bounded autonomy.** Execution continues while useful inside accepted goal/authority and stops at material boundaries or terminal completion.
 9. **Frozen launch criteria.** Once accepted launch criteria pass, improvement alone is not sufficient grounds for delay; default state is `RELEASE_READY` unless release scope is explicitly reopened.
+
+## Composable project profiles
+
+AIDOS uses composable, versioned profiles to avoid repeating the same applicability reasoning and Definition questions across projects.
+
+```text
+Project Profile
+├─ PRODUCT_ARCHETYPE
+├─ CAPABILITY
+├─ INTEGRATION
+├─ STACK
+├─ INFRASTRUCTURE
+└─ EXPOSURE_RISK
+```
+
+Exactly one Product Archetype defines what/where the product fundamentally is. Other layers compose around it.
+
+Examples of Product Archetypes include:
+
+```text
+STATIC_MARKETING_SITE
+CONTENT_WEBSITE
+WEB_APPLICATION
+MOBILE_APPLICATION
+DESKTOP_APPLICATION
+API_SERVICE
+BACKGROUND_SERVICE
+CLI_APPLICATION
+LIBRARY_PACKAGE
+BROWSER_EXTENSION
+CMS_APPLICATION
+CHATGPT_APP
+MCP_SERVER
+```
+
+A provider/integration is not an archetype. For example, a web/mobile/API product using OpenAI remains its actual Product Archetype plus the `OPENAI_API` Integration profile.
+
+Profiles map to reusable development surfaces such as UI/UX/design, API/tool contracts, localization, auth, data, background work, integrations, security/privacy, runtime, observability, recovery and compatibility.
+
+Two applicability layers are kept distinct:
+
+```text
+Project Applicability
+= which development surfaces exist or may exist in this product?
+
+Definition Applicability
+= which of those surfaces are affected by this specific desired delta?
+```
+
+This lets an API-only project exclude UI/design while preventing a UI-bearing project from silently omitting UI/UX/design when a delta actually affects it.
+
+Profiles are accelerators, never truth. Verified project evidence and explicit human-accepted project decisions always override preset assumptions.
+
+Profile effectiveness is evaluated over time (overrides, evidence contradictions, avoided questions, Codex retries, GPT handoffs, validator prevention). Proven recurring lessons can update versioned profiles and eventually become validators/tools.
+
+See `docs/PROFILE_PRESETS.md`.
 
 ## Discovery refresh
 
@@ -130,7 +186,7 @@ See `protocols/LAUNCH_PROTOCOL.md`.
 
 ## Agent model
 
-- **Definition Agent** — consumes accepted preparation state, defines only the desired delta and obtains human acceptance.
+- **Definition Agent** — consumes accepted preparation state, resolves project/delta applicability, defines only the desired delta and obtains human acceptance.
 - **Worker Agent** — plans bounded execution, reviews evidence, detects stale/incomplete CPS, enforces release-scope discipline and controls transitions.
 - **Execution Agent** — technical execution only inside exact accepted bindings/authority.
 
@@ -140,7 +196,7 @@ Project Baseline and Existing Project Discovery/Discovery Closure are owned exte
 
 ```text
 AIDOS Core
-→ relevant capability knowledge
+→ relevant profile/capability knowledge
 → relevant goal-pattern knowledge
 → accepted Project Baseline
 → accepted closure-compatible Current Product State (EXISTING_PROJECT)
@@ -149,7 +205,7 @@ AIDOS Core
 → current Execution
 ```
 
-More specific accepted project truth wins over generic heuristics.
+More specific accepted project truth wins over profiles/generic heuristics.
 
 ## Durable state
 
@@ -161,6 +217,8 @@ The project repository owns:
 - Evidence Inventory;
 - Discovery Authority and discovery state;
 - CPS including system components/dependency graph/runtime evidence;
+- project applicability profile;
+- Definition applicability/progress;
 - Definitions/executions/reviews;
 - release state/backlog.
 
@@ -169,6 +227,8 @@ AIDOS consumes these objects; it does not turn chat memory into canonical truth.
 ## Current implementation status
 
 The private AIDOS foundation is present. Existing-project onboarding now fails closed unless Evidence Inventory 0.2 and an accepted CPS/discovery state under Discovery Closure 0.2 are present with no open discovery blocker.
+
+Composable profile/applicability foundation is present in AIDOS Core: development-surface/preset catalogs, project/Definition applicability schemas, resolver tooling, profile evaluation schema and profile-targeted learning classification. This foundation does **not** itself change the current Project Baseline/Discovery lifecycle ordering; that remains a separately versioned governance decision.
 
 The local multi-project bridge, Codex lifecycle, review transport, desktop ChatGPT integration and crash reconciliation remain the main runtime implementation work.
 
