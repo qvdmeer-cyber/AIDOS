@@ -20,11 +20,13 @@
     "current_product_state": {"type": ["string", "null"]},
     "discovery_state": {"type": ["string", "null"]},
     "discovery_authority": {"type": ["string", "null"]},
+    "project_applicability": {"type": ["string", "null"]},
+    "profile_preset_catalog": {"type": ["string", "null"]},
     "contracts_repository": {"type": "string", "minLength": 1},
     "capabilities": {"type": "array", "items": {"type": "string"}},
     "project_validators": {"type": "array", "items": {"type": "string"}},
-    "runner_policy": {"type": "string"}
-    ,"git_runtime": {
+    "runner_policy": {"type": "string"},
+    "git_runtime": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "project_root", "git_path"],
