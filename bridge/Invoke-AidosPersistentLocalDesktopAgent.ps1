@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
  [ValidateSet('Install','Start','Stop','Status','HandoffToConsole','Uninstall','Snapshot','Tick')][string]$Command='Start',
- [string]$ProjectRoot, [string]$AuthorizedUser='AIDOS\qvdm', [string]$ProcessName='ChatGPT Classic', [string]$StateRoot, [int]$PollSeconds=5, [switch]$Once
+ [string]$ProjectRoot, [string]$AuthorizedUser='AIDOS\qvdm', [string]$ProcessName='ChatGPT Classic', [string]$StateRoot, [int]$PollSeconds=5, [switch]$Once,
+ [string]$PreparationRegistryRoot, [string]$BuilderRoot, [string]$ContractsRoot, [bool]$PreparationPush=$true
 )
 Set-StrictMode -Version Latest;$ErrorActionPreference='Stop'
 if(-not $IsWindows){throw 'This Windows host-agent command must be run with PowerShell 7 on Windows.'}
@@ -9,6 +10,11 @@ Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -Global -Disab
 Import-Module (Join-Path $PSScriptRoot 'AidosPersistentLocalDesktopAgent.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
 if(-not $StateRoot){$StateRoot=Get-AidosHostAgentDefaultStateRoot}
+if(-not $PreparationRegistryRoot){$PreparationRegistryRoot=Get-AidosHostAgentDefaultPreparationRegistryRoot}
+$aidosRepoRoot=Split-Path $PSScriptRoot -Parent
+$reposRoot=Split-Path $aidosRepoRoot -Parent
+if(-not $BuilderRoot){$BuilderRoot=Join-Path $reposRoot 'AIDOS-Builder'}
+if(-not $ContractsRoot){$ContractsRoot=Join-Path $reposRoot 'AIDOS-Contracts'}
 $taskName='AIDOS Persistent Local Desktop Agent'
 $self=$PSCommandPath
 function Get-AidosPersistentAgentTaskStatus {
@@ -37,7 +43,12 @@ function Stop-AidosPersistentAgentForReinstall {
     Start-Sleep -Milliseconds 500
 }
 function Write-AidosPersistentAgentLocalLauncher {
-    param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$EntryPoint,[Parameter(Mandatory)][string]$BoundProjectRoot,[Parameter(Mandatory)][string]$BoundAuthorizedUser,[Parameter(Mandatory)][string]$BoundProcessName,[Parameter(Mandatory)][int]$BoundPollSeconds)
+    param(
+        [Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$EntryPoint,[Parameter(Mandatory)][string]$BoundProjectRoot,
+        [Parameter(Mandatory)][string]$BoundAuthorizedUser,[Parameter(Mandatory)][string]$BoundProcessName,[Parameter(Mandatory)][int]$BoundPollSeconds,
+        [Parameter(Mandatory)][string]$BoundPreparationRegistryRoot,[Parameter(Mandatory)][string]$BoundBuilderRoot,[Parameter(Mandatory)][string]$BoundContractsRoot,
+        [Parameter(Mandatory)][bool]$BoundPreparationPush
+    )
     if(-not(Test-Path -LiteralPath $Root -PathType Container)){New-Item -ItemType Directory -Path $Root -Force|Out-Null}
     $configPath=Join-Path $Root 'CONFIG.json'
     $launcherPath=Join-Path $Root 'LAUNCHER.ps1'
@@ -45,7 +56,7 @@ function Write-AidosPersistentAgentLocalLauncher {
     $enginePath=Join-Path $Root 'ENGINE.txt'
     $engine=Join-Path $PSHOME 'pwsh.exe'
     if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'PowerShell 7 engine is unavailable.'}
-    $config=[ordered]@{schema_version='0.1';entry_point=$EntryPoint;project_root=$BoundProjectRoot;authorized_user=$BoundAuthorizedUser;process_name=$BoundProcessName;state_root=$Root;poll_seconds=$BoundPollSeconds}
+    $config=[ordered]@{schema_version='0.2';entry_point=$EntryPoint;project_root=$BoundProjectRoot;authorized_user=$BoundAuthorizedUser;process_name=$BoundProcessName;state_root=$Root;poll_seconds=$BoundPollSeconds;preparation_registry_root=$BoundPreparationRegistryRoot;builder_root=$BoundBuilderRoot;contracts_root=$BoundContractsRoot;preparation_push=$BoundPreparationPush}
     $config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
     Set-Content -LiteralPath $enginePath -Value $engine -Encoding utf8NoBOM -NoNewline
     $launcher=@'
@@ -59,7 +70,7 @@ try {
     Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
     $config=Get-Content -LiteralPath $configPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
     if(-not(Test-Path -LiteralPath ([string]$config.entry_point) -PathType Leaf)){throw "Agent entrypoint is unavailable: $($config.entry_point)"}
-    & ([string]$config.entry_point) -Command Start -ProjectRoot ([string]$config.project_root) -AuthorizedUser ([string]$config.authorized_user) -ProcessName ([string]$config.process_name) -StateRoot ([string]$config.state_root) -PollSeconds ([int]$config.poll_seconds)
+    & ([string]$config.entry_point) -Command Start -ProjectRoot ([string]$config.project_root) -AuthorizedUser ([string]$config.authorized_user) -ProcessName ([string]$config.process_name) -StateRoot ([string]$config.state_root) -PollSeconds ([int]$config.poll_seconds) -PreparationRegistryRoot ([string]$config.preparation_registry_root) -BuilderRoot ([string]$config.builder_root) -ContractsRoot ([string]$config.contracts_root) -PreparationPush ([bool]$config.preparation_push)
     exit $LASTEXITCODE
 } catch {
     $message=$_.Exception.ToString()
@@ -92,8 +103,9 @@ switch($Command){
     $installationAuthorization=Test-AidosAuthorizedInteractiveSession -Snapshot (Get-AidosInteractiveSessionSnapshot) -AuthorizedUser $AuthorizedUser
     if(-not $installationAuthorization.allowed){throw "Install requires the existing unlocked interactive token for '$AuthorizedUser': $($installationAuthorization.reason)."}
     $engine=Join-Path $PSHOME 'pwsh.exe';if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'Install requires PowerShell 7 (pwsh.exe); do not register a Windows PowerShell 5 task.'}
+    foreach($required in @($BuilderRoot,$ContractsRoot)){if(-not(Test-Path -LiteralPath $required -PathType Container)){throw "Required AIDOS preparation dependency is unavailable: $required"}}
     Stop-AidosPersistentAgentForReinstall -Root $StateRoot
-    $local=Write-AidosPersistentAgentLocalLauncher -Root $StateRoot -EntryPoint $self -BoundProjectRoot $ProjectRoot -BoundAuthorizedUser $AuthorizedUser -BoundProcessName $ProcessName -BoundPollSeconds $PollSeconds
+    $local=Write-AidosPersistentAgentLocalLauncher -Root $StateRoot -EntryPoint $self -BoundProjectRoot $ProjectRoot -BoundAuthorizedUser $AuthorizedUser -BoundProcessName $ProcessName -BoundPollSeconds $PollSeconds -BoundPreparationRegistryRoot $PreparationRegistryRoot -BoundBuilderRoot $BuilderRoot -BoundContractsRoot $ContractsRoot -BoundPreparationPush $PreparationPush
     $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
     if(-not(Test-Path -LiteralPath $wscript -PathType Leaf)){throw 'Windows Script Host is unavailable.'}
     $arg="`"$($local.vbs_path)`""
@@ -101,11 +113,11 @@ switch($Command){
     $principal=New-ScheduledTaskPrincipal -UserId $AuthorizedUser -LogonType Interactive -RunLevel Limited
     $trigger=New-ScheduledTaskTrigger -AtLogOn -User $AuthorizedUser
     $settings=New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
-    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'AIDOS host-only desktop review transport agent; requires existing unlocked interactive user session.' -Force|Out-Null
+    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'AIDOS host runtime and desktop transport agent; preparation work is independent of desktop availability.' -Force|Out-Null
     Start-ScheduledTask -TaskName $taskName
-    [pscustomobject]@{status='INSTALLED';task_name=$taskName;state_root=$StateRoot;launcher_path=$local.launcher_path;task_launcher=$local.vbs_path}|ConvertTo-Json -Depth 20
+    [pscustomobject]@{status='INSTALLED';task_name=$taskName;state_root=$StateRoot;preparation_registry_root=$PreparationRegistryRoot;builder_root=$BuilderRoot;contracts_root=$ContractsRoot;preparation_push=$PreparationPush;launcher_path=$local.launcher_path;task_launcher=$local.vbs_path}|ConvertTo-Json -Depth 20
  }
- 'Start' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Start requires ProjectRoot.'};Start-AidosPersistentLocalDesktopAgent -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -PollSeconds $PollSeconds -Once:$Once}
+ 'Start' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Start requires ProjectRoot.'};Start-AidosPersistentLocalDesktopAgent -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -PollSeconds $PollSeconds -PreparationRegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -PreparationPush:$PreparationPush -Once:$Once}
  'Stop' {Stop-AidosHostAgent -StateRoot $StateRoot;[pscustomobject]@{status='STOP_REQUESTED';state_root=$StateRoot}|ConvertTo-Json}
  'Status' {
     $startupLogPath=Join-Path $StateRoot 'STARTUP_ERROR.log'
@@ -114,14 +126,15 @@ switch($Command){
     [pscustomobject]@{
         task=(Get-AidosPersistentAgentTaskStatus)
         agent=(Get-AidosHostAgentStatus -StateRoot $StateRoot)
+        config=if(Test-Path -LiteralPath (Join-Path $StateRoot 'CONFIG.json')){Get-Content -LiteralPath (Join-Path $StateRoot 'CONFIG.json') -Raw|ConvertFrom-Json -Depth 20}else{$null}
         startup_error_log=if(Test-Path -LiteralPath $startupLogPath){Get-Content -LiteralPath $startupLogPath -Raw}else{$null}
         child_stdout=if(Test-Path -LiteralPath $stdoutPath){Get-Content -LiteralPath $stdoutPath -Raw}else{$null}
         child_stderr=if(Test-Path -LiteralPath $stderrPath){Get-Content -LiteralPath $stderrPath -Raw}else{$null}
         state_root=$StateRoot
     }|ConvertTo-Json -Depth 100
  }
- 'Snapshot' { $s=Get-AidosInteractiveSessionSnapshot;$expectedSessionId=-1;if($null -ne $s.session_id){$expectedSessionId=[int]$s.session_id};$h=Get-AidosHostAgentShellHealth -ProcessName $ProcessName -ExpectedSessionId $expectedSessionId;[pscustomobject]@{snapshot=$s;authorization=(Test-AidosAuthorizedInteractiveSession $s $AuthorizedUser);chatgpt=$h;agent=(Get-AidosHostAgentStatus $StateRoot);task=(Get-AidosPersistentAgentTaskStatus)}|ConvertTo-Json -Depth 100 }
+ 'Snapshot' { $s=Get-AidosInteractiveSessionSnapshot;$expectedSessionId=-1;if($null -ne $s.session_id){$expectedSessionId=[int]$s.session_id};$h=Get-AidosHostAgentShellHealth -ProcessName $ProcessName -ExpectedSessionId $expectedSessionId;[pscustomobject]@{snapshot=$s;authorization=(Test-AidosAuthorizedInteractiveSession $s $AuthorizedUser);chatgpt=$h;agent=(Get-AidosHostAgentStatus $StateRoot);task=(Get-AidosPersistentAgentTaskStatus);preparation_registry_root=$PreparationRegistryRoot}|ConvertTo-Json -Depth 100 }
  'HandoffToConsole' {Invoke-AidosAuthorizedSessionHandoffToConsole -AuthorizedUser $AuthorizedUser|ConvertTo-Json -Depth 100}
- 'Tick' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Tick requires ProjectRoot.'};Invoke-AidosHostAgentTick -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot|ConvertTo-Json -Depth 100}
+ 'Tick' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Tick requires ProjectRoot.'};Invoke-AidosHostAgentTick -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -PreparationRegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -PreparationPush:$PreparationPush|ConvertTo-Json -Depth 100}
  'Uninstall' { $fullStateRoot=[IO.Path]::GetFullPath($StateRoot);if($fullStateRoot.TrimEnd('\\') -eq [IO.Path]::GetPathRoot($fullStateRoot).TrimEnd('\\')){throw 'Refusing to remove a filesystem root as host-agent state.'};Stop-AidosHostAgent -StateRoot $fullStateRoot;Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue;if(Test-Path -LiteralPath $fullStateRoot){Remove-Item -LiteralPath $fullStateRoot -Recurse -Force};[pscustomobject]@{status='UNINSTALLED';task_name=$taskName;removed_state_root=$fullStateRoot;note='Removed only the AIDOS-owned scheduled task and host-agent state directory.'}|ConvertTo-Json}
 }
