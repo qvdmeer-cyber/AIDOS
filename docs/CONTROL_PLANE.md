@@ -10,19 +10,11 @@ An interface must never directly start/kill Codex, mutate project files, rewrite
 
 ## Control capabilities
 
-Core control intents include:
+Core control intents include `RUN`, `PAUSE`, `RESUME`, `SAFE_STOP`, `QUERY_STATUS`, `SUBMIT_HUMAN_INPUT` and `REQUEST_RECOVERY`.
 
-- `RUN` — start/continue eligible work;
-- `PAUSE` — stop new actor activation at a safe boundary;
-- `RESUME` — resume from durable state after validation;
-- `SAFE_STOP` — converge to a safe stopped state;
-- `QUERY_STATUS` — obtain project/workstream/runtime status;
-- `SUBMIT_HUMAN_INPUT` — resolve an exact Human Input Request;
-- `REQUEST_RECOVERY` — request reconciliation/recovery.
+The control envelope is `schemas/control-intent.schema.json`.
 
-The envelope is `schemas/control-intent.schema.json`.
-
-A control request is not itself a state transition:
+A request is not itself a state transition:
 
 ```text
 RECEIVED
@@ -32,51 +24,38 @@ RECEIVED
 → APPLIED or FAILED
 ```
 
-## Pause, resume and safe stop
+## Safe-boundary semantics
 
-`PAUSE` means no new actor/work unit starts after the next safe boundary. A currently running bounded execution may finish and publish terminal evidence when abrupt termination is less safe.
+`PAUSE` stops new actor/work activation after the next safe boundary. An already-running bounded execution may finish/publish terminal evidence when abrupt termination is less safe.
 
-`RESUME` reloads canonical project/workstream state, checks blockers/leases/recovery requirements and activates only the next valid actor.
+`RESUME` reloads canonical project/workstream state and validates blockers/leases/recovery before activating the next actor.
 
 `SAFE_STOP` converges toward no new work and no unsafe in-flight mutation. It is not equivalent to killing a process tree.
 
-**Current implementation status:** supervised-session behaviour already blocks the next interactive GPT activation while permitting an already-running bounded Codex execution to finish. General remote pause/resume/safe-stop is a core requirement, not yet fully runtime-implemented.
+**Current implementation status:** supervised-session behaviour already blocks the next interactive GPT activation while permitting an already-running bounded Codex execution to finish. General remote pause/resume/safe-stop remains runtime roadmap work.
 
 ## Human Input Requests
 
-Human input is first-class durable AIDOS state, not a property of a GPT chat.
+Human input is durable AIDOS state, not a GPT-chat property. `schemas/human-input-request.schema.json` binds the exact project/workstream and relevant Definition/execution/revision/review.
 
-A request conforms to `schemas/human-input-request.schema.json` and may be stored under:
+Recommended location:
 
 ```text
 .aidos/human-input/<request_id>.json
 ```
 
-It binds the question to project/workstream and, where relevant, Definition/execution/revision/review. It carries concise context, one concrete decision/question, options where useful, evidence and the actor role to resume.
-
 ```text
 actor reaches human boundary
-→ publish Human Input Request
-→ WAITING
-→ response arrives through any authorized channel
+→ request WAITING
+→ response arrives through authorized channel
 → AIDOS validates binding/response
-→ RESOLVED + event
+→ request RESOLVED + event
 → AIDOS chooses next actor
 ```
 
-A replacement chat, mobile client or future UI can therefore resolve the same request without becoming source of truth.
-
 ## Status/query capability
 
-Read-only status projections may expose:
-
-- portfolio/AIDOS runtime;
-- project and workstreams;
-- execution/revision;
-- blockers/recovery;
-- Human Input Requests;
-- progress/ETA estimates;
-- validation/integration/release gates.
+Read-only status output uses `schemas/runtime-status.schema.json` and can expose portfolio projects, workstreams, blockers/recovery, open Human Input Requests, current actor roles and progress-estimate references.
 
 Status visibility never grants mutation authority.
 
@@ -95,6 +74,6 @@ AIDOS Core / Runtime
 future AIDOS Interface project
 ```
 
-A future Interface may provide dashboards, progress/ETA, human decisions and controls. It must remain replaceable: AIDOS must function when that Interface is offline or absent.
+A future Interface may provide dashboards, progress/ETA, human decisions and controls. It remains replaceable: AIDOS must function when the Interface is offline or absent.
 
 No Interface UI or separate Interface project is implemented here.
