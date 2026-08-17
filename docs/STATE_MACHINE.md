@@ -1,10 +1,24 @@
 # State machine
 
-AIDOS uses explicit states so neither GPT nor Codex can infer permission to continue merely from conversation context.
+AIDOS uses explicit durable states so no GPT/Codex session can infer permission to continue from conversation context.
+
+## Ownership of transitions
+
+Actors do not directly transition other actors.
+
+```text
+AIDOS
+→ actor activation
+→ durable result/event/request
+→ AIDOS validates/reconciles
+→ next state + next actor
+```
+
+The current Worker/Definition/Execution actors may recommend outcomes, but the runtime/Bridge owns application of valid transitions.
 
 ## External preparation gate
 
-Preparation is owned by AIDOS-Builder/AIDOS-Contracts but is a hard prerequisite for private AIDOS runtime:
+Preparation remains owned by AIDOS-Builder/AIDOS-Contracts:
 
 ```text
 NEW_PROJECT
@@ -19,30 +33,19 @@ PROJECT_BASELINE_ACCEPTED
 → AIDOS runtime eligible
 ```
 
-`CURRENT_PRODUCT_STATE_ACCEPTED` means accepted under the current required CPS/discovery contract and with the material product graph closed. An accepted historical CPS under weaker rules does not pass the current gate.
+Historical CPS under weaker closure rules does not pass the current gate.
 
-## Discovery refresh states
-
-If newer evidence or stronger closure contracts reveal missing product branches:
+## Discovery refresh
 
 ```text
 CURRENT_PRODUCT_STATE_ACCEPTED
 → DISCOVERY_REFRESH_REQUIRED
 → AIDOS-Builder refresh
 → deterministic Discovery Closure
-→ CURRENT_PRODUCT_STATE_ACCEPTED (new CPS lineage)
+→ CURRENT_PRODUCT_STATE_ACCEPTED (new lineage)
 ```
 
-Examples that require refresh include:
-
-- a newly identified `FIRST_PARTY_MATERIAL` component not covered by CPS;
-- a known public/passive runtime that was not observed;
-- unresolved material source/runtime references;
-- evidence showing the bound CPS was materially stale/wrong.
-
-Existing evidence and prior accepted CPS are preserved. Refresh discovers only missing branches unless broader truth has become unreliable.
-
-Private AIDOS must not compensate by allowing Definition/Worker to reconstruct the missing product state informally.
+Missing material first-party components, omitted observable runtime or materially stale CPS trigger refresh rather than informal Definition/Worker discovery.
 
 ## Definition states
 
@@ -60,19 +63,17 @@ ACCEPTED
 → ...
 ```
 
-Here `DISCOVERY` is goal/decision elicitation inside Definition; it is **not Existing Project Discovery**.
+Here `DISCOVERY` means Definition elicitation, not Existing Project Discovery. Only `ACCEPTED` authorizes execution planning.
 
-Only `ACCEPTED` may authorize creation of a new execution for that Definition version.
-
-## Project/execution states
+## Current project/execution states
 
 ```text
 IDLE
 → TASK_READY
 → CODEX_RUNNING
 → TERMINAL_PENDING
-├─ deterministic execution evidence PASS → REVIEW_READY
-└─ evidence missing/failed              → EXECUTION_VALIDATION_FAILED
+├─ deterministic evidence PASS → REVIEW_READY
+└─ evidence failed/missing     → EXECUTION_VALIDATION_FAILED
 → GPT_REVIEWING
 
 GPT_REVIEWING
@@ -82,16 +83,61 @@ GPT_REVIEWING
 ├─ DISCOVERY_REFRESH_REQUIRED → DISCOVERY_REFRESH_REQUIRED
 ├─ WAITING_INTERACTIVE_SESSION→ WAITING_INTERACTIVE_SESSION
 ├─ CONTRADICTION              → WAITING_DEFINITION
-└─ RELEASE_READY              → release lifecycle / genuine release authority gate
+└─ RELEASE_READY              → release lifecycle
 ```
 
-`DISCOVERY_REFRESH_REQUIRED` is not a product-decision gate. It means current-state preparation no longer satisfies the required closure invariant.
+These proven single-execution semantics remain valid while workstream orchestration is introduced above them.
 
-Revision-scoped dispatch metadata may be rebound while remaining in `TASK_READY` through a
-dedicated dispatch-binding action/event. That rebinding is not a state transition and does not
-relax the `TASK_READY -> TASK_READY` prohibition.
+`WAITING_USER` remains the current top-level state. A durable Human Input Request with `status=WAITING` records the exact reason/question/binding behind the wait.
 
-## Launch Definition states
+## Workstream state projection
+
+`schemas/workstream.schema.json` defines a project-internal workstream projection:
+
+```text
+PLANNED
+→ READY
+→ THINKING
+→ EXECUTING
+→ VALIDATING
+→ WAITING_INTEGRATION
+→ INTEGRATED
+```
+
+Side states include `BLOCKED`, `WAITING_HUMAN`, `WAITING_DEPENDENCY`, `PAUSED` and `STOPPED`.
+
+A workstream state does not replace the current top-level project state until a future runtime version explicitly implements multi-workstream projection. It is an additive architecture contract.
+
+Parallel workstreams may complete execution independently, but the project cannot claim integrated success until applicable integration gates pass.
+
+## Human Input Request lifecycle
+
+```text
+request WAITING
+→ human response submitted through authorized channel
+→ AIDOS validates exact project/workstream/Definition/execution binding
+→ request RESOLVED
+→ event persisted
+→ AIDOS determines next actor
+```
+
+A session disappearance does not cancel or recreate the request.
+
+## Control-intent lifecycle
+
+External control intent never forces a state directly:
+
+```text
+RECEIVED
+→ ACCEPTED | REJECTED
+→ APPLIED | FAILED
+```
+
+Examples are `RUN`, `PAUSE`, `RESUME`, `SAFE_STOP`, `QUERY_STATUS`, `SUBMIT_HUMAN_INPUT`, `REQUEST_RECOVERY`.
+
+Pause/safe-stop are safe-boundary orchestration requests, not raw process-kill commands. General remote control runtime support is not yet implemented; current supervised-session semantics remain authoritative meanwhile.
+
+## Launch states
 
 ```text
 LAUNCH_DISCOVERY
@@ -101,52 +147,23 @@ LAUNCH_DISCOVERY
 → RELEASE_SCOPE_FROZEN
 ```
 
-New findings after freeze are:
+New findings after freeze are `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`. When all accepted criteria pass with no blocker, default forward state is `RELEASE_READY`.
 
-```text
-LAUNCH_BLOCKER
-POST_LAUNCH
-EVIDENCE_REQUIRED
-```
+## Infrastructure states and transport statuses
 
-A proven blocker or deliberate human delay may explicitly reopen:
+Current additional states include:
 
-```text
-RELEASE_SCOPE_FROZEN / RELEASE_READY
-→ LAUNCH_REOPEN_REQUESTED
-→ LAUNCH_REOPENED
-→ LAUNCH_USER_REVIEW
-→ LAUNCH_ACCEPTED
-→ RELEASE_SCOPE_FROZEN
-```
+- `QUEUED`;
+- `WAITING_INTERACTIVE_SESSION`;
+- `CONTEXT_ROTATION_REQUIRED`;
+- `RECOVERY_REQUIRED`;
+- `REVIEW_READY`;
+- `GPT_REVIEWING`;
+- `EXECUTION_VALIDATION_FAILED`.
 
-## Release-ready invariant
+`ABANDONED` remains a terminal **review transport status**, not a project/workstream state. It never fabricates a review outcome.
 
-When all accepted Launch Definition criteria are PASS and no unresolved `LAUNCH_BLOCKER` remains, default forward state is:
-
-```text
-RELEASE_READY
-```
-
-AIDOS must not return to feature discovery merely because another improvement is imaginable.
-
-## Additional infrastructure states
-
-- `QUEUED` — valid task waiting for local execution slot;
-- `WAITING_INTERACTIVE_SESSION` — work ready but supervised policy blocks desktop GPT activation;
-- `CONTEXT_ROTATION_REQUIRED` — current GPT/Codex context must not resume;
-- `RECOVERY_REQUIRED` — durable state requires reconciliation.
-- `REVIEW_READY` — execution evidence passed; review transport has not yet been published.
-- `GPT_REVIEWING` — review transport is published, the assignment envelope is available and a
-  Worker/GPT consumer is permitted to return a bound response.
-- `ABANDONED` is a terminal **review transport status**, not a project state. It records an
-  explicit reason and exact review/execution/manifest identity for an unconsumed rejected review;
-  package and rejected-response evidence remain preserved. It is permitted only when no bridge
-  response, accepted response, decision, consume acknowledgement, or cleanup exists.
-- `REVIEW_RECOVERY_REQUIRED` — a published review needs explicit bridge recovery before it can be
-  consumed safely.
-- `EXECUTION_VALIDATION_FAILED` — Codex terminated, but declared deterministic execution evidence is absent or failed; session and terminal evidence remain available for a bounded repair revision.
-- `EXECUTION_DISPATCH_BOUND` — revision-scoped dispatch metadata rebound while the project remains in `TASK_READY`.
+Revision-scoped dispatch rebinding may occur while remaining `TASK_READY`; it is not a general self-transition permission.
 
 ## Execution terminal outcomes
 
@@ -158,36 +175,10 @@ Execution Agent may terminate only as:
 - `RUNTIME_STOP`;
 - `REQUIREMENT_CONTRADICTION`.
 
-Ordinary build/test/runtime failures are not terminal while safe useful technical steps remain.
-
-`DISCOVERY_REFRESH_REQUIRED` and `RELEASE_READY` are Worker/review transitions, not self-declared Execution Agent outcomes.
-
-Review outcomes are distinct from top-level project states. The durable review record stores the outcome, while the project state is driven deterministically by that outcome:
-
-```text
-PASS                       → IDLE
-REPAIR                     → TASK_READY
-BLOCKER                    → WAITING_USER
-DISCOVERY_REFRESH_REQUIRED → DISCOVERY_REFRESH_REQUIRED
-WAITING_INTERACTIVE_SESSION→ WAITING_INTERACTIVE_SESSION
-```
-
-An explicit review abandonment never fabricates one of these outcomes and never changes project
-state. A valid `ABANDONED` transport closure is terminal for project-wide reconciliation; a
-missing, mismatched, or tampered closure remains fail-closed recovery work.
+Ordinary technical failures remain non-terminal while safe useful work exists. `DISCOVERY_REFRESH_REQUIRED` and `RELEASE_READY` remain review/orchestration outcomes rather than Execution Agent self-declarations.
 
 ## Fail-closed transitions
 
-A transition is rejected when project, project mode, preparation binding, Definition version, execution ID/revision, root, branch or required commit binding does not match canonical state.
+A transition is rejected when project, preparation, Definition, execution/revision, root/branch/commit or authority binding does not match canonical state.
 
-For `EXISTING_PROJECT`, preparation binding includes:
-
-```text
-accepted CPS id/commit
-CPS contract version = 0.2.0
-discovery catalog version = 0.2.0
-discovery state = ACCEPTED
-open discovery blockers = 0
-```
-
-For release-scoped work, Launch Definition/release identity is additionally bound when runtime persistence is implemented.
+Future workstream dispatch additionally fails closed on mismatched workstream identity, scope ownership, shared-contract versions, dependency readiness or required resource lease.
