@@ -61,3 +61,6 @@ jobs:
       - name: Preparation Onboarding regression tests
         shell: pwsh
         run: ./tests/PreparationOnboarding.Tests.ps1
+      - name: Preparation Module Graph regression tests
+        shell: pwsh
+        run: ./tests/PreparationModuleGraph.Tests.ps1
