@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/runtime-status.schema.json",
+  "title": "AIDOS Runtime Status Projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","generated_at","projects"],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "generated_at":{"type":"string","format":"date-time"},
+    "projects":{"type":"array","items":{"$ref":"#/$defs/projectStatus"}}
+  },
+  "$defs": {
+    "workstreamStatus": {
+      "type":"object","additionalProperties":false,
+      "required":["workstream_id","status","current_actor_role","blocker_count","open_human_input_request_ids","progress_estimate_ref"],
+      "properties": {
+        "workstream_id":{"type":"string","minLength":1},
+        "status":{"type":"string","minLength":1},
+        "current_actor_role":{"type":["string","null"]},
+        "blocker_count":{"type":"integer","minimum":0},
+        "open_human_input_request_ids":{"type":"array","items":{"type":"string"}},
+        "progress_estimate_ref":{"type":["string","null"]}
+      }
+    },
+    "projectStatus": {
+      "type":"object","additionalProperties":false,
+      "required":["project_id","state","recovery_required","blocker_count","open_human_input_request_ids","progress_estimate_ref","workstreams"],
+      "properties": {
+        "project_id":{"type":"string","minLength":1},
+        "state":{"type":"string","minLength":1},
+        "recovery_required":{"type":"boolean"},
+        "blocker_count":{"type":"integer","minimum":0},
+        "open_human_input_request_ids":{"type":"array","items":{"type":"string"}},
+        "progress_estimate_ref":{"type":["string","null"]},
+        "workstreams":{"type":"array","items":{"$ref":"#/$defs/workstreamStatus"}}
+      }
+    }
+  }
+}
