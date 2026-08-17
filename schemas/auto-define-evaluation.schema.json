@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/auto-define-evaluation.schema.json",
+  "title": "AIDOS Auto Define Evaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version","evaluation_id","project_id","definition_id","definition_version","period",
+    "authority_counts","auto_decisions","human_escalations","revisions","evaluated_at"
+  ],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "evaluation_id":{"type":"string","minLength":1},
+    "project_id":{"type":"string","minLength":1},
+    "definition_id":{"type":"string","minLength":1},
+    "definition_version":{"type":"integer","minimum":1},
+    "period":{"type":"object","additionalProperties":false,"required":["started_at","ended_at"],"properties":{"started_at":{"type":"string","format":"date-time"},"ended_at":{"type":"string","format":"date-time"}}},
+    "authority_counts":{"type":"object","additionalProperties":false,"required":["system_invariant","repo_verifiable","auto_decidable","human_required"],"properties":{"system_invariant":{"type":"integer","minimum":0},"repo_verifiable":{"type":"integer","minimum":0},"auto_decidable":{"type":"integer","minimum":0},"human_required":{"type":"integer","minimum":0}}},
+    "auto_decisions":{"type":"object","additionalProperties":false,"required":["total","confidence_high","confidence_medium","confidence_low","stable_current"],"properties":{"total":{"type":"integer","minimum":0},"confidence_high":{"type":"integer","minimum":0},"confidence_medium":{"type":"integer","minimum":0},"confidence_low":{"type":"integer","minimum":0,"maximum":0},"stable_current":{"type":"integer","minimum":0}}},
+    "human_escalations":{"type":"object","additionalProperties":false,"required":["total","reasons"],"properties":{"total":{"type":"integer","minimum":0},"reasons":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["reason","count"],"properties":{"reason":{"type":"string","minLength":1},"count":{"type":"integer","minimum":1}}}}}},
+    "revisions":{"type":"object","additionalProperties":false,"required":["auto_decisions_superseded","human_overrides","reasons"],"properties":{"auto_decisions_superseded":{"type":"integer","minimum":0},"human_overrides":{"type":"integer","minimum":0},"reasons":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["reason","count"],"properties":{"reason":{"type":"string","minLength":1},"count":{"type":"integer","minimum":1}}}}}},
+    "questions_avoided_estimate":{"type":["integer","null"],"minimum":0},
+    "notes":{"type":["string","null"]},
+    "evaluated_at":{"type":"string","format":"date-time"}
+  }
+}
