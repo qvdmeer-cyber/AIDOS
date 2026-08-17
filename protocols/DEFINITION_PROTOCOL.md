@@ -2,11 +2,9 @@
 
 ## Goal
 
-Make foreseeable product acceptance explicit before implementation cost is incurred.
+Make the desired product delta complete enough for explicit human acceptance before execution, while minimizing low-value human elicitation through **Auto Define**.
 
-For an existing product, Definition specifies the **desired delta from a closure-compatible accepted Current Product State**, not a fresh reconstruction of what already exists.
-
-For release-bound work, also establish the quality threshold for going to real users **before launch pressure exists**.
+For an existing product, Definition is the desired delta from accepted current product state, not a reconstruction of existing behaviour.
 
 ## Preparation gate
 
@@ -18,291 +16,209 @@ accepted Project Baseline
 EXISTING_PROJECT
 accepted Project Baseline
 + Discovery Closure PASS
-+ accepted current CPS
++ accepted CPS 0.3.0 / discovery catalog 0.3.0
 → Definition
 ```
 
-Current existing-project preparation requires CPS contract/discovery catalog `0.2.0`, accepted discovery state and zero open discovery blockers.
+A stale/missing current-state branch returns to AIDOS-Builder; Definition does not compensate with guesses or human questions.
 
-If discovery is missing, `DISCOVERY_REFRESH_REQUIRED`, based on an incompatible older contract, or materially contradicted by new evidence, return to AIDOS-Builder rather than absorbing product reconstruction into Definition.
+## Decision authority before elicitation
 
-The primary repository is not assumed to represent the whole current product; Definition relies on the accepted CPS material component/dependency graph.
+For every unresolved Definition concern, classify authority before asking the human:
+
+```text
+SYSTEM_INVARIANT
+REPO_VERIFIABLE
+AUTO_DECIDABLE
+HUMAN_REQUIRED
+```
+
+Normative semantics and autonomy policy come from AIDOS-Contracts Decision Governance 0.1.0.
+
+### SYSTEM_INVARIANT
+
+Resolve from AIDOS governance/contracts with source provenance. It is not a project preference and cannot be overridden inside a project Definition.
+
+### REPO_VERIFIABLE
+
+Resolve objectively from authorized project-local canonical truth/evidence. Persist source/evidence refs. Plausible inference without sufficient evidence does not close the concern.
+
+### AUTO_DECIDABLE
+
+This is a genuine project choice, but AIDOS may decide it autonomously only after a Decision Assessment proves the shared policy permits it.
+
+Current policy requires:
+
+- confidence `HIGH`, or `MEDIUM` plus `REVERSIBLE`;
+- inside authority;
+- no materially equivalent competing alternative;
+- product/business, security/privacy, destructive, external-cost/commitment, compatibility and blast-radius impact all at most `LOW`;
+- missing evidence at most `LOW`;
+- never `LOW` confidence or irreversible.
+
+Persist a first-class `AUTO_DECISION` before using the choice as Definition truth.
+
+### HUMAN_REQUIRED
+
+Publish a durable Human Input Request. This includes direct `HUMAN_REQUIRED` classification and any `AUTO_DECIDABLE` concern that fails confidence/reversibility/impact/authority/evidence/alternative policy.
+
+## Real decision space
+
+Do not manufacture A/B choices. The option set must match reality. It may contain zero explicit alternatives, one material competitor, two, three or more.
+
+If multiple materially equivalent alternatives remain and selection expresses project preference rather than an evidence-backed consequence, require human input.
+
+## Auto Define fixed-point pass
+
+Run Auto Define:
+
+- when a Definition starts;
+- whenever it resumes in a new/rotated session;
+- after each human answer;
+- after material new evidence;
+- after superseding/reopening a decision.
+
+Algorithm:
+
+```text
+repeat
+  inspect all unresolved applicable concerns
+  classify authority
+  resolve SYSTEM_INVARIANT
+  resolve REPO_VERIFIABLE
+  assess + persist policy-valid AUTO_DECIDABLE choices
+  update Definition/applicability/progress
+until no additional concern can close safely
+
+if HUMAN_REQUIRED remains
+  publish exactly one Human Input Request
+else
+  proceed to consistency/review
+```
+
+AIDOS must not keep a stale precomputed question queue. One human answer can constrain several later decisions enough to auto-resolve them.
+
+## Durable Auto Decision
+
+Definition decisions live under:
+
+```text
+.aidos/definitions/<definition_id>/v<version>/decisions/<decision_id>.json
+```
+
+Auto Decisions follow AIDOS-Contracts `schemas/auto-decision.schema.json` and bind:
+
+- project + Definition version;
+- target surface/field;
+- chosen value;
+- actual alternatives considered;
+- rationale;
+- Decision Assessment;
+- evidence/source refs;
+- actor/model/session;
+- time;
+- supersession lineage.
+
+Use `tools/New-AidosDefinitionAutoDecision.ps1` and validate with `tools/Test-AidosAutoDecision.ps1` where available.
+
+A hidden model inference is never an equivalent substitute.
 
 ## Project and Definition applicability
 
-AIDOS may resolve reusable project applicability from versioned profile presets before asking Definition questions.
+Project Applicability identifies which development surfaces exist/may exist. Definition Applicability identifies which are affected by the current desired delta.
 
-Profile composition:
-
-```text
-PRODUCT_ARCHETYPE
-+ zero/more CAPABILITY
-+ zero/more INTEGRATION
-+ zero/more STACK
-+ zero/more INFRASTRUCTURE
-+ zero/more EXPOSURE_RISK
-→ PROJECT_APPLICABILITY
-```
-
-Exactly one `PRODUCT_ARCHETYPE` identifies what/where the product fundamentally is. A capability describes what it can do; an integration describes an external provider/system it communicates with. Calling OpenAI therefore does not make a web/mobile/API product a `CHATGPT_APP`; it composes the `OPENAI_API` integration with its actual archetype.
-
-Reusable development surfaces are owned by:
-
-```text
-catalog/development-surfaces.catalog.json
-```
-
-and composed presets by:
-
-```text
-catalog/profile-presets.catalog.json
-```
-
-The durable project projection is:
+Durable projections:
 
 ```text
 .aidos/profile/PROJECT_APPLICABILITY.json
-```
-
-Profiles classify project development surfaces as `APPLICABLE`, `CONDITIONAL` or `NOT_APPLICABLE`, but they are **hypotheses/accelerators rather than project truth**.
-
-Precedence:
-
-```text
-verified current project evidence / explicit accepted project decision
-> explicit project applicability override
-> composed preset result
-> generic AIDOS heuristic
-```
-
-For each Definition version maintain:
-
-```text
 .aidos/definitions/<definition_id>/v<version>/APPLICABILITY.json
 ```
 
-Project applicability answers which development surfaces exist/may exist in the product. Definition applicability separately classifies whether each relevant project surface is `AFFECTED`, `NOT_AFFECTED` or still `DECISION_REQUIRED` for the requested delta. A project-level `NOT_APPLICABLE` surface is automatically outside the Definition.
+Profiles remain accelerators, not truth. Verified/accepted project truth wins. A project-applicable surface cannot be silently omitted while delta applicability remains unresolved.
 
-This is a coverage control: a project-applicable surface may not be silently omitted until its delta applicability is durably resolved.
+## Definition surface progress
 
-Six Definition concerns are always core regardless of product shape:
+The current fixed convergence catalog remains `catalog/definition-surfaces.catalog.json` with 13 surfaces. Each is `COMPLETE`, `NOT_APPLICABLE`, `INCOMPLETE`, `DECISION_REQUIRED` or `BLOCKED`.
 
-1. goal/scope;
-2. current state and desired delta;
-3. intended functional behaviour;
-4. acceptance coverage;
-5. out of scope;
-6. unresolved assumptions.
-
-Conditional development surfaces supplement these core concerns. The current 13-surface progress contract remains the active convergence gate until explicitly versioned; applicability should be used to close irrelevant current surfaces with durable `NOT_APPLICABLE` rationale and to avoid asking irrelevant questions.
-
-See `docs/PROFILE_PRESETS.md`.
-
-## Definition surface catalog
-
-Definition completeness/progress is tracked against the fixed private AIDOS catalog:
-
-```text
-catalog/definition-surfaces.catalog.json
-```
-
-Current surfaces:
-
-1. `goal_scope`
-2. `current_state_delta`
-3. `functional_behavior`
-4. `actors_permissions`
-5. `main_flows`
-6. `edge_error_states`
-7. `data_lifecycle`
-8. `security_privacy`
-9. `compatibility_performance_runtime`
-10. `observability_recovery`
-11. `acceptance_coverage`
-12. `out_of_scope`
-13. `unresolved_assumptions`
-
-Each surface has one explicit state:
-
-- `COMPLETE`
-- `NOT_APPLICABLE`
-- `INCOMPLETE`
-- `DECISION_REQUIRED`
-- `BLOCKED`
-
-Only `COMPLETE` and justified `NOT_APPLICABLE` count as complete.
-
-## Durable progress object
-
-For every Definition version, maintain project-local state at:
+Durable progress:
 
 ```text
 .aidos/definitions/<definition_id>/v<version>/PROGRESS.json
 ```
 
-The object conforms to `schemas/definition-progress.schema.json` and stores, per surface:
+Progress tracks decision/source refs and now distinguishes the latest human/auto/system/repository resolution metadata. Chat history is not progress state.
 
-- status;
-- concise current summary;
-- decision references;
-- source references;
-- open-question count;
-- update timestamp.
+## Transaction after every resolution
 
-It also stores total complete/incomplete counts, next incomplete surface and the last human decision identity/time.
+For human, auto, system or repository resolution:
 
-Chats are not the source of Definition progress. A rotated/reset/new Definition chat resumes from durable Definition state + `PROGRESS.json` + `APPLICABILITY.json` when present.
+```text
+persist authoritative record/provenance
+→ update affected Definition/applicability surfaces
+→ bind decision/source refs
+→ recalculate PROGRESS.json
+→ validate
+→ rerun Auto Define to fixed point
+```
+
+After **every human decision**, additionally render the current full per-surface Definition progress before asking any next Human Input question.
+
+If persistence or validation fails, do not advance.
+
+## Human Input Request escalation
+
+When Auto Define stops at a human boundary, persist a Human Input Request containing exact Definition binding, actual material options, evidence refs and—where relevant—authority classification, assessment ref and Auto Define stop reason.
+
+After resolution, AIDOS activates the Definition Thinker again from durable state and immediately reruns Auto Define.
 
 ## Minimum Definition content
 
-A Definition should contain, as relevant:
+As applicable, Definition covers goal/scope, current-state delta, functional behaviour, actors/permissions, flows, edge/error states, data lifecycle, security/privacy, compatibility/performance/runtime, observability/recovery, acceptance coverage, out-of-scope and unresolved assumptions.
 
-- goal/problem statement;
-- current-state component/capability/flow references relevant to the goal;
-- explicit desired change/delta;
-- user-visible/product behaviour after the change;
-- actors/permissions;
-- main changed/new flows;
-- edge/error/empty states;
-- data behaviour/lifecycle change;
-- security/privacy constraints;
-- compatibility/performance/runtime constraints;
-- observability/recovery expectations;
-- acceptance checks;
-- explicit out-of-scope;
-- unresolved assumptions (must be non-material before acceptance);
-- source/provenance references for derived facts;
-- human acceptance timestamp/version.
+A concern may be omitted only through resolved applicability or justified `NOT_APPLICABLE` state.
 
-These concerns map to the fixed Definition surfaces above. A concern may be `NOT_APPLICABLE` only with an explicit durable rationale.
+## Review gate
 
-## One-question elicitation
+Before `USER_REVIEW`:
 
-Ask one material decision at a time. Skip questions already settled reliably by the accepted Project Baseline, closure-compatible CPS, canonical project truth or resolved applicability.
+- `Test-AidosDefinitionProgress.ps1 -RequireReady` passes;
+- no material Definition applicability remains `DECISION_REQUIRED`;
+- every decision-backed closure has durable provenance;
+- current non-superseded Auto Decisions validate under Decision Governance;
+- no system invariant has been treated as project-overridable;
+- no material hidden assumption remains;
+- Definition is internally consistent with Baseline/CPS and acceptance coverage.
 
-Existing capability/component/runtime discovery is not a Definition question. Definition asks only what should change.
+The deterministic validator proves coverage and decision-policy integrity, not product desirability.
 
-### Mandatory transaction after every human decision
+## Final acceptance
 
-A human answer is not considered fully consumed until the following transaction completes:
+Auto Define optimizes convergence. It does **not** silently authorize execution.
 
-```text
-human decision
-→ persist decision
-→ update affected Definition applicability when needed
-→ update affected Definition surfaces
-→ recalculate PROGRESS.json
-→ validate applicability/progress structure and counts
-→ render current progress for every surface
-→ ask next single material question
-```
+The converged Definition still goes to explicit human review/acceptance. Only `ACCEPTED` Definition may authorize execution planning.
 
-If persistence/progress update fails, do **not** advance to the next decision question.
+## Override / correction
 
-The visible progress must be generated from the newly persisted progress object. It must not be reconstructed from conversational memory.
+When new evidence or human direction invalidates an Auto Decision:
 
-Required compact rendering pattern:
+1. preserve old decision evidence;
+2. persist replacement/human decision or new Definition version;
+3. link supersession lineage;
+4. reopen affected surfaces;
+5. rerun Auto Define and convergence validation.
 
-```text
-Definition vN · X/13 complete
-✓ Goal and scope
-✓ Current state and desired delta
-○ Functional behaviour · incomplete
-△ Actors and permissions · decision required
-...
-Next surface: actors_permissions
-```
+Do not rewrite history in place.
 
-Rendering symbols:
+## Discovery conflicts
 
-- `✓` `COMPLETE`
-- `—` `NOT_APPLICABLE`
-- `○` `INCOMPLETE`
-- `△` `DECISION_REQUIRED`
-- `!` `BLOCKED`
+Known CPS `CONFLICT`/`DRIFT` can be accepted current truth. A material missing component/runtime/content branch is instead `DISCOVERY_REFRESH_REQUIRED` and routes to Builder.
 
-Show every surface after every human decision. The progress display is intentionally repetitive because it is an explicit convergence/control surface, not conversational decoration.
+## Launch Definition
 
-## Progress validation and review gate
+Launch Definition/release governance remains separately explicit and human accepted. Auto Define may resolve low-risk details inside accepted release boundaries but cannot weaken accepted launch criteria, expand authority or redefine material release risk autonomously.
 
-`tools/Test-AidosDefinitionProgress.ps1` (or an equivalent implementation of the same catalog rules) validates:
+## Session continuity
 
-- Definition/project/version binding;
-- exactly one entry for every catalog surface;
-- only permitted statuses;
-- stored complete/incomplete totals equal calculated totals;
-- `next_surface` equals the first remaining incomplete surface;
-- `DECISION_REQUIRED`/`BLOCKED` surfaces contain explanatory state.
+A new Definition session loads canonical project truth, Definition/applicability/progress, durable decision records and open Human Input Requests. It does not rely on predecessor chat summaries for authority.
 
-Before `USER_REVIEW` / proposed acceptance:
-
-```text
-Test-AidosDefinitionProgress -RequireReady
-```
-
-must pass, meaning all 13 surfaces are `COMPLETE` or justified `NOT_APPLICABLE`.
-
-In addition, no material project development surface may remain `DECISION_REQUIRED` in `APPLICABILITY.json`.
-
-This validator proves Definition **coverage state**, not semantic correctness of product choices. Human acceptance and consistency/convergence review remain separate gates.
-
-## Current-state conflict/drift/closure gaps
-
-Accepted CPS may contain known `CONFLICT` or `DRIFT` because that discrepancy can itself be current truth.
-
-If a goal touches such an area, surface it and ask only the desired future-state decision.
-
-A **Discovery Closure gap** is different. Examples:
-
-- omitted material first-party component;
-- unclosed first-party material dependency;
-- known public/passive runtime missing observation;
-- materially stale/incorrect CPS fact.
-
-These route to:
-
-```text
-DISCOVERY_REFRESH_REQUIRED
-→ AIDOS-Builder
-→ close missing current-state branch
-→ accept new CPS
-→ Definition consistency check
-```
-
-Do not ask the human to invent a product decision as a substitute for objective discovery.
-
-## Consistency gate
-
-Before `ACCEPTED`, check:
-
-- Definition surface progress is `READY_FOR_REVIEW` and validator passes;
-- no material development-surface applicability remains unresolved;
-- profile defaults have not been mistaken for verified project truth;
-- internal Definition contradictions;
-- contradictions with accepted Project Baseline/CPS evidence;
-- required behaviour without acceptance coverage;
-- acceptance checks for behaviour not requested;
-- hidden material assumptions;
-- non-functional constraints that can invalidate behaviour;
-- accidental re-specification of unchanged existing functionality;
-- preparation/CPS binding still valid and closure-compatible.
-
-## Reopen
-
-Definition is immutable once accepted except through a new version.
-
-- Desired future requirement contradiction → reopen Definition and durable surface progress/applicability.
-- Pre-existing current-product discovery/closure failure → refresh CPS first.
-- Launch gate change after scope freeze → explicit Launch Definition reopen/version.
-
-When reopening a Definition, preserve the prior progress/applicability snapshot as lineage; initialize the new version from still-valid surfaces and mark only affected surfaces incomplete/decision-required rather than restarting from chat history.
-
-## Launch Definition / Release Gate
-
-When a product/material release is expected to reach real users, establish a release-scoped Launch Definition before the final development phase where practical.
-
-> **Launch criteria are defined before launch pressure exists. Once satisfied, improvement alone is not sufficient grounds for delay.**
-
-The Launch Definition identifies core launch promise/flows, material security/privacy/data-integrity/compliance conditions, required reliability/compatibility/deployment, launch evidence, deliberate deferred scope, release/audience/environment and human acceptance/version.
-
-After acceptance, new findings are classified as `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`.
+See `docs/AUTO_DEFINE.md`.
