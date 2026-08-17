@@ -3,6 +3,16 @@ $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
 
+function ConvertTo-AidosRegistryRepositoryIdentity {
+    param([Parameter(Mandatory)][string]$Repository)
+    $v=$Repository.Trim().TrimEnd('/')
+    if($v-match'^https?://[^/]+/(.+)$'){$v=$Matches[1]}
+    elseif($v-match'^ssh://[^/]+/(.+)$'){$v=$Matches[1]}
+    elseif($v-match'^[^@]+@[^:]+:(.+)$'){$v=$Matches[1]}
+    if($v.EndsWith('.git',[StringComparison]::OrdinalIgnoreCase)){$v=$v.Substring(0,$v.Length-4)}
+    $v.ToLowerInvariant()
+}
+
 function Get-AidosRegistryProjectPath {
     param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId)
     Join-Path $RegistryRoot ('projects/{0}.json' -f $ProjectId)
@@ -74,7 +84,7 @@ function Test-AidosRegistryProjectBinding {
     $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
     $origin=Invoke-AidosRegisteredGit $Project @('remote','get-url','origin')
     if($origin.ExitCode-ne0-or$origin.Output.Count-eq0){throw 'Registered project Git origin is unavailable.'}
-    if((ConvertTo-AidosRepositoryIdentity ([string]$origin.Output[0]))-ne(ConvertTo-AidosRepositoryIdentity ([string]$Project.repository))){throw 'Registered project origin does not match registry repository.'}
+    if((ConvertTo-AidosRegistryRepositoryIdentity ([string]$origin.Output[0]))-ne(ConvertTo-AidosRegistryRepositoryIdentity ([string]$Project.repository))){throw 'Registered project origin does not match registry repository.'}
     [pscustomobject]@{project_id=[string]$Project.project_id;root=$root;repository=[string]$Project.repository;valid=$true}
 }
 
@@ -127,4 +137,4 @@ function Set-AidosPreparationProjectPhase {
     $record
 }
 
-Export-ModuleMember -Function Get-AidosRegistryProjectPath,Register-AidosPreparationProject,Get-AidosRegisteredProject,Get-AidosRegisteredGitCommand,Invoke-AidosRegisteredGit,Test-AidosRegistryProjectBinding,Test-AidosAllowedPersistencePath,Invoke-AidosPreparationGitPersistence,Set-AidosPreparationProjectPhase
+Export-ModuleMember -Function ConvertTo-AidosRegistryRepositoryIdentity,Get-AidosRegistryProjectPath,Register-AidosPreparationProject,Get-AidosRegisteredProject,Get-AidosRegisteredGitCommand,Invoke-AidosRegisteredGit,Test-AidosRegistryProjectBinding,Test-AidosAllowedPersistencePath,Invoke-AidosPreparationGitPersistence,Set-AidosPreparationProjectPhase
