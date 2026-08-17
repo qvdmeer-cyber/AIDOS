@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosPreparationDispatcher.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -DisableNameChecking
@@ -10,6 +11,10 @@ Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -Disab
 function Get-AidosHostAgentDefaultStateRoot {
     if(-not $IsWindows){ return (Join-Path ([IO.Path]::GetTempPath()) 'AIDOS-host-agent') }
     Join-Path $env:LOCALAPPDATA 'AIDOS\host-agent'
+}
+function Get-AidosHostAgentDefaultPreparationRegistryRoot {
+    if(-not $IsWindows){ return (Join-Path ([IO.Path]::GetTempPath()) 'AIDOS-project-registry') }
+    Join-Path $env:LOCALAPPDATA 'AIDOS\project-registry'
 }
 function Get-AidosHostAgentPath { param([string]$StateRoot,[ValidateSet('lease','status','stop','events')][string]$Kind)
     $names=@{lease='LEASE.json';status='STATUS.json';stop='STOP';events='EVENTS.jsonl'}
@@ -70,11 +75,33 @@ function Get-AidosHostAgentAssignmentPath { param([string]$ProjectRoot,[string]$
 }
 function Invoke-AidosHostAgentTick {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AuthorizedUser,[string]$ProcessName='ChatGPT Classic',[string]$StateRoot=(Get-AidosHostAgentDefaultStateRoot),[int]$ResponseTimeoutSeconds=5,[scriptblock]$SnapshotProvider,[scriptblock]$ShellHealthProvider,[scriptblock]$ReviewReconciler,[scriptblock]$ReviewConsumer,[scriptblock]$DesktopReviewInvoker)
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$AuthorizedUser,
+        [string]$ProcessName='ChatGPT Classic',
+        [string]$StateRoot=(Get-AidosHostAgentDefaultStateRoot),
+        [int]$ResponseTimeoutSeconds=5,
+        [string]$PreparationRegistryRoot,
+        [string]$BuilderRoot,
+        [string]$ContractsRoot,
+        [switch]$PreparationPush,
+        [scriptblock]$PreparationDispatcher,
+        [scriptblock]$SnapshotProvider,
+        [scriptblock]$ShellHealthProvider,
+        [scriptblock]$ReviewReconciler,
+        [scriptblock]$ReviewConsumer,
+        [scriptblock]$DesktopReviewInvoker
+    )
+    $preparation=$null
+    if($PreparationDispatcher){
+        try{$preparation=& $PreparationDispatcher}catch{$preparation=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}
+    }elseif(-not[string]::IsNullOrWhiteSpace($PreparationRegistryRoot)){
+        try{$preparation=Invoke-AidosPreparationDispatcherTick -RegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -Push:$PreparationPush}catch{$preparation=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}
+    }
     $snapshot=if($SnapshotProvider){& $SnapshotProvider}else{Get-AidosInteractiveSessionSnapshot}
     $auth=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $AuthorizedUser
     $shell=if($auth.allowed){if($ShellHealthProvider){& $ShellHealthProvider $ProcessName ([int]$snapshot.session_id)}else{Get-AidosHostAgentShellHealth -ProcessName $ProcessName -ExpectedSessionId ([int]$snapshot.session_id)}}else{[pscustomobject]@{status='NOT_CHECKED';reason=$auth.reason}}
-    $result=[ordered]@{status='IDLE';authorized=$auth.allowed;reason=$auth.reason;snapshot=$snapshot;shell=$shell;control=$null;project_result=$null}
+    $result=[ordered]@{status='IDLE';authorized=$auth.allowed;reason=$auth.reason;snapshot=$snapshot;shell=$shell;control=$null;preparation_result=$preparation;project_result=$null}
     if(-not $auth.allowed){$result.status='WAITING_INFRASTRUCTURE';return [pscustomobject]$result}
     $control=Get-AidosOperatorControlState -ProjectRoot $ProjectRoot
     $result.control=$control
@@ -105,14 +132,26 @@ function Invoke-AidosHostAgentTick {
 }
 function Start-AidosPersistentLocalDesktopAgent {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[string]$AuthorizedUser='AIDOS\qvdm',[string]$ProcessName='ChatGPT Classic',[string]$StateRoot=(Get-AidosHostAgentDefaultStateRoot),[int]$PollSeconds=5,[int]$ResponseTimeoutSeconds=5,[switch]$Once)
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [string]$AuthorizedUser='AIDOS\qvdm',
+        [string]$ProcessName='ChatGPT Classic',
+        [string]$StateRoot=(Get-AidosHostAgentDefaultStateRoot),
+        [int]$PollSeconds=5,
+        [int]$ResponseTimeoutSeconds=5,
+        [string]$PreparationRegistryRoot,
+        [string]$BuilderRoot,
+        [string]$ContractsRoot,
+        [switch]$PreparationPush,
+        [switch]$Once
+    )
     if(-not $IsWindows){throw 'Persistent Local Desktop Agent must run in an interactive Windows user session.'}
     $owner=[guid]::NewGuid().ToString();$failureCount=0;$null=Acquire-AidosHostAgentLease -StateRoot $StateRoot -OwnerId $owner
     try {
         Remove-Item -LiteralPath (Get-AidosHostAgentPath $StateRoot stop) -Force -ErrorAction SilentlyContinue
-        $boot=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='BOOTING';last_tick=$null;failure_count=0}
+        $boot=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;preparation_registry_root=$PreparationRegistryRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='BOOTING';last_tick=$null;failure_count=0}
         Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $boot
-        Add-AidosHostAgentEvent $StateRoot 'AGENT_BOOTING' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser}
+        Add-AidosHostAgentEvent $StateRoot 'AGENT_BOOTING' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;preparation_registry_root=$PreparationRegistryRoot}
         try {
             $startup=Invoke-AidosStartupReconciliation -ProjectRoot $ProjectRoot
             Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTED' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;startup_reconciliation=$startup.status}
@@ -123,13 +162,13 @@ function Start-AidosPersistentLocalDesktopAgent {
             Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTUP_ERROR' @{owner_id=$owner;error=$_.Exception.Message}
         }
         do {
-            try {$tick=Invoke-AidosHostAgentTick -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -ResponseTimeoutSeconds $ResponseTimeoutSeconds; $failureCount=0}
+            try {$tick=Invoke-AidosHostAgentTick -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -ResponseTimeoutSeconds $ResponseTimeoutSeconds -PreparationRegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -PreparationPush:$PreparationPush; $failureCount=0}
             catch {$tick=[pscustomobject]@{status='ERROR';reason=$_.Exception.Message};$failureCount=1+[int]$failureCount}
-            $status=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='RUNNING';last_tick=$tick;failure_count=$failureCount}
+            $status=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;preparation_registry_root=$PreparationRegistryRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='RUNNING';last_tick=$tick;failure_count=$failureCount}
             Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $status
-            Add-AidosHostAgentEvent $StateRoot 'TICK' @{status=(Get-AidosHostAgentProperty $tick 'status' 'UNKNOWN');reason=(Get-AidosHostAgentProperty $tick 'reason' $null)}
+            Add-AidosHostAgentEvent $StateRoot 'TICK' @{status=(Get-AidosHostAgentProperty $tick 'status' 'UNKNOWN');reason=(Get-AidosHostAgentProperty $tick 'reason' $null);preparation_status=(Get-AidosHostAgentProperty (Get-AidosHostAgentProperty $tick 'preparation_result' $null) 'status' $null)}
             if($Once -or (Test-Path -LiteralPath (Get-AidosHostAgentPath $StateRoot stop))){break};Start-Sleep -Seconds ([Math]::Min(60,[Math]::Max(1,$PollSeconds)*[Math]::Min(8,[Math]::Max(1,$failureCount+1))) )
         } while($true)
     } finally { Add-AidosHostAgentEvent $StateRoot 'AGENT_STOPPED' @{owner_id=$owner};Release-AidosHostAgentLease -StateRoot $StateRoot -OwnerId $owner }
 }
-Export-ModuleMember -Function Get-AidosHostAgentDefaultStateRoot,Get-AidosHostAgentStatus,Stop-AidosHostAgent,Acquire-AidosHostAgentLease,Release-AidosHostAgentLease,Get-AidosHostAgentShellHealth,Invoke-AidosHostAgentTick,Start-AidosPersistentLocalDesktopAgent
+Export-ModuleMember -Function Get-AidosHostAgentDefaultStateRoot,Get-AidosHostAgentDefaultPreparationRegistryRoot,Get-AidosHostAgentStatus,Stop-AidosHostAgent,Acquire-AidosHostAgentLease,Release-AidosHostAgentLease,Get-AidosHostAgentShellHealth,Invoke-AidosHostAgentTick,Start-AidosPersistentLocalDesktopAgent
