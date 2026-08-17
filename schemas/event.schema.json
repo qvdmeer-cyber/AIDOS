@@ -10,13 +10,17 @@
     "event_id": {"type": "string", "minLength": 1},
     "timestamp": {"type": "string", "format": "date-time"},
     "project_id": {"type": "string", "minLength": 1},
+    "workstream_id": {"type": ["string", "null"]},
     "definition_id": {"type": ["string", "null"]},
     "definition_version": {"type": ["integer", "null"], "minimum": 1},
     "execution_id": {"type": ["string", "null"]},
     "revision": {"type": ["integer", "null"], "minimum": 1},
     "review_id": {"type": ["string", "null"]},
+    "human_input_request_id": {"type": ["string", "null"]},
+    "control_intent_id": {"type": ["string", "null"]},
     "event_type": {"type": "string", "minLength": 1},
     "actor": {"type": "string", "enum": ["HUMAN", "DEFINITION_AGENT", "WORKER_AGENT", "EXECUTION_AGENT", "BRIDGE", "SYSTEM"]},
+    "actor_role": {"type": ["string", "null"], "enum": ["THINKER", "WORKER", "HUMAN", "CONTROL_PLANE", "SYSTEM", null]},
     "payload": {"type": "object"}
   }
 }
