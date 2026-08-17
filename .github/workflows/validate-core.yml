@@ -1,0 +1,39 @@
+name: Validate AIDOS Core
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  portable-core-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem . -Recurse -Filter *.ps1 -File | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Host "Syntax errors in $($_.FullName):"
+              $errors | ForEach-Object { Write-Host $_.Message }
+            }
+          }
+          if ($failed) { throw 'PowerShell syntax validation failed.' }
+      - name: Parse JSON contracts/catalogs
+        shell: pwsh
+        run: |
+          Get-ChildItem . -Recurse -Filter *.json -File | ForEach-Object {
+            Get-Content $_.FullName -Raw | ConvertFrom-Json -Depth 100 | Out-Null
+          }
+      - name: Core orchestration contract tests
+        shell: pwsh
+        run: ./tests/CoreOrchestrationContracts.Tests.ps1
+      - name: Auto Define regression tests
+        shell: pwsh
+        run: ./tests/AutoDefine.Tests.ps1
