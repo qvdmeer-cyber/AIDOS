@@ -30,9 +30,6 @@ function Invoke-AidosBootstrapModuleCommand {
         [Parameter(Mandatory)][string]$CommandName,
         [hashtable]$Arguments=@{}
     )
-    # Resolve a fresh command object for every cross-module call. This is intentionally
-    # independent of caller/module scope because nested -Force imports may replace a
-    # previously loaded module during the same bootstrap process.
     $module=Import-Module -Name $ModulePath -Force -DisableNameChecking -PassThru -ErrorAction Stop
     $command=Get-Command -Name $CommandName -Module $module.Name -ErrorAction Stop | Select-Object -First 1
     if($null -eq $command){throw "Command '$CommandName' was not exported by '$ModulePath'."}
@@ -92,8 +89,30 @@ if([string]::IsNullOrWhiteSpace($RuntimeProjectRoot)){
 }
 if([string]::IsNullOrWhiteSpace($RuntimeProjectRoot)){throw 'Unable to resolve the existing runtime project root for the persistent host agent.'}
 $agentEntry=Join-Path $aidosRoot 'bridge/Invoke-AidosPersistentLocalDesktopAgent.ps1'
+$installStartedAt=[DateTimeOffset]::UtcNow
 $installJson=& $agentEntry -Command Install -ProjectRoot $RuntimeProjectRoot -AuthorizedUser $AuthorizedUser -StateRoot $stateRoot -PreparationRegistryRoot $registryRoot -BuilderRoot $builderRoot -ContractsRoot $contractsRoot -PreparationPush $true
 $install=$installJson|ConvertFrom-Json -Depth 30
+
+# Wait for the newly installed agent to publish its first post-install tick so the
+# bootstrap output proves whether autonomous preparation actually advanced.
+$agentRuntime=$null
+$statusPath=Join-Path $stateRoot 'STATUS.json'
+$deadline=[DateTimeOffset]::UtcNow.AddSeconds(15)
+do {
+    Start-Sleep -Milliseconds 500
+    if(Test-Path -LiteralPath $statusPath -PathType Leaf){
+        try {
+            $candidate=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+            $heartbeat=$null
+            if($candidate.PSObject.Properties['heartbeat_at'] -and -not[string]::IsNullOrWhiteSpace([string]$candidate.heartbeat_at)){$heartbeat=[DateTimeOffset]::Parse([string]$candidate.heartbeat_at)}
+            if($heartbeat -and $heartbeat -ge $installStartedAt -and $candidate.PSObject.Properties['last_tick'] -and $null -ne $candidate.last_tick){$agentRuntime=$candidate;break}
+        } catch {}
+    }
+} while([DateTimeOffset]::UtcNow -lt $deadline)
+if($null -eq $agentRuntime -and (Test-Path -LiteralPath $statusPath -PathType Leaf)){
+    try{$agentRuntime=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}catch{}
+}
+
 $finalRegistered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Get-AidosRegisteredProject' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId}
 
 [pscustomobject][ordered]@{
@@ -105,4 +124,5 @@ $finalRegistered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule 
     acceptance_request=$acceptance
     persistence=$persistence
     host_agent=$install
+    host_agent_runtime=$agentRuntime
 }|ConvertTo-Json -Depth 100
