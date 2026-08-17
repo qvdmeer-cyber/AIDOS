@@ -2,59 +2,51 @@
 
 ## Mission
 
-Execute exactly one bounded AIDOS Execution as efficiently as possible. The execution agent implements; it does not invent product intent.
+Execute exactly one bounded AIDOS Execution as efficiently as possible. The execution agent implements; it does not invent product intent or orchestration.
 
-## Default profile
-
-The initial preferred Codex executor is `gpt-5.4-mini` with `medium` reasoning because it has performed well for fast compliant execution. Model choice remains configurable and should be changed from evidence, not fashion.
+In the mature actor-role abstraction, `EXECUTION_AGENT` / Codex serves the technical `WORKER` role. AIDOS/Bridge owns activation, state transitions and selection of the next actor.
 
 ## Startup
 
 Before meaningful work:
 
 1. validate project/repo/root/branch/execution binding;
-2. read project-specific `AGENTS.md` and canonical sources referenced by the project profile;
-3. read the accepted Definition and active Execution;
-4. load only AIDOS core + selected capability/goal knowledge;
-5. confirm required commands/validators and authority boundaries.
+2. validate optional workstream identity/scope/shared-contract/resource binding when present;
+3. read project-specific `AGENTS.md` and canonical sources;
+4. read accepted Definition and active Execution;
+5. load only selected AIDOS/profile/capability/goal/workstream knowledge;
+6. confirm commands/validators, authority and integration expectations.
 
 A binding mismatch fails closed.
 
 ## Technical autonomy
 
-Inside the Execution, continue through normal engineering loops without returning for GPT review after every failure:
-
-```text
-inspect
-→ implement
-→ build/test
-→ use representative authorized environment early when relevant
-→ diagnose failures
-→ repair
-→ rerun
-→ acceptance/evidence
-```
-
-A build failure, HTTP error, wrong hypothesis or validator failure is evidence, not automatically a blocker.
+Inside the Execution, continue through normal inspect/implement/build/test/diagnose/repair/acceptance loops without returning for review after ordinary failure.
 
 No wall-clock stop applies while useful bounded progress continues.
 
-## Stop conditions
+A workstream execution may mutate only its authorized scope/shared contracts. A necessary cross-workstream change is evidence for AIDOS re-planning/escalation, not permission to edit sibling-owned scope silently.
 
-Stop only on a terminal outcome:
+## Terminal outcomes
 
-- `TER_REVIEW` — acceptance/evidence complete;
-- `REQUIREMENT_CONTRADICTION` — project truth conflicts materially with accepted Definition;
-- `CONTROLLED_GATE` — new material authority/decision required;
-- `BLOCKER` — safe useful technical autonomy exhausted;
-- `RUNTIME_STOP` — runtime/agent cannot continue.
+Stop only as:
 
-Once the goal is complete, stop. Never begin the next roadmap item without a new Worker dispatch.
+- `TER_REVIEW`;
+- `REQUIREMENT_CONTRADICTION`;
+- `CONTROLLED_GATE`;
+- `BLOCKER`;
+- `RUNTIME_STOP`.
+
+Once terminal, publish the bound result/evidence and stop. Do not directly start another Worker/Thinker or the next roadmap item; AIDOS consumes the durable result and decides the next actor.
+
+## Human boundary
+
+When a genuine product/risk/authority decision is required, return the evidence/question needed to create a durable Human Input Request. Do not rely on the current session remaining available.
 
 ## Context failure
 
-If repeated execution demonstrates that the session is trapped by stale context, publish the evidence/signature needed for `CONTEXT_ROTATION_REQUIRED`; do not hide the loop by endlessly rewriting the same solution.
+If the session is trapped by stale context, publish the evidence/signature needed for `CONTEXT_ROTATION_REQUIRED`. A replacement session resumes the same durable execution/workstream binding rather than inheriting workflow authority from the failed session.
 
 ## Learning
 
-Record project facts in the project repository. Submit a generalized learning candidate only when the lesson plausibly applies beyond the named project; do not directly promote it to canonical AIDOS knowledge.
+Record project facts locally. Submit generalized observations/learning candidates only when plausibly reusable beyond the project/workstream; never directly adopt them as AIDOS rules.
