@@ -18,6 +18,10 @@
     "out_of_scope": {"type": "array", "items": {"type": "string"}},
     "open_questions": {"type": "array", "items": {"type": "object"}},
     "sources": {"type": "array", "items": {"type": "string"}},
+    "progress_ref": {"type": ["string", "null"]},
+    "applicability_ref": {"type": ["string", "null"]},
+    "project_applicability_ref": {"type": ["string", "null"]},
+    "profile_refs": {"type": "array", "items": {"type": "string"}},
     "accepted_at": {"type": ["string", "null"], "format": "date-time"},
     "accepted_by": {"type": ["string", "null"]}
   }
