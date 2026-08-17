@@ -37,9 +37,11 @@ function New-AidosRuntimeActorAssignment {
     if([string]$binding.ProjectId -ne [string]$Project.project_id){throw 'Runtime actor assignment project binding mismatch.'}
     $state=Get-AidosState $root
 
+    $definitionAction=([string]$Selection.action -in @('START_DEFINITION','RESUME_DEFINITION'))
     $existing=@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $root | Where-Object {
+        $sameAction=if($definitionAction){[string]$_.action -in @('START_DEFINITION','RESUME_DEFINITION')}else{[string]$_.action -eq [string]$Selection.action}
         [string]$_.project_id -eq [string]$Project.project_id -and
-        [string]$_.action -eq [string]$Selection.action -and
+        $sameAction -and
         [string]$_.actor_identity -eq [string]$Selection.actor_identity -and
         [string]$_.binding.definition_id -eq [string]$state.definition_id -and
         [string]$_.binding.definition_version -eq [string]$state.definition_version
