@@ -5,6 +5,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $catalogValidator = Join-Path $repoRoot 'tools\Test-AidosProfileCatalog.ps1'
 $resolver = Join-Path $repoRoot 'tools\Resolve-AidosProjectApplicability.ps1'
 $definitionApplicability = Join-Path $repoRoot 'tools\New-AidosDefinitionApplicability.ps1'
+$definitionApplicabilityValidator = Join-Path $repoRoot 'tools\Test-AidosDefinitionApplicability.ps1'
 
 function Assert-ProfileTest([bool]$Condition,[string]$Message) {
     if (-not $Condition) { throw "PROFILE TEST FAILED: $Message" }
@@ -47,6 +48,10 @@ try {
     $definitionApi = @($definition.development_surfaces | Where-Object { $_.surface_id -eq 'api_contracts' } | Select-Object -First 1)
     Assert-ProfileTest ($definitionUi[0].definition_state -eq 'NOT_APPLICABLE') 'Project-inapplicable UI remains out of Definition.'
     Assert-ProfileTest ($definitionApi[0].definition_state -eq 'AFFECTED') 'Affected API contract enters Definition applicability.'
+
+    $validation = & $definitionApplicabilityValidator -ProjectRoot $temp -DefinitionId 'DEF-1' -DefinitionVersion 1 -NoExit
+    Assert-ProfileTest ($validation.pass) 'Definition applicability artifact is structurally valid before full resolution.'
+    Assert-ProfileTest ($validation.unresolved_count -gt 0) 'Unclassified project-relevant surfaces remain explicit rather than silently omitted.'
 
     Write-Host 'AIDOS profile preset tests PASS.'
 } finally {
