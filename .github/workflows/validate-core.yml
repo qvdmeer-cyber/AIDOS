@@ -40,3 +40,6 @@ jobs:
       - name: Operator API regression tests
         shell: pwsh
         run: ./tests/OperatorApi.Tests.ps1
+      - name: Human Input regression tests
+        shell: pwsh
+        run: ./tests/HumanInput.Tests.ps1
