@@ -97,8 +97,8 @@
             "properties": {
               "current_product_state_id": {"type": "string", "minLength": 1},
               "current_product_state_commit": {"type": "string", "minLength": 7},
-              "current_product_state_contract_version": {"type": "string", "const": "0.2.0"},
-              "discovery_catalog_version": {"type": "string", "const": "0.2.0"}
+              "current_product_state_contract_version": {"type": "string", "const": "0.3.0"},
+              "discovery_catalog_version": {"type": "string", "const": "0.3.0"}
             }
           }
         }
