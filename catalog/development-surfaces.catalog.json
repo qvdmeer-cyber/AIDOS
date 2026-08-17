@@ -1,0 +1,33 @@
+{
+  "catalog_version": "0.1.0",
+  "purpose": "Project-level development surfaces used by composable AIDOS profiles and per-Definition applicability classification.",
+  "surfaces": [
+    {"id":"ui_structure","label":"UI structure","description":"Screens, pages, layouts, navigation, dialogs, forms and visible component structure."},
+    {"id":"ux_interaction","label":"UX and interaction behaviour","description":"Interaction patterns, state transitions, feedback, validation, loading, empty and error behaviour."},
+    {"id":"visual_design","label":"Visual design","description":"Typography, spacing, colour, theming, hierarchy, branding and reusable visual patterns."},
+    {"id":"responsive_behavior","label":"Responsive behaviour","description":"Material viewport, orientation and adaptive layout behaviour."},
+    {"id":"accessibility_ui","label":"UI accessibility","description":"Keyboard/focus, semantics, labels and other relevant accessibility behaviour for user-facing UI."},
+    {"id":"content_information_architecture","label":"Content and information architecture","description":"Content structure, labels, navigation taxonomy and information hierarchy."},
+    {"id":"localization","label":"Localization and multilingual behaviour","description":"Languages, locale selection, translation coverage and locale-dependent product behaviour."},
+    {"id":"seo_discoverability","label":"SEO and discoverability","description":"Search-engine-facing metadata, crawlability, indexing and public discoverability where relevant."},
+    {"id":"api_contracts","label":"API and interface contracts","description":"HTTP/RPC/public/internal API contracts, schemas, versioning and error contracts."},
+    {"id":"tool_contracts","label":"Tool and agent contracts","description":"Machine-invokable tool contracts such as MCP or hosted agent/app tools, including inputs, outputs and side-effect declarations."},
+    {"id":"conversation_interaction","label":"Conversation interaction","description":"Conversation-driven behaviour, tool/result presentation and conversational state or orchestration."},
+    {"id":"authentication","label":"Authentication","description":"Identity establishment, login, credentials, tokens and session lifecycle."},
+    {"id":"authorization","label":"Authorization","description":"Roles, permissions, policy checks and resource/action authority."},
+    {"id":"data_persistence_lifecycle","label":"Data, persistence and lifecycle","description":"Persistent data, schemas, mutation, migration, retention and deletion."},
+    {"id":"background_processing","label":"Background processing","description":"Jobs, queues, schedules, workers and asynchronous processing."},
+    {"id":"integrations_external_io","label":"Integrations and external I/O","description":"First- or third-party integrations, external services, webhooks and outbound/inbound I/O."},
+    {"id":"file_storage_uploads","label":"File storage and uploads","description":"Files, blobs, uploads, generated assets and storage lifecycle/security."},
+    {"id":"security_privacy","label":"Security and privacy","description":"Trust boundaries, data exposure, secrets, privacy constraints and material security behaviour."},
+    {"id":"performance_scale","label":"Performance and scale","description":"Latency, throughput, capacity, concurrency, quotas and scaling constraints."},
+    {"id":"runtime_deployment","label":"Runtime and deployment","description":"Runtime environments, hosting, deployment, configuration and release behaviour."},
+    {"id":"observability","label":"Observability","description":"Logging, diagnostics, metrics, tracing, health/version and operational visibility."},
+    {"id":"recovery_rollback","label":"Recovery and rollback","description":"Failure recovery, backup/restore, retry behaviour and rollback guarantees."},
+    {"id":"compatibility","label":"Compatibility","description":"Supported clients, browsers, devices, OS/runtime/database/API versions and compatibility constraints."},
+    {"id":"migration_backward_compatibility","label":"Migration and backward compatibility","description":"Data/API/product migration, compatibility windows and transition strategy."},
+    {"id":"distribution_packaging","label":"Distribution and packaging","description":"Build artifacts, packaging, stores/registries, installation and distribution channels."},
+    {"id":"device_platform","label":"Device and platform behaviour","description":"Platform-specific device/OS capabilities, permissions and lifecycle behaviour."},
+    {"id":"offline_sync","label":"Offline and synchronization","description":"Offline operation, caching, synchronization, conflict resolution and reconnect behaviour."}
+  ]
+}
