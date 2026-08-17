@@ -35,21 +35,21 @@ $projectRoot=Convert-WslPathToUnc $projectWslRoot
 $registryRoot=Join-Path $env:LOCALAPPDATA 'AIDOS\project-registry'
 $stateRoot=Join-Path $env:LOCALAPPDATA 'AIDOS\host-agent'
 
-# Import runtime first because it imports/reloads the registry module internally.
-# Re-import registry afterwards so its exported commands remain available in this script's caller scope.
+# Import both modules, but invoke every cross-module command with an explicit module qualifier.
+# This avoids PowerShell caller-scope command loss when nested modules are force-reloaded.
 Import-Module (Join-Path $aidosRoot 'bridge/AidosPreparationRuntime.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $aidosRoot 'bridge/AidosProjectRegistry.psm1') -Force -DisableNameChecking
 
-$registryPath=Get-AidosRegistryProjectPath -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
+$registryPath=AidosProjectRegistry\Get-AidosRegistryProjectPath -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
 if(Test-Path -LiteralPath $registryPath -PathType Leaf){
-    $registered=Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
+    $registered=AidosProjectRegistry\Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
     if([string]$registered.repository -ne $PreparationRepository -or [string]$registered.local_root -ne [string](Get-Item -LiteralPath $projectRoot).FullName){throw 'Existing preparation registry binding differs from requested AIDOS Interface binding.'}
     if($registered.PSObject.Properties['project_mode'] -and [string]$registered.project_mode -ne 'NEW_PROJECT'){throw 'Existing preparation registry project_mode is not NEW_PROJECT.'}
     if($registered.PSObject.Properties['runner_policy'] -and [string]$registered.runner_policy -ne 'UNATTENDED_ALLOWED'){throw 'Existing preparation registry runner_policy is not UNATTENDED_ALLOWED.'}
 }else{
-    $registered=Register-AidosPreparationProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Repository $PreparationRepository -LocalRoot $projectRoot -ProjectMode NEW_PROJECT -DefaultBranch main -RunnerPolicy UNATTENDED_ALLOWED -GitRuntimeKind WINDOWS_WSL -WslDistribution $Distribution -WslProjectRoot $projectWslRoot -AllowedPersistencePaths @('.aidos')
+    $registered=AidosProjectRegistry\Register-AidosPreparationProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Repository $PreparationRepository -LocalRoot $projectRoot -ProjectMode NEW_PROJECT -DefaultBranch main -RunnerPolicy UNATTENDED_ALLOWED -GitRuntimeKind WINDOWS_WSL -WslDistribution $Distribution -WslProjectRoot $projectWslRoot -AllowedPersistencePaths @('.aidos')
 }
-Test-AidosRegistryProjectBinding $registered|Out-Null
+AidosProjectRegistry\Test-AidosRegistryProjectBinding $registered|Out-Null
 
 $validator=Join-Path $builderRoot 'tools/Test-AidosProjectBaseline.ps1'
 $validation=& $validator -ProjectRoot $projectRoot -ContractsRoot $contractsRoot -NoExit
@@ -58,13 +58,13 @@ $baselinePath=Join-Path $projectRoot '.aidos/documentation/PROJECT_BASELINE.json
 $baseline=Get-Content -LiteralPath $baselinePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
 $acceptance=$null
 if([string]::IsNullOrWhiteSpace([string]$baseline.accepted_at)){
-    $acceptance=New-AidosPreparationBaselineAcceptanceRequest -ProjectRoot $projectRoot -BuilderRoot $builderRoot -ContractsRoot $contractsRoot
-    $registered=Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
-    $persistence=Invoke-AidosPreparationGitPersistence -Project $registered -CommitMessage 'AIDOS publish formal Project Baseline acceptance request' -Push
-    Set-AidosPreparationProjectPhase -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Phase 'BASELINE_ACCEPTANCE' -Status WAITING_HUMAN|Out-Null
+    $acceptance=AidosPreparationRuntime\New-AidosPreparationBaselineAcceptanceRequest -ProjectRoot $projectRoot -BuilderRoot $builderRoot -ContractsRoot $contractsRoot
+    $registered=AidosProjectRegistry\Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId
+    $persistence=AidosProjectRegistry\Invoke-AidosPreparationGitPersistence -Project $registered -CommitMessage 'AIDOS publish formal Project Baseline acceptance request' -Push
+    AidosProjectRegistry\Set-AidosPreparationProjectPhase -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Phase 'BASELINE_ACCEPTANCE' -Status WAITING_HUMAN|Out-Null
 }else{
     $persistence=[pscustomobject]@{status='NO_CHANGES';commit=$null;pushed=$false;paths=@()}
-    Set-AidosPreparationProjectPhase -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Phase 'RUNTIME_ONBOARDING' -Status READY_FOR_ONBOARDING|Out-Null
+    AidosProjectRegistry\Set-AidosPreparationProjectPhase -RegistryRoot $registryRoot -ProjectId $PreparationProjectId -Phase 'RUNTIME_ONBOARDING' -Status READY_FOR_ONBOARDING|Out-Null
 }
 
 if([string]::IsNullOrWhiteSpace($RuntimeProjectRoot)){
@@ -84,7 +84,7 @@ $install=$installJson|ConvertFrom-Json -Depth 30
     status='ENABLED'
     synced_repositories=@($sync|ForEach-Object {$_.repo})
     registry_root=$registryRoot
-    preparation_project=(Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId)
+    preparation_project=(AidosProjectRegistry\Get-AidosRegisteredProject -RegistryRoot $registryRoot -ProjectId $PreparationProjectId)
     baseline_validation=$validation
     acceptance_request=$acceptance
     persistence=$persistence
