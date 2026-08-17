@@ -67,3 +67,6 @@ jobs:
       - name: Dirty Onboarding Recovery regression tests
         shell: pwsh
         run: ./tests/PreparationDirtyOnboardingRecovery.Tests.ps1
+      - name: Runtime Project Manager regression tests
+        shell: pwsh
+        run: ./tests/RuntimeProjectManager.Tests.ps1
