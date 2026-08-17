@@ -8,14 +8,15 @@ $modules=@(
  'bridge/AidosHumanInput.psm1',
  'bridge/AidosPreparationRuntime.psm1',
  'bridge/AidosPreparationOnboarding.psm1',
- 'bridge/AidosPreparationDispatcher.psm1'
+ 'bridge/AidosPreparationDispatcher.psm1',
+ 'bridge/AidosPersistentLocalDesktopAgent.psm1'
 )
 $passed=0
 foreach($relative in $modules){
     $path=Join-Path $root $relative
     $text=Get-Content -LiteralPath $path -Raw
     if($text -match "Import-Module[^\r\n]+-Force"){
-        throw "ASSERTION FAILED: internal preparation dependency import uses -Force in $relative"
+        throw "ASSERTION FAILED: internal runtime dependency import uses -Force in $relative"
     }
     $passed++
 }
@@ -28,4 +29,4 @@ foreach($name in @('Invoke-AidosPreparationDispatcherTick','Invoke-AidosPreparat
     if(-not(Get-Command $name -ErrorAction SilentlyContinue)){throw "ASSERTION FAILED: command unavailable after module graph reload: $name"}
     $passed++
 }
-Write-Output "PASS: $passed preparation module graph assertions"
+Write-Output "PASS: $passed preparation/host module graph assertions"
