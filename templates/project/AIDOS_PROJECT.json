@@ -21,6 +21,8 @@
   "current_product_state": ".aidos/discovery/CURRENT_PRODUCT_STATE.json",
   "discovery_state": ".aidos/discovery/STATE.json",
   "discovery_authority": ".aidos/discovery/DISCOVERY_AUTHORITY.json",
+  "project_applicability": null,
+  "profile_preset_catalog": "catalog/profile-presets.catalog.json",
   "contracts_repository": "qvdmeer-cyber/AIDOS-Contracts",
   "capabilities": [],
   "project_validators": [],
