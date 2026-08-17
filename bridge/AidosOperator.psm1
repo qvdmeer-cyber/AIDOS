@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
 
 $script:OperatorCommands=@('RUN','PAUSE','RESUME','SAFE_STOP','QUERY_STATUS','SUBMIT_HUMAN_INPUT','REQUEST_RECOVERY')
 
@@ -13,66 +13,250 @@ function Get-AidosOptionalProperty {
     $property.Value
 }
 
-function Get-AidosOperatorRoot { param([string]$ProjectRoot)
-    Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/operator'
+function Read-AidosOptionalJson {
+    param([Parameter(Mandatory)][string]$Path)
+    if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){return $null}
+    Get-Content -LiteralPath $Path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
 }
-function Get-AidosOperatorControlsRoot { param([string]$ProjectRoot) Join-Path (Get-AidosOperatorRoot $ProjectRoot) 'controls' }
-function Get-AidosOperatorControlIntentPath { param([string]$ProjectRoot,[string]$ControlId) Join-Path (Get-AidosOperatorControlsRoot $ProjectRoot) ($ControlId+'.json') }
-function Get-AidosOperatorControlStatePath { param([string]$ProjectRoot) Join-Path (Get-AidosOperatorRoot $ProjectRoot) 'CONTROL_STATE.json' }
+
+function Get-AidosOperatorControlStatePath {
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/runtime/operator-control.json'
+}
 
 function Get-AidosOperatorControlState {
-    [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot)
     $path=Get-AidosOperatorControlStatePath $ProjectRoot
-    if(Test-Path -LiteralPath $path -PathType Leaf){return Read-AidosJson $path}
-    [pscustomobject][ordered]@{schema_version='0.1';mode='RUNNING';updated_at=$null;updated_by=$null;last_control_id=$null}
+    $state=Read-AidosOptionalJson $path
+    if($state){return $state}
+    [pscustomobject][ordered]@{
+        schema_version='0.1'
+        mode='RUNNING'
+        requested_by='SYSTEM_DEFAULT'
+        control_id=$null
+        updated_at=$null
+    }
 }
+
 function Set-AidosOperatorControlState {
-    param([string]$ProjectRoot,[string]$Mode,[string]$RequestedBy,[string]$ControlId)
-    $state=[ordered]@{schema_version='0.1';mode=$Mode;updated_at=[DateTimeOffset]::UtcNow.ToString('o');updated_by=$RequestedBy;last_control_id=$ControlId}
-    Write-AidosJsonAtomic (Get-AidosOperatorControlStatePath $ProjectRoot) $state
-    [pscustomobject]$state
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [ValidateSet('RUNNING','PAUSED','SAFE_STOPPED')][string]$Mode,
+        [Parameter(Mandatory)][string]$RequestedBy,
+        [Parameter(Mandatory)][string]$ControlId
+    )
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $value=[ordered]@{
+        schema_version='0.1'
+        mode=$Mode
+        requested_by=$RequestedBy
+        control_id=$ControlId
+        updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    }
+    Write-AidosJsonAtomic (Get-AidosOperatorControlStatePath $root) $value
+    [pscustomobject]$value
 }
+
+function Get-AidosOpenHumanInputRequests {
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $root=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/human-input'
+    if(-not(Test-Path -LiteralPath $root -PathType Container)){return @()}
+    @(
+        Get-ChildItem -LiteralPath $root -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            try {
+                $request=Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+                $status=[string](Get-AidosOptionalProperty $request 'status' '')
+                if($status -in @('WAITING','OPEN','PENDING')){$request}
+            } catch {}
+        }
+    )
+}
+
+function Get-AidosProgressEstimateRef {
+    param([Parameter(Mandatory)][string]$ProjectRoot,$Object)
+    $direct=[string](Get-AidosOptionalProperty $Object 'progress_estimate_ref' '')
+    if(-not[string]::IsNullOrWhiteSpace($direct)){return $direct}
+    $progressRoot=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/progress'
+    if(-not(Test-Path -LiteralPath $progressRoot -PathType Container)){return $null}
+    $latest=Get-ChildItem -LiteralPath $progressRoot -Filter '*.json' -File -ErrorAction SilentlyContinue|Sort-Object LastWriteTimeUtc -Descending|Select-Object -First 1
+    if(-not$latest){return $null}
+    [IO.Path]::GetRelativePath((Resolve-AidosFileSystemPath $ProjectRoot),$latest.FullName).Replace('\','/')
+}
+
+function Get-AidosRuntimeWorkstreamProjection {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[object[]]$OpenHumanInputRequests)
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $workstreamRoot=Join-Path $root '.aidos/workstreams'
+    if(-not(Test-Path -LiteralPath $workstreamRoot -PathType Container)){return @()}
+    $items=@()
+    foreach($file in @(Get-ChildItem -LiteralPath $workstreamRoot -Filter '*.json' -File -ErrorAction SilentlyContinue|Sort-Object Name)){
+        try {$workstream=Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}catch{continue}
+        $id=[string](Get-AidosOptionalProperty $workstream 'workstream_id' $file.BaseName)
+        $status=[string](Get-AidosOptionalProperty $workstream 'status' (Get-AidosOptionalProperty $workstream 'state' 'UNKNOWN'))
+        $blockers=@(Get-AidosOptionalProperty $workstream 'blockers' @())
+        $openBlockers=@($blockers|Where-Object { [string](Get-AidosOptionalProperty $_ 'status' 'OPEN') -eq 'OPEN' })
+        $requestIds=@($OpenHumanInputRequests|Where-Object { [string](Get-AidosOptionalProperty $_ 'workstream_id' '') -eq $id }|ForEach-Object { [string](Get-AidosOptionalProperty $_ 'request_id' (Get-AidosOptionalProperty $_ 'human_input_request_id' '')) }|Where-Object { -not[string]::IsNullOrWhiteSpace($_) })
+        $items += [pscustomobject][ordered]@{
+            workstream_id=$id
+            status=$status
+            current_actor_role=Get-AidosOptionalProperty $workstream 'current_actor_role' $null
+            blocker_count=$openBlockers.Count
+            open_human_input_request_ids=@($requestIds)
+            progress_estimate_ref=Get-AidosProgressEstimateRef -ProjectRoot $root -Object $workstream
+        }
+    }
+    @($items)
+}
+
+function Get-AidosRuntimeStatusProjection {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $profile=Get-AidosProjectProfile $root
+    $state=Get-AidosState $root
+    $requests=@(Get-AidosOpenHumanInputRequests $root)
+    $workstreams=@(Get-AidosRuntimeWorkstreamProjection -ProjectRoot $root -OpenHumanInputRequests $requests)
+    $requestIds=@($requests|ForEach-Object { [string](Get-AidosOptionalProperty $_ 'request_id' (Get-AidosOptionalProperty $_ 'human_input_request_id' '')) }|Where-Object { -not[string]::IsNullOrWhiteSpace($_) })
+    $blockerCount=0
+    foreach($workstream in $workstreams){$blockerCount += [int]$workstream.blocker_count}
+    $project=[pscustomobject][ordered]@{
+        project_id=[string]$profile.project_id
+        state=[string]$state.state
+        recovery_required=([string]$state.state -eq 'RECOVERY_REQUIRED')
+        blocker_count=$blockerCount
+        open_human_input_request_ids=@($requestIds)
+        progress_estimate_ref=Get-AidosProgressEstimateRef -ProjectRoot $root -Object $state
+        workstreams=@($workstreams)
+    }
+    [pscustomobject][ordered]@{
+        schema_version='0.1'
+        generated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        projects=@($project)
+    }
+}
+
+function Get-AidosRecentProjectEvents {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[int]$Limit=25)
+    $eventRoot=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/events'
+    if(-not(Test-Path -LiteralPath $eventRoot -PathType Container)){return @()}
+    $files=@(Get-ChildItem -LiteralPath $eventRoot -Filter '*.jsonl' -File -ErrorAction SilentlyContinue|Sort-Object Name -Descending)
+    $events=[System.Collections.Generic.List[object]]::new()
+    foreach($file in $files){
+        $lines=@(Get-Content -LiteralPath $file.FullName -Encoding UTF8 -ErrorAction SilentlyContinue)
+        for($i=$lines.Count-1;$i-ge0;$i--){
+            if([string]::IsNullOrWhiteSpace($lines[$i])){continue}
+            try{$events.Add(($lines[$i]|ConvertFrom-Json -Depth 100))}catch{}
+            if($events.Count -ge $Limit){break}
+        }
+        if($events.Count -ge $Limit){break}
+    }
+    @($events)
+}
+
+function Get-AidosOperatorSnapshot {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [string]$HostAgentStateRoot,
+        [int]$EventLimit=25
+    )
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $host=$null
+    if(-not[string]::IsNullOrWhiteSpace($HostAgentStateRoot)){
+        $host=Read-AidosOptionalJson (Join-Path $HostAgentStateRoot 'STATUS.json')
+    }
+    [pscustomobject][ordered]@{
+        schema_version='0.1'
+        generated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        project_root=$root
+        runtime=Get-AidosRuntimeStatusProjection $root
+        control=Get-AidosOperatorControlState $root
+        host_agent=$host
+        recent_events=@(Get-AidosRecentProjectEvents -ProjectRoot $root -Limit $EventLimit)
+    }
+}
+
+function Get-AidosControlIntentRoot {
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/control/intents'
+}
+
+function Write-AidosControlIntent {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$Intent)
+    $root=Get-AidosControlIntentRoot $ProjectRoot
+    if(-not(Test-Path -LiteralPath $root -PathType Container)){New-Item -ItemType Directory -Path $root -Force|Out-Null}
+    $path=Join-Path $root (([string]$Intent.control_id)+'.json')
+    if(Test-Path -LiteralPath $path){throw "Control intent already exists: $($Intent.control_id)"}
+    Write-AidosJsonAtomic $path $Intent
+    $path
+}
+
+function Update-AidosControlIntent {
+    param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)]$Intent)
+    Write-AidosJsonAtomic $Path $Intent
+    [pscustomobject]$Intent
+}
+
 function Submit-AidosControlIntent {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ProjectRoot,
         [Parameter(Mandatory)][ValidateSet('RUN','PAUSE','RESUME','SAFE_STOP','QUERY_STATUS','SUBMIT_HUMAN_INPUT','REQUEST_RECOVERY')][string]$Command,
         [Parameter(Mandatory)][string]$RequestedBy,
-        $Payload,
-        [string]$WorkstreamId
+        [string]$WorkstreamId,
+        [hashtable]$Payload=@{}
     )
     $root=Resolve-AidosFileSystemPath $ProjectRoot
     $profile=Get-AidosProjectProfile $root
-    $controlId=[guid]::NewGuid().ToString();$now=[DateTimeOffset]::UtcNow.ToString('o')
-    $record=[ordered]@{schema_version='0.1';control_id=$controlId;command=$Command;project_id=[string]$profile.project_id;workstream_id=if([string]::IsNullOrWhiteSpace($WorkstreamId)){$null}else{$WorkstreamId};requested_by=$RequestedBy;status='RECEIVED';payload=$Payload;submitted_at=$now;applied_at=$null;result=$null}
-    $path=Get-AidosOperatorControlIntentPath $root $controlId
-    Write-AidosJsonAtomic $path $record
-    try{
+    $controlId=[guid]::NewGuid().ToString()
+    $intent=[ordered]@{
+        schema_version='0.1'
+        control_id=$controlId
+        command=$Command
+        project_id=[string]$profile.project_id
+        workstream_id=if([string]::IsNullOrWhiteSpace($WorkstreamId)){$null}else{$WorkstreamId}
+        requested_by=$RequestedBy
+        status='RECEIVED'
+        payload=$Payload
+        submitted_at=[DateTimeOffset]::UtcNow.ToString('o')
+        applied_at=$null
+        result=$null
+    }
+    $path=Write-AidosControlIntent -ProjectRoot $root -Intent $intent
+    try {
+        $intent.status='ACCEPTED'
+        Update-AidosControlIntent -Path $path -Intent $intent|Out-Null
         switch($Command){
-            'PAUSE' {$record.result=Set-AidosOperatorControlState $root 'PAUSED' $RequestedBy $controlId;$record.status='APPLIED'}
-            'SAFE_STOP' {$record.result=Set-AidosOperatorControlState $root 'SAFE_STOPPED' $RequestedBy $controlId;$record.status='APPLIED'}
-            'RUN' {$record.result=Set-AidosOperatorControlState $root 'RUNNING' $RequestedBy $controlId;$record.status='APPLIED'}
-            'RESUME' {$record.result=Set-AidosOperatorControlState $root 'RUNNING' $RequestedBy $controlId;$record.status='APPLIED'}
-            'QUERY_STATUS' {$record.result=Get-AidosOperatorSnapshot -ProjectRoot $root;$record.status='APPLIED'}
-            'SUBMIT_HUMAN_INPUT' {throw 'SUBMIT_HUMAN_INPUT is routed through the dedicated Human Input processor.'}
-            'REQUEST_RECOVERY' {throw 'REQUEST_RECOVERY processor is not implemented.'}
+            'QUERY_STATUS' {
+                $intent.result=[ordered]@{runtime_status=Get-AidosRuntimeStatusProjection $root}
+                $intent.status='APPLIED'
+            }
+            'PAUSE' {
+                $intent.result=[ordered]@{control=Set-AidosOperatorControlState -ProjectRoot $root -Mode PAUSED -RequestedBy $RequestedBy -ControlId $controlId;semantics='No new persistent desktop Worker activation after the next host-agent tick. Running bounded execution is not killed.'}
+                $intent.status='APPLIED'
+            }
+            'SAFE_STOP' {
+                $intent.result=[ordered]@{control=Set-AidosOperatorControlState -ProjectRoot $root -Mode SAFE_STOPPED -RequestedBy $RequestedBy -ControlId $controlId;semantics='No new persistent desktop Worker activation. Running bounded execution is not killed.'}
+                $intent.status='APPLIED'
+            }
+            {$_ -in @('RUN','RESUME')} {
+                $state=Get-AidosState $root
+                if([string]$state.state -eq 'RECOVERY_REQUIRED'){throw 'RUN/RESUME rejected while project state is RECOVERY_REQUIRED.'}
+                $intent.result=[ordered]@{control=Set-AidosOperatorControlState -ProjectRoot $root -Mode RUNNING -RequestedBy $RequestedBy -ControlId $controlId}
+                $intent.status='APPLIED'
+            }
+            'SUBMIT_HUMAN_INPUT' {throw 'SUBMIT_HUMAN_INPUT runtime processor is not implemented; use the canonical Human Input Request resolver.'}
+            'REQUEST_RECOVERY' {throw 'REQUEST_RECOVERY runtime processor is not implemented; recovery remains an explicit AIDOS Core reconciliation action.'}
         }
-    }catch{$record.status='REJECTED';$record.result=[ordered]@{reason=$_.Exception.Message}}
-    $record.applied_at=[DateTimeOffset]::UtcNow.ToString('o');Write-AidosJsonAtomic $path $record
-    [pscustomobject][ordered]@{intent=[pscustomobject]$record;path=[IO.Path]::GetRelativePath($root,$path).Replace('\','/')}
-}
-function Get-AidosOperatorSnapshot {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[string]$HostAgentStateRoot)
-    $root=Resolve-AidosFileSystemPath $ProjectRoot;$profile=Get-AidosProjectProfile $root;$state=Get-AidosState $root;$control=Get-AidosOperatorControlState $root
-    $humanInputRoot=Join-Path $root '.aidos/human-input';$human=@()
-    if(Test-Path -LiteralPath $humanInputRoot -PathType Container){$human=@(Get-ChildItem -LiteralPath $humanInputRoot -Filter '*.json' -File -ErrorAction SilentlyContinue|ForEach-Object {try{Read-AidosJson $_.FullName}catch{$null}}|Where-Object {$null-ne$_})}
-    $eventsRoot=Join-Path $root '.aidos/events';$events=@()
-    if(Test-Path -LiteralPath $eventsRoot -PathType Container){$events=@(Get-ChildItem -LiteralPath $eventsRoot -Filter '*.jsonl' -File -ErrorAction SilentlyContinue|Sort-Object LastWriteTimeUtc -Descending|Select-Object -First 5|ForEach-Object {[pscustomobject]@{path=[IO.Path]::GetRelativePath($root,$_.FullName).Replace('\','/');last_write_utc=$_.LastWriteTimeUtc.ToString('o')}})}
-    $host=$null
-    if(-not[string]::IsNullOrWhiteSpace($HostAgentStateRoot)){$statusPath=Join-Path $HostAgentStateRoot 'STATUS.json';if(Test-Path -LiteralPath $statusPath -PathType Leaf){$host=Get-Content -LiteralPath $statusPath -Raw|ConvertFrom-Json -Depth 100}}
-    [pscustomobject][ordered]@{schema_version='0.1';project=[ordered]@{project_id=[string]$profile.project_id;repository=[string]$profile.repository;project_mode=[string]$profile.project_mode;runner_policy=[string]$profile.runner_policy};runtime=[ordered]@{state=[string]$state.state;definition_id=$state.definition_id;definition_version=$state.definition_version;execution_id=$state.execution_id;revision=$state.revision;review_id=$state.review_id;terminal_result=$state.terminal_result;validation_result=$state.validation_result;updated_at=$state.updated_at};control=$control;human_input=[ordered]@{waiting=@($human|Where-Object {$_.status-eq'WAITING'});resolved=@($human|Where-Object {$_.status-eq'RESOLVED'})};recent_events=$events;host_agent=$host;observed_at=[DateTimeOffset]::UtcNow.ToString('o')}
+        $intent.applied_at=[DateTimeOffset]::UtcNow.ToString('o')
+    } catch {
+        $intent.status='REJECTED'
+        $intent.result=[ordered]@{reason=$_.Exception.Message}
+        $intent.applied_at=[DateTimeOffset]::UtcNow.ToString('o')
+    }
+    Update-AidosControlIntent -Path $path -Intent $intent|Out-Null
+    [pscustomobject][ordered]@{intent=[pscustomobject]$intent;path=[IO.Path]::GetRelativePath($root,$path).Replace('\','/')}
 }
 
-Export-ModuleMember -Function Get-AidosOperatorControlState,Set-AidosOperatorControlState,Submit-AidosControlIntent,Get-AidosOperatorSnapshot
+Export-ModuleMember -Function Get-AidosOperatorControlStatePath,Get-AidosOperatorControlState,Set-AidosOperatorControlState,Get-AidosRuntimeStatusProjection,Get-AidosOperatorSnapshot,Submit-AidosControlIntent
