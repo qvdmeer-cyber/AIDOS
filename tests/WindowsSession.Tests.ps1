@@ -7,8 +7,11 @@ if(-not $IsWindows){ throw 'WindowsSession.Tests.ps1 must run under Windows Powe
 
 Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/AidosBridge.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/AidosDesktopChatGPT.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/AidosWindowsSession.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/AidosDesktopSessionGate.psm1') -Force -DisableNameChecking
+# Import the session module last. The gate imports it as a nested dependency with
+# -Force; importing it again here makes its public commands available to this
+# standalone caller scope as well.
+Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bridge/AidosWindowsSession.psm1') -Force -DisableNameChecking
 
 $passed=0
 function Assert-SessionTest([bool]$Condition,[string]$Message){
