@@ -25,6 +25,9 @@ function Register-AidosPreparationProject {
         [Parameter(Mandatory)][string]$ProjectId,
         [Parameter(Mandatory)][string]$Repository,
         [Parameter(Mandatory)][string]$LocalRoot,
+        [ValidateSet('NEW_PROJECT','EXISTING_PROJECT')][string]$ProjectMode='EXISTING_PROJECT',
+        [string]$DefaultBranch='main',
+        [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$RunnerPolicy='SUPERVISED',
         [ValidateSet('NATIVE','WINDOWS_WSL')][string]$GitRuntimeKind='NATIVE',
         [string]$WslDistribution,
         [string]$WslProjectRoot,
@@ -43,8 +46,8 @@ function Register-AidosPreparationProject {
     }
     $now=[DateTimeOffset]::UtcNow.ToString('o')
     $record=[ordered]@{
-        schema_version='0.1';project_id=$ProjectId;repository=$Repository;local_root=$local;stage='PREPARATION';
-        preparation_phase='PROJECT_BASELINE';status='ACTIVE';git_runtime=$gitRuntime;
+        schema_version='0.2';project_id=$ProjectId;repository=$Repository;local_root=$local;stage='PREPARATION';
+        preparation_phase='PROJECT_BASELINE';status='ACTIVE';project_mode=$ProjectMode;default_branch=$DefaultBranch;runner_policy=$RunnerPolicy;git_runtime=$gitRuntime;
         allowed_persistence_paths=@($AllowedPersistencePaths);registered_at=$now;updated_at=$now;promoted_at=$null
     }
     Write-AidosJsonAtomic $path $record
