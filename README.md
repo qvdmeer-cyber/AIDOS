@@ -2,7 +2,24 @@
 
 **Artificial Intelligence Development Operating System**
 
-AIDOS is the private core for human-governed AI software development. It separates project preparation, human-accepted goal definition, high-value reasoning, technical execution, review, release governance, recovery and reusable learning so AI agents can work autonomously inside explicit boundaries without making product decisions on behalf of the human owner.
+AIDOS is the private orchestration, governance and learning layer around AI development runtimes. It is not one project and it is not one GPT/Codex chat.
+
+## One AIDOS, multiple isolated projects
+
+There is conceptually one AIDOS runtime managing multiple development instances:
+
+```text
+AIDOS
+├─ Project A
+├─ Project B
+└─ Project C
+```
+
+Each project owns its own durable truth, authority and workflow state. GPT/Codex sessions are temporary actors inside a project and can be replaced without losing workflow state.
+
+Core principle:
+
+> **Project-local truth; AIDOS-global capability and control flow.**
 
 ## Ecosystem boundary
 
@@ -11,18 +28,18 @@ AIDOS-Contracts
   → Project Baseline + Discovery Closure contracts
 
 AIDOS-Builder
-  → distributable Project Baseline + Existing Project Discovery
+  → distributable preparation / Existing Project Discovery
 
 Project repository
-  → project truth + evidence + accepted preparation state
+  → accepted project truth + evidence + durable project/workstream state
 
-AIDOS
-  → private Definition / Worker / Execution / review / learning runtime
+AIDOS Core/Runtime
+  → Definition, orchestration, controls, execution/review, recovery, learning
 ```
 
-The private AIDOS core does not need to be shared with collaborators who only use AIDOS-Builder.
+A future external **AIDOS Interface** is a separate client layer/project above Core. No Interface UI is implemented here.
 
-## Preparation gate
+## Current preparation gate
 
 ```text
 NEW_PROJECT
@@ -37,199 +54,178 @@ Accepted Project Baseline
 → Definition
 ```
 
-For an existing product, the primary repository is only the discovery starting point. AIDOS-Builder must recursively close materially relevant first-party components and reasonably observable runtime before the Current Product State is eligible for acceptance.
+For existing products, the primary repository is only the discovery root. Material first-party components and reasonably observable runtime must be closed under the current Discovery Closure rules.
 
-Core Discovery Closure invariant:
+This profile/workstream/control expansion does not silently change the current preparation lifecycle ordering; that remains a separately versioned governance decision.
 
-> **Existing Project Discovery is complete only when AIDOS has closed the material product graph: all materially relevant first-party components and all reasonably observable runtime surfaces have either been discovered or are explicitly unresolved blockers.**
+## Core runtime flow
 
-An explicit unresolved blocker keeps discovery incomplete.
-
-## Discovery authority is not execution authority
-
-Project/source access, discovery authority and execution authority are separate.
-
-AIDOS-Builder Discovery Authority may automatically allow:
-
-- passive read-only observation of known public runtime;
-- read-only following of an evidence-linked `FIRST_PARTY_MATERIAL` source when accessible.
-
-It does not grant permission to modify code, deploy, write databases, make payments, submit side-effect forms or perform mutating admin actions. Active/authenticated discovery requires its own bounded grant.
-
-AIDOS Core execution remains governed independently by the accepted Execution authority envelope.
-
-## Core flow
+The mature control abstraction is:
 
 ```text
-Accepted preparation state
-  ↓
-Definition Agent + Human
-  ↓
-ACCEPTED DEVELOPMENT DEFINITION
-  ↓
-Worker Agent
-  ↓
-Execution Agent / Codex
-  ↓
-Evidence + Review
-  ↓
-Worker Agent
-  ├─ PASS
-  ├─ REPAIR → Execution Agent
-  ├─ DISCOVERY_REFRESH_REQUIRED → AIDOS-Builder
-  ├─ CONTRADICTION → Definition Agent + Human
-  └─ GATE/BLOCKER → Human
+AIDOS
+→ select next actor from durable state
+→ activate exact actor/project/workstream binding
+→ actor emits durable result/event/request
+→ AIDOS validates/reconciles
+→ AIDOS selects next valid actor
 ```
 
-For existing projects, execution binds the exact closure-compatible Current Product State version/commit used by Definition.
+Actors do not directly own one another's lifecycle.
 
-## Core rules
+### Actor roles
 
-1. **Accepted project truth before goal definition.** A compatible accepted Project Baseline is mandatory.
-2. **Product-complete current state before change definition.** An existing product additionally requires an accepted Current Product State under current Discovery Closure rules.
-3. **Definition is delta-only for existing projects.** Existing functionality is evidence, not a product question to rediscover.
-4. **Definition before execution.** The human explicitly accepts foreseeable changed behaviour, constraints and acceptance criteria.
-5. **Project-local truth.** Baseline, evidence, component graph, runtime observations, CPS, Definitions and project-specific truth stay in the project repository.
-6. **AIDOS-global capability.** Generic runtime agents, protocols, validators, reusable profiles and reusable learning live once in AIDOS.
-7. **Goal-scoped context.** Agents load only relevant generic profile/capability/goal knowledge plus bound project truth.
-8. **Bounded autonomy.** Execution continues while useful inside accepted goal/authority and stops at material boundaries or terminal completion.
-9. **Frozen launch criteria.** Once accepted launch criteria pass, improvement alone is not sufficient grounds for delay; default state is `RELEASE_READY` unless release scope is explicitly reopened.
+- **Thinker** — bounded reasoning/planning/review.
+- **Worker** — bounded technical execution/mutation.
+- **Human** — genuine product/risk/authority decisions.
+
+Existing concrete identities are preserved: `DEFINITION_AGENT` and the current reasoning/review `WORKER_AGENT` can serve Thinker roles; `EXECUTION_AGENT`/Codex serves the technical Worker role.
+
+## Multiple workstreams inside one project
+
+An accepted Definition may be executed sequentially or decomposed into parallel workstreams, for example API, frontend, admin and integration/tests.
+
+A workstream has durable:
+
+- identity and Definition binding;
+- scope ownership;
+- shared contracts;
+- dependency graph;
+- blockers;
+- shared-resource claims/leases;
+- integration gates.
+
+Parallelization is optional and dependency-driven. AIDOS must not parallelize when shared state/uncertainty makes that unsafe.
+
+A local workstream result is not automatically an integrated project result. Applicable cross-workstream integration gates must pass first.
+
+See `docs/WORKSTREAM_ORCHESTRATION.md` and `schemas/workstream.schema.json`.
+
+## Control plane
+
+AIDOS must be controllable without depending on a UI. External clients submit intent; Core remains authority.
+
+Core control intents include:
+
+```text
+RUN
+PAUSE
+RESUME
+SAFE_STOP
+QUERY_STATUS
+SUBMIT_HUMAN_INPUT
+REQUEST_RECOVERY
+```
+
+> **The interface passes intent. AIDOS decides how that intent can safely be applied.**
+
+No UI/client may directly start/kill Codex, rewrite state or mutate project files outside AIDOS orchestration.
+
+General remote-control execution is roadmap work. Existing supervised-session behaviour already proves part of the safe-boundary semantics.
+
+See `docs/CONTROL_PLANE.md` and `schemas/control-intent.schema.json`.
+
+## Human Input Requests
+
+Human input is a first-class durable object, not a property of a GPT chat.
+
+```text
+actor reaches genuine human boundary
+→ Human Input Request WAITING
+→ any authorized channel can present it
+→ human response is validated/persisted
+→ request RESOLVED
+→ AIDOS chooses next actor
+```
+
+Requests bind the exact project/workstream and relevant Definition/execution/revision/review state. The current top-level runtime state `WAITING_USER` remains valid; the request supplies the durable reason/question behind it.
+
+See `schemas/human-input-request.schema.json` and `protocols/INTERRUPTION_PROTOCOL.md`.
 
 ## Composable project profiles
 
-AIDOS uses composable, versioned profiles to avoid repeating the same applicability reasoning and Definition questions across projects.
+AIDOS reuses versioned profile layers to shorten project/Definition reasoning:
 
 ```text
-Project Profile
-├─ PRODUCT_ARCHETYPE
-├─ CAPABILITY
-├─ INTEGRATION
-├─ STACK
-├─ INFRASTRUCTURE
-└─ EXPOSURE_RISK
+PRODUCT_ARCHETYPE
+CAPABILITY
+INTEGRATION
+STACK
+INFRASTRUCTURE
+EXPOSURE_RISK
 ```
 
-Exactly one Product Archetype defines what/where the product fundamentally is. Other layers compose around it.
+Examples of Product Archetypes include web/mobile/desktop applications, API/background services, CLI/library/browser extension, CMS, ChatGPT app and MCP server.
 
-Examples of Product Archetypes include:
+Profiles are hypotheses/accelerators, never project truth. Verified project evidence and explicit accepted decisions override them.
 
-```text
-STATIC_MARKETING_SITE
-CONTENT_WEBSITE
-WEB_APPLICATION
-MOBILE_APPLICATION
-DESKTOP_APPLICATION
-API_SERVICE
-BACKGROUND_SERVICE
-CLI_APPLICATION
-LIBRARY_PACKAGE
-BROWSER_EXTENSION
-CMS_APPLICATION
-CHATGPT_APP
-MCP_SERVER
-```
-
-A provider/integration is not an archetype. For example, a web/mobile/API product using OpenAI remains its actual Product Archetype plus the `OPENAI_API` Integration profile.
-
-Profiles map to reusable development surfaces such as UI/UX/design, API/tool contracts, localization, auth, data, background work, integrations, security/privacy, runtime, observability, recovery and compatibility.
-
-Two applicability layers are kept distinct:
-
-```text
-Project Applicability
-= which development surfaces exist or may exist in this product?
-
-Definition Applicability
-= which of those surfaces are affected by this specific desired delta?
-```
-
-This lets an API-only project exclude UI/design while preventing a UI-bearing project from silently omitting UI/UX/design when a delta actually affects it.
-
-Profiles are accelerators, never truth. Verified project evidence and explicit human-accepted project decisions always override preset assumptions.
-
-Profile effectiveness is evaluated over time (overrides, evidence contradictions, avoided questions, Codex retries, GPT handoffs, validator prevention). Proven recurring lessons can update versioned profiles and eventually become validators/tools.
+Project Applicability answers which development surfaces exist/may exist. Definition Applicability answers which of those are affected by one desired delta.
 
 See `docs/PROFILE_PRESETS.md`.
 
-## Discovery refresh
+## Definition progress
 
-A previously accepted CPS is not silently reinterpreted under stronger discovery rules.
+Definition state is durable and per-surface. A new/rotated GPT session resumes from project-local applicability/progress rather than chat memory.
+
+After every human Definition decision:
 
 ```text
-accepted old CPS
-→ preserve as historical lineage
-→ DISCOVERY_REFRESH_REQUIRED
-→ reuse existing evidence/current-state facts
-→ discover only missing material branches/runtime observations
-→ deterministic closure PASS
-→ accept new CPS
+persist decision
+→ update applicability/progress
+→ validate
+→ show current surface progress
+→ ask next question
 ```
 
-Definition and Worker must route a material missing component/runtime branch back to AIDOS-Builder rather than absorbing that discovery into goal reasoning.
+## Progress and ETA
+
+AIDOS may expose probabilistic project/workstream progress and Estimated Time Remaining.
+
+Progress is not simple task-count completion. Where possible it uses Definition scope, workstreams, dependency graph, weighted remaining work, validation and integration status.
+
+ETA carries explicit confidence (`HIGH`, `MEDIUM`, `LOW`, `NOT_RELIABLY_ESTIMABLE`). Estimated versus actual remaining time can be retained to calibrate future estimates.
+
+Progress/ETA are estimates only. Definition + evidence + validation/integration/release gates determine actual completeness.
+
+See `docs/PROGRESS_AND_ESTIMATION.md`.
+
+## Observability and learning
+
+AIDOS records project/workstream executions/revisions, repair cycles, blockers/recoveries, Human Input reasons, first-pass acceptance, wait categories, phase durations, Definition gaps exposed during execution and estimation error.
+
+Portfolio-level analysis may track autonomy/reliability and recurring bottlenecks while preserving project isolation.
+
+Learning distinguishes:
+
+```text
+OBSERVATION
+→ HYPOTHESIS / learning candidate
+→ explicit review/adoption
+→ ADOPTED_IMPROVEMENT
+```
+
+A statistical pattern never automatically becomes a system rule.
+
+A key maturity metric is **where human attention is still required** and whether it shifts from operational/technical problems toward genuine product, risk and strategic decisions.
+
+See `docs/TELEMETRY.md`, `protocols/LEARNING_PROTOCOL.md` and `schemas/system-insight.schema.json`.
 
 ## Launch governance
 
-For a product/material release, establish an accepted Launch Definition before the final development phase where practical:
+For product/material releases, accepted Launch Definition freezes release criteria. New findings become `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`. When accepted criteria pass, the default state is `RELEASE_READY`; improvement alone is not sufficient grounds for delay.
 
-```text
-Accepted Launch Definition
-→ RELEASE_SCOPE_FROZEN
-→ final accepted work
-→ launch criteria PASS
-→ RELEASE_READY
-→ release / real-user evidence
-```
+## Durable state and recovery
 
-After freeze, new findings are `LAUNCH_BLOCKER`, `POST_LAUNCH` or `EVIDENCE_REQUIRED`. Useful non-blocking ideas go to the post-launch backlog. Delaying after `RELEASE_READY` requires explicit reopen with reason/consequence.
+Chats and Codex sessions are disposable. Essential state is reconstructable from project/workstream objects, append-only events, Git bindings, leases, review transport, Human Input Requests and canonical project sources.
 
-See `protocols/LAUNCH_PROTOCOL.md`.
+Crash/restart/session replacement must never require hidden chat memory to recover control flow.
 
-## Agent model
+## Implementation status
 
-- **Definition Agent** — consumes accepted preparation state, resolves project/delta applicability, defines only the desired delta and obtains human acceptance.
-- **Worker Agent** — plans bounded execution, reviews evidence, detects stale/incomplete CPS, enforces release-scope discipline and controls transitions.
-- **Execution Agent** — technical execution only inside exact accepted bindings/authority.
+Already present/proven foundations include exact project/execution binding, execution leases, bounded Codex lifecycle, deterministic validation, review transport/cleanup, fail-closed recovery and supervised interactive-session gating.
 
-Project Baseline and Existing Project Discovery/Discovery Closure are owned externally by AIDOS-Builder + AIDOS-Contracts.
+New **architecture/contracts now present** include workstreams, actor-role/control-flow model, Human Input Requests, control intents, progress/ETA and Observation/Hypothesis/Adopted-Improvement insight contracts.
 
-## Knowledge inheritance
+Their full multi-workstream/control-plane runtime implementation remains roadmap work. See `docs/CORE_ORCHESTRATION_ROADMAP.md`.
 
-```text
-AIDOS Core
-→ relevant profile/capability knowledge
-→ relevant goal-pattern knowledge
-→ accepted Project Baseline
-→ accepted closure-compatible Current Product State (EXISTING_PROJECT)
-→ accepted Definition
-→ accepted Launch Definition where applicable
-→ current Execution
-```
-
-More specific accepted project truth wins over profiles/generic heuristics.
-
-## Durable state
-
-Chats and Codex sessions are disposable. Essential state must be reconstructable from repository state/events.
-
-The project repository owns:
-
-- Project Baseline;
-- Evidence Inventory;
-- Discovery Authority and discovery state;
-- CPS including system components/dependency graph/runtime evidence;
-- project applicability profile;
-- Definition applicability/progress;
-- Definitions/executions/reviews;
-- release state/backlog.
-
-AIDOS consumes these objects; it does not turn chat memory into canonical truth.
-
-## Current implementation status
-
-The private AIDOS foundation is present. Existing-project onboarding now fails closed unless Evidence Inventory 0.2 and an accepted CPS/discovery state under Discovery Closure 0.2 are present with no open discovery blocker.
-
-Composable profile/applicability foundation is present in AIDOS Core: development-surface/preset catalogs, project/Definition applicability schemas, resolver tooling, profile evaluation schema and profile-targeted learning classification. This foundation does **not** itself change the current Project Baseline/Discovery lifecycle ordering; that remains a separately versioned governance decision.
-
-The local multi-project bridge, Codex lifecycle, review transport, desktop ChatGPT integration and crash reconciliation remain the main runtime implementation work.
-
-The existing Workflow V2 remains separate as a fallback.
+The external AIDOS Interface UI is explicitly not part of this Core implementation.
