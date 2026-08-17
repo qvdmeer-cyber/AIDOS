@@ -21,6 +21,8 @@ This repository is the single source of truth for the **private AIDOS runtime me
 - Definition completeness/progress is project-local durable state. Do not infer it from chat history when `PROGRESS.json` exists.
 - After every human Definition decision, persist the decision, update/validate all affected Definition surfaces, show the current **full per-surface progress**, and only then ask the next single question.
 - Do not advance a Definition to user review until all fixed Definition surfaces are `COMPLETE` or justified `NOT_APPLICABLE` and the Definition progress validator passes.
+- Composable profile presets are reusable hypotheses/accelerators only. They may narrow applicability and suggest defaults, but they never override verified project evidence or explicit accepted project decisions.
+- A project-applicable development surface may not be silently omitted from a Definition until its delta applicability is durably classified as `AFFECTED`, `NOT_AFFECTED` or otherwise resolved.
 - Generic private AIDOS runtime agents are defined once here; projects configure them rather than forking them.
 - Reusable learning must be generalized and retain provenance/evidence.
 - A generic heuristic may never silently override accepted Project Baseline, CPS, project truth, Definition or frozen Launch Definition.
@@ -55,11 +57,61 @@ open discovery blockers = 0
 
 ## Agent hierarchy
 
-1. **Definition Agent** — consumes accepted preparation state, maintains durable Definition-surface convergence state, defines one desired delta/goal and obtains human acceptance.
+1. **Definition Agent** — consumes accepted preparation state, resolves project/delta applicability, maintains durable Definition-surface convergence state, defines one desired delta/goal and obtains human acceptance.
 2. **Worker Agent** — bounded planning, dispatch, review, CPS-staleness detection, release-scope discipline and state control.
 3. **Execution Agent** — technical execution only inside exact accepted bindings and authority.
 
 Project preparation happens before this hierarchy through AIDOS-Builder/AIDOS-Contracts.
+
+## Composable profiles
+
+AIDOS reusable profiles are defined by:
+
+```text
+catalog/development-surfaces.catalog.json
+catalog/profile-presets.catalog.json
+schemas/profile-preset.schema.json
+schemas/project-applicability.schema.json
+schemas/definition-applicability.schema.json
+```
+
+Profile categories:
+
+```text
+PRODUCT_ARCHETYPE
+CAPABILITY
+INTEGRATION
+STACK
+INFRASTRUCTURE
+EXPOSURE_RISK
+```
+
+Exactly one Product Archetype describes what/where the product fundamentally is. Capabilities describe what it can do; integrations describe external systems/providers it talks to. A product that calls OpenAI is therefore not automatically a `CHATGPT_APP`; it may be any archetype plus `OPENAI_API` integration.
+
+Project applicability is durable at:
+
+```text
+.aidos/profile/PROJECT_APPLICABILITY.json
+```
+
+Per-Definition applicability is durable at:
+
+```text
+.aidos/definitions/<definition_id>/v<version>/APPLICABILITY.json
+```
+
+Precedence:
+
+```text
+verified/accepted project truth
+> explicit project applicability override
+> composed preset result
+> generic heuristic
+```
+
+Use profile evaluation/learning to improve preset versions over time. Repeated corrections, Codex retries and handoffs should become profile lessons and ultimately validators/tools when machine prevention is possible.
+
+See `docs/PROFILE_PRESETS.md`.
 
 ## Definition progress
 
@@ -75,7 +127,7 @@ A new or rotated chat reads this durable object before continuing. Each human de
 
 ```text
 persist decision
-→ update affected surfaces
+→ update affected surfaces/applicability
 → recalculate/validate progress
 → show every surface
 → ask next question
@@ -87,7 +139,7 @@ The progress display is a control surface, not optional conversational decoratio
 
 ```text
 AIDOS core
-→ relevant capability knowledge
+→ relevant profile/capability knowledge
 → relevant goal-pattern knowledge
 → accepted Project Baseline
 → accepted closure-compatible CPS (EXISTING_PROJECT)
@@ -96,7 +148,7 @@ AIDOS core
 → current Execution
 ```
 
-Do not bulk-load unrelated knowledge.
+Do not bulk-load unrelated knowledge. Applicability should actively exclude irrelevant knowledge (for example UI guidance for an API-only delta).
 
 ## Discovery refresh
 
@@ -124,7 +176,7 @@ After scope freeze classify new findings only as `LAUNCH_BLOCKER`, `POST_LAUNCH`
 
 Chats/sessions are disposable. Essential state must be reconstructable from project-repository state/events.
 
-AIDOS consumes but does not own/regenerate Project Baseline, Evidence Inventory, Discovery Authority, discovery state or CPS. Definition decisions and Definition-surface progress are likewise project-local durable state.
+AIDOS consumes but does not own/regenerate Project Baseline, Evidence Inventory, Discovery Authority, discovery state or CPS. Definition decisions, applicability and Definition-surface progress are likewise project-local durable state.
 
 ## Changes to AIDOS itself
 
@@ -134,7 +186,7 @@ Prefer:
 observed project fact
 → generalized candidate lesson
 → evidence/provenance review
-→ proven knowledge
+→ proven knowledge/profile update
 → validator/tool/skill where possible
 → protocol simplification when justified
 ```
