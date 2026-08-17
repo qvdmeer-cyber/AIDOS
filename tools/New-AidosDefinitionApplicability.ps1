@@ -95,7 +95,7 @@ if ($PSCmdlet.ShouldProcess($output, 'Initialize Definition development-surface 
     $parent = Split-Path -Parent $output
     if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     [System.IO.File]::WriteAllText($output, ($result | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
-    Write-Host "Initialized Definition applicability for '$DefinitionId' v$DefinitionVersion: $unresolved unresolved development surface(s)."
+    Write-Host "Initialized Definition applicability for '$DefinitionId' v${DefinitionVersion}: $unresolved unresolved development surface(s)."
 }
 
 $result
