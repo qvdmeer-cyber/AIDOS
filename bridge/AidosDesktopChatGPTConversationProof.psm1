@@ -36,6 +36,17 @@ function Get-AidosDesktopChatGPTProofElementDepth {
     $depth
 }
 
+function Select-AidosDesktopChatGPTMostSpecificProofCandidate {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object[]]$Candidates,[string]$ProofText='conversation proof')
+    if($Candidates.Count-eq0){throw "Conversation proof text '$ProofText' was not found in the active ChatGPT window."}
+    $ordered=@($Candidates|Sort-Object @{Expression={[bool]$_.exact};Descending=$true},@{Expression={[int]$_.text_length};Descending=$false},@{Expression={[int]$_.depth};Descending=$true})
+    $best=$ordered[0]
+    $ties=@($ordered|Where-Object {[bool]$_.exact-eq[bool]$best.exact -and [int]$_.text_length-eq[int]$best.text_length -and [int]$_.depth-eq[int]$best.depth})
+    if($ties.Count-ne1){throw "Conversation proof text '$ProofText' remains ambiguous after most-specific UIA selection."}
+    $best
+}
+
 function Find-AidosDesktopChatGPTMostSpecificConversationElement {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$RootElement,[Parameter(Mandatory)][string]$ProofText)
@@ -54,11 +65,7 @@ function Find-AidosDesktopChatGPTMostSpecificConversationElement {
             depth=(Get-AidosDesktopChatGPTProofElementDepth $element)
         })
     }
-    if($candidates.Count-eq0){throw "Conversation proof text '$ProofText' was not found in the active ChatGPT window."}
-    $ordered=@($candidates|Sort-Object @{Expression={$_.exact};Descending=$true},@{Expression={$_.text_length};Descending=$false},@{Expression={$_.depth};Descending=$true})
-    $best=$ordered[0]
-    $ties=@($ordered|Where-Object {$_.exact-eq$best.exact -and $_.text_length-eq$best.text_length -and $_.depth-eq$best.depth})
-    if($ties.Count-ne1){throw "Conversation proof text '$ProofText' remains ambiguous after most-specific UIA selection."}
+    $best=Select-AidosDesktopChatGPTMostSpecificProofCandidate -Candidates @($candidates) -ProofText $ProofText
     $best.element
 }
 
@@ -91,4 +98,4 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
     [pscustomobject]$values
 }
 
-Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Find-AidosDesktopChatGPTMostSpecificConversationElement,New-AidosDesktopChatGPTResilientConversationBackend
+Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,New-AidosDesktopChatGPTResilientConversationBackend
