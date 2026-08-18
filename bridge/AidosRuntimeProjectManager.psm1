@@ -72,6 +72,7 @@ function Invoke-AidosRuntimeProjectManagerTick {
     param(
         [Parameter(Mandatory)][string]$RegistryRoot,
         [int]$MaxProjects=1,
+        [switch]$Push,
         [scriptblock]$ActorActivator
     )
     if($MaxProjects -lt 1){throw 'MaxProjects must be at least 1.'}
@@ -92,18 +93,26 @@ function Invoke-AidosRuntimeProjectManagerTick {
         if($processed -ge $MaxProjects){break}
         $selection=$candidate.selection
         $activation=$null
+        $persistence=$null
         $status='OBSERVED'
         if([bool]$selection.activatable){
             if($ActorActivator){
                 try{$activation=& $ActorActivator $candidate.project $selection;$status='ACTIVATED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
             }elseif([string]$selection.actor_identity -eq 'DEFINITION_AGENT' -and [string]$selection.action -in @('START_DEFINITION','RESUME_DEFINITION')){
-                try{$activation=New-AidosRuntimeActorAssignment -Project $candidate.project -Selection $selection;$status='ASSIGNED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
+                try{
+                    $activation=New-AidosRuntimeActorAssignment -Project $candidate.project -Selection $selection
+                    $assignmentId=[string]$activation.assignment.assignment_id
+                    $persistence=Invoke-AidosPreparationGitPersistence -Project $candidate.project -CommitMessage ("AIDOS schedule runtime actor $assignmentId") -Push:$Push
+                    $status='ASSIGNED'
+                }catch{
+                    $status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}
+                }
             }else{
                 $status='ACTOR_ADAPTER_REQUIRED'
             }
             $processed++
         }
-        $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation})
+        $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
     [pscustomobject][ordered]@{
         schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');
