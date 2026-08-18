@@ -285,9 +285,9 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
     $assignmentObject=if($Assignment.PSObject.Properties['assignment']){$Assignment.assignment}else{$Assignment}
     if(-not$assignmentObject -or [string]::IsNullOrWhiteSpace([string]$assignmentObject.assignment_id)){return $null}
     $assignmentId=[string]$assignmentObject.assignment_id
-    $assignmentSha256=$null
-    if($Assignment.PSObject.Properties['sha256']){$assignmentSha256=[string]$Assignment.sha256}
-    elseif($Assignment.PSObject.Properties['assignment_sha256']){$assignmentSha256=[string]$Assignment.assignment_sha256}
+    $expectedAssignmentHashes=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    if($Assignment.PSObject.Properties['sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.sha256)}
+    elseif($Assignment.PSObject.Properties['assignment_sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.assignment_sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.assignment_sha256)}
     $surfaces=[Collections.Generic.List[string]]::new()
     $seenSurfaces=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach($text in @($Texts)){
@@ -302,6 +302,20 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
         $aggregate=[string]::Join("`n",$orderedSurfaces)
         if($seenSurfaces.Add($aggregate)){$surfaces.Add($aggregate)}
     }
+    if($expectedAssignmentHashes.Count-eq0){
+        foreach($surface in @($surfaces)){
+            if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
+                if($candidate.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-lt0 -and $candidate.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+                try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
+                if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
+                if([string]$parsed.assignment_id-ne$assignmentId){continue}
+                $templateHash=[string]$parsed.assignment_sha256
+                if($templateHash-match'^[0-9a-fA-F]{64}$'){[void]$expectedAssignmentHashes.Add($templateHash)}
+            }
+        }
+    }
     $responses=[Collections.Generic.List[string]]::new()
     $seenResponses=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach($surface in @($surfaces)){
@@ -313,7 +327,9 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
             try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
             if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
             if([string]$parsed.assignment_id-ne$assignmentId){continue}
-            if(-not[string]::IsNullOrWhiteSpace($assignmentSha256) -and [string]$parsed.assignment_sha256-ne$assignmentSha256){continue}
+            $candidateHash=[string]$parsed.assignment_sha256
+            if($candidateHash-notmatch'^[0-9a-fA-F]{64}$'){continue}
+            if($expectedAssignmentHashes.Count-gt0 -and -not$expectedAssignmentHashes.Contains($candidateHash)){continue}
             if($seenResponses.Add($candidate)){$responses.Add($candidate)}
         }
     }
