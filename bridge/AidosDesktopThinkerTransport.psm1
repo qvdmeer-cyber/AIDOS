@@ -81,16 +81,13 @@ function Initialize-AidosDesktopThinkerEnrollment {
     & $Backend.AssertInteractiveSession|Out-Null
     $context=& $Backend.GetProcessContext $ProcessName
     if(-not$context -or -not$context.present){throw 'ChatGPT process/window is unavailable for Thinker enrollment.'}
-
     if($existing){
         if([string]$existing.process_name -ne [string]$context.process_name -or [string]$existing.session_id -ne [string]$context.session_id -or [string]$existing.window_title -ne [string]$context.window_title -or [string]$existing.window_class_name -ne [string]$context.window_class_name){throw 'Desktop Thinker shell binding changed; enrollment is stale.'}
         $existingStatus=if($existing.PSObject.Properties['status']){[string]$existing.status}else{'ENROLLED'}
         if($existingStatus -eq 'PENDING_ENROLLMENT'){
             $loc=$null
             try{$loc=& $Backend.LocateConversation $context ([string]$existing.conversation_proof_text) $existing}catch{$loc=$null}
-            if(-not $loc){
-                return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$true;enrollment=$existing;context=$context}
-            }
+            if(-not $loc){return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$true;enrollment=$existing;context=$context}}
             $completed=Complete-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $existing -Location $loc
             return [pscustomobject][ordered]@{status='ENROLLED';idempotent=$true;enrollment=$completed;context=$context}
         }
@@ -99,15 +96,10 @@ function Initialize-AidosDesktopThinkerEnrollment {
         if([string]$loc.conversation_fingerprint_sha256 -ne [string]$existing.conversation_fingerprint_sha256){throw 'Desktop Thinker conversation fingerprint changed; enrollment is stale.'}
         return [pscustomobject][ordered]@{status='ENROLLED';idempotent=$true;enrollment=$existing;context=$context}
     }
-
     if($context.window_is_minimized -or -not[bool]$context.window_is_foreground){$context=& $Backend.FocusConversation $context ([pscustomobject]@{})}
     $marker='AIDOS_THINKER_TRANSPORT_ENROLLMENT::'+[guid]::NewGuid().ToString()
     $now=[DateTimeOffset]::UtcNow.ToString('o')
-    $pending=[pscustomobject][ordered]@{
-        schema_version='0.2';transport_type='DESKTOP_CHATGPT_THINKER';status='PENDING_ENROLLMENT';process_name=[string]$context.process_name;session_id=[string]$context.session_id;
-        window_title=[string]$context.window_title;window_class_name=[string]$context.window_class_name;conversation_proof_text=$marker;
-        conversation_fingerprint_sha256=$null;conversation_fingerprint=$null;created_at=$now;enrolled_at=$null;updated_at=$now
-    }
+    $pending=[pscustomobject][ordered]@{schema_version='0.2';transport_type='DESKTOP_CHATGPT_THINKER';status='PENDING_ENROLLMENT';process_name=[string]$context.process_name;session_id=[string]$context.session_id;window_title=[string]$context.window_title;window_class_name=[string]$context.window_class_name;conversation_proof_text=$marker;conversation_fingerprint_sha256=$null;conversation_fingerprint=$null;created_at=$now;enrolled_at=$null;updated_at=$now}
     Write-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $pending|Out-Null
     $prompt=$marker+"`nThis is a transport enrollment marker for the AIDOS dedicated Thinker shell. Reply with exactly: AIDOS_THINKER_ENROLLMENT_ACK"
     & $Backend.SendPrompt $context $pending $prompt
@@ -116,25 +108,49 @@ function Initialize-AidosDesktopThinkerEnrollment {
         try{$loc=& $Backend.LocateConversation $context $marker $pending}catch{$loc=$null}
         if($loc){break};Start-Sleep -Milliseconds 250
     }
-    if(-not $loc){
-        return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$false;enrollment=$pending;context=$context}
-    }
+    if(-not $loc){return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$false;enrollment=$pending;context=$context}}
     $completed=Complete-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $pending -Location $loc
     [pscustomobject][ordered]@{status='ENROLLED';idempotent=$false;enrollment=$completed;context=$context}
 }
+
 function Get-AidosDesktopThinkerAuthorizedDocuments {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[int]$MaximumDocumentBytes=131072,[int]$MaximumTotalBytes=786432)
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$BoundAssignment,[int]$MaximumDocumentBytes=131072,[int]$MaximumTotalBytes=786432)
     $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $assignment=$BoundAssignment.assignment
+    if($null-eq$assignment){throw 'Thinker source pack requires a bound runtime actor assignment.'}
     $paths=[System.Collections.Generic.List[string]]::new()
     foreach($relative in @('.aidos/PROJECT.json','.aidos/documentation/PROJECT_BASELINE.json','.aidos/documentation/PROJECT_ACCESS.json','.aidos/evidence/EVIDENCE_INVENTORY.json','AGENTS.md')){
         if(Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf){$paths.Add($relative)}
     }
     $docsRoot=Join-Path $root 'docs'
     if(Test-Path -LiteralPath $docsRoot -PathType Container){foreach($file in @(Get-ChildItem -LiteralPath $docsRoot -Filter '*.md' -File|Sort-Object Name)){$paths.Add([IO.Path]::GetRelativePath($root,$file.FullName).Replace('\','/'))}}
+
+    $definitionId=[string]$assignment.binding.definition_id
+    $definitionVersion=if($null-eq$assignment.binding.definition_version){$null}else{[int]$assignment.binding.definition_version}
+    if(-not[string]::IsNullOrWhiteSpace($definitionId) -and $null-ne$definitionVersion){
+        $projectApplicability='.aidos/profile/PROJECT_APPLICABILITY.json'
+        if(Test-Path -LiteralPath (Join-Path $root $projectApplicability) -PathType Leaf){$paths.Add($projectApplicability)}
+        $definitionRelative=('.aidos/definitions/{0}/v{1}' -f $definitionId,$definitionVersion)
+        foreach($name in @('APPLICABILITY.json','PROGRESS.json')){
+            $relative="$definitionRelative/$name"
+            if(-not(Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf)){throw "Bound Definition source is missing: $relative"}
+            $paths.Add($relative)
+        }
+        $decisionsRoot=Join-Path $root "$definitionRelative/decisions"
+        if(Test-Path -LiteralPath $decisionsRoot -PathType Container){foreach($file in @(Get-ChildItem -LiteralPath $decisionsRoot -Filter '*.json' -File|Sort-Object Name)){$paths.Add([IO.Path]::GetRelativePath($root,$file.FullName).Replace('\','/'))}}
+        $humanRoot=Join-Path $root '.aidos/human-input'
+        if(Test-Path -LiteralPath $humanRoot -PathType Container){
+            foreach($file in @(Get-ChildItem -LiteralPath $humanRoot -Filter '*.json' -File|Sort-Object Name)){
+                try{$request=Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}catch{continue}
+                if([string]$request.binding.definition_id -eq $definitionId -and [int]$request.binding.definition_version -eq $definitionVersion){$paths.Add([IO.Path]::GetRelativePath($root,$file.FullName).Replace('\','/'))}
+            }
+        }
+    }
+
     $agentPath=Join-Path (Split-Path $PSScriptRoot -Parent) 'agents/DEFINITION_AGENT.md'
     $documents=[System.Collections.Generic.List[object]]::new();$total=0
-    foreach($relative in $paths){
+    foreach($relative in @($paths|Select-Object -Unique)){
         $path=Join-Path $root $relative;$bytes=[IO.File]::ReadAllBytes($path)
         if($bytes.Length-gt$MaximumDocumentBytes){throw "Thinker source exceeds per-document transport limit: $relative"};$total+=$bytes.Length;if($total-gt$MaximumTotalBytes){throw 'Thinker source pack exceeds total transport limit.'}
         $text=[Text.Encoding]::UTF8.GetString($bytes);if($text.IndexOf([char]0)-ge0){throw "Thinker source is not UTF-8 text: $relative"}
@@ -144,14 +160,21 @@ function Get-AidosDesktopThinkerAuthorizedDocuments {
     if(Test-Path -LiteralPath $agentPath -PathType Leaf){$text=Get-Content -LiteralPath $agentPath -Raw -Encoding UTF8;$documents.Insert(0,[ordered]@{path='AIDOS/agents/DEFINITION_AGENT.md';sha256=(Get-FileHash -LiteralPath $agentPath -Algorithm SHA256).Hash.ToLowerInvariant();content=$text})}
     @($documents)
 }
+
 function New-AidosDesktopThinkerPrompt {
     param([Parameter(Mandatory)]$BoundAssignment,[Parameter(Mandatory)][object[]]$Documents)
     $assignment=$BoundAssignment.assignment
-    $template=[ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$assignment.assignment_id;assignment_sha256=[string]$BoundAssignment.sha256;project_id=[string]$assignment.project_id;actor_role=[string]$assignment.actor_role;actor_identity=[string]$assignment.actor_identity;action=[string]$assignment.action;binding=$assignment.binding;outcome='COMPLETED';result=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='';proposed_artifacts=@();human_input_request=$null};responded_at=[DateTimeOffset]::UtcNow.ToString('o')}
+    if([string]$assignment.action -eq 'RESOLVE_PROJECT_APPLICABILITY'){
+        $payload=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='';proposed_artifacts=@([ordered]@{artifact_type='PROJECT_APPLICABILITY_PROPOSAL';authority_classification='REPO_VERIFIABLE';preset_ids=@();selection_source='BASELINE_DERIVED';overrides=@();source_refs=@()});human_input_request=$null}
+    }else{
+        $payload=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='';applicability_resolutions=@();surface_resolutions=@();human_input_request=$null}
+    }
+    $template=[ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$assignment.assignment_id;assignment_sha256=[string]$BoundAssignment.sha256;project_id=[string]$assignment.project_id;actor_role=[string]$assignment.actor_role;actor_identity=[string]$assignment.actor_identity;action=[string]$assignment.action;binding=$assignment.binding;outcome='COMPLETED';result=$payload;responded_at=[DateTimeOffset]::UtcNow.ToString('o')}
     @"
 You are the AIDOS Definition Thinker operating under the attached DEFINITION_AGENT instructions.
 Use only the immutable runtime actor assignment and authorized source documents below. Do not rely on chat history, hidden filesystem access, or unbound sources.
-Do not claim to have written project files. Propose durable artifacts or a Human Input Request inside result; AIDOS Core will validate and persist them.
+Do not claim to have written project files. Propose only output permitted by the response template; AIDOS Core will validate authority, persist canonical artifacts, and create Human Input when required.
+For START_DEFINITION or RESUME_DEFINITION, return applicability_resolutions and surface_resolutions using the Definition Thinker Output contract. For RESOLVE_PROJECT_APPLICABILITY, return exactly one PROJECT_APPLICABILITY_PROPOSAL inside proposed_artifacts.
 Return exactly one raw JSON RUNTIME_ACTOR_RESULT object with no markdown or commentary.
 Copy assignment_id, assignment_sha256, project_id, actor_role, actor_identity, action, and binding exactly from the response template.
 
@@ -178,24 +201,19 @@ function Invoke-AidosDesktopThinkerAssignment {
     $root=Resolve-AidosFileSystemPath $ProjectRoot
     $bound=Read-AidosRuntimeActorAssignment -ProjectRoot $root -AssignmentId $AssignmentId
     $transport=Initialize-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId
-    if([string]$transport.status -eq 'COMPLETED'){
-        return [pscustomobject][ordered]@{status='HANDOFF_COMPLETE';idempotent=$true;assignment_id=$AssignmentId;result_ref=[string]$transport.result_ref}
-    }
+    if([string]$transport.status -eq 'COMPLETED'){return [pscustomobject][ordered]@{status='HANDOFF_COMPLETE';idempotent=$true;assignment_id=$AssignmentId;result_ref=[string]$transport.result_ref}}
     if(-not$Backend){$Backend=New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName}
     $interactive=$true
     try{& $Backend.AssertInteractiveSession|Out-Null}catch{$interactive=$false}
     if(-not$interactive){$state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'WINDOWS_LOCKED_OR_SESSION_UNAVAILABLE';return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;transport=$state}}
     $enrolled=Initialize-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -ProcessName $ProcessName -Backend $Backend
-    if([string]$enrolled.status -eq 'PENDING_ENROLLMENT'){
-        $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'THINKER_ENROLLMENT_PROOF_PENDING'
-        return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;enrollment=$enrolled;transport=$state}
-    }
+    if([string]$enrolled.status -eq 'PENDING_ENROLLMENT'){$state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'THINKER_ENROLLMENT_PROOF_PENDING';return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;enrollment=$enrolled;transport=$state}}
     $context=$enrolled.context;$enrollment=$enrolled.enrollment
     if($context.window_is_minimized -or -not[bool]$context.window_is_foreground){$context=& $Backend.FocusConversation $context $enrollment}
     $loc=& $Backend.LocateConversation $context ([string]$enrollment.conversation_proof_text) $enrollment
     if([string]$loc.conversation_fingerprint_sha256 -ne [string]$enrollment.conversation_fingerprint_sha256){throw 'Desktop Thinker conversation binding mismatch before send.'}
     if([string]$transport.status -notin @('ACTIVATED')){
-        $documents=Get-AidosDesktopThinkerAuthorizedDocuments -ProjectRoot $root
+        $documents=Get-AidosDesktopThinkerAuthorizedDocuments -ProjectRoot $root -BoundAssignment $bound
         $prompt=New-AidosDesktopThinkerPrompt -BoundAssignment $bound -Documents $documents
         & $Backend.SendPrompt $context $enrollment $prompt
         $transport=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status ACTIVATED -TransportType DESKTOP_CHATGPT_THINKER
