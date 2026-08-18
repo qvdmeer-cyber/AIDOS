@@ -101,6 +101,13 @@ $installStartedAt=[DateTimeOffset]::UtcNow
 $installJson=& $agentEntry -Command Install -ProjectRoot $RuntimeProjectRoot -AuthorizedUser $AuthorizedUser -StateRoot $stateRoot -PreparationRegistryRoot $registryRoot -BuilderRoot $builderRoot -ContractsRoot $contractsRoot -PreparationPush $true
 $install=$installJson|ConvertFrom-Json -Depth 30
 
+# Install/update the stable fail-closed watchdog after the host bootstrap exists.
+# The watchdog is a separate limited-user scheduled task so it can stop/reload the
+# replaceable host-agent process without modifying itself mid-run.
+$selfUpdateInstaller=Join-Path $aidosRoot 'tools/Install-AidosHostSelfUpdate.ps1'
+if(-not(Test-Path -LiteralPath $selfUpdateInstaller -PathType Leaf)){throw 'AIDOS host self-update installer is unavailable.'}
+$selfUpdate=& $selfUpdateInstaller -Distribution $Distribution -WslReposRoot $WslReposRoot -StateRoot $stateRoot -AuthorizedUser $AuthorizedUser
+
 # Wait for the newly installed agent to publish its first post-install tick so the
 # bootstrap output proves whether autonomous preparation/runtime actually advanced.
 $agentRuntime=$null
@@ -132,5 +139,6 @@ $finalRegistered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule 
     acceptance_request=$acceptance
     persistence=$persistence
     host_agent=$install
+    host_self_update=$selfUpdate
     host_agent_runtime=$agentRuntime
 }|ConvertTo-Json -Depth 100
