@@ -118,6 +118,9 @@ jobs:
       - name: Autonomous Review Repair regression tests
         shell: pwsh
         run: ./tests/AutonomousReviewRepair.Tests.ps1
+      - name: Review Integration Closure regression tests
+        shell: pwsh
+        run: ./tests/ReviewIntegrationClosure.Tests.ps1
       - name: Desktop ChatGPT Window Discovery regression tests
         shell: pwsh
         run: ./tests/DesktopChatGPTWindowDiscovery.Tests.ps1
