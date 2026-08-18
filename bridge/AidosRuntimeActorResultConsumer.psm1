@@ -3,9 +3,22 @@ $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorTransport.psm1') -DisableNameChecking
 
+function Get-AidosConsumerRuntimeProjects {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RegistryRoot)
+    $projectsRoot=Join-Path ([IO.Path]::GetFullPath($RegistryRoot)) 'projects'
+    if(-not(Test-Path -LiteralPath $projectsRoot -PathType Container)){return @()}
+    @(
+        Get-ChildItem -LiteralPath $projectsRoot -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Sort-Object Name |
+        ForEach-Object {
+            $record=Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+            if([string]$record.stage -eq 'RUNTIME' -and [string]$record.status -eq 'PROMOTED'){$record}
+        }
+    )
+}
 function Get-AidosProjectApplicabilityProposal {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$ActorResult)
@@ -27,7 +40,7 @@ function Assert-AidosActorSourceRefs {
     $comparison=if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
     $prefix=$root+[IO.Path]::DirectorySeparatorChar
     foreach($ref in $SourceRefs){
-        $relative=[string]$ref
+        $relative=([string]$ref).Replace('\','/')
         if([string]::IsNullOrWhiteSpace($relative)-or[IO.Path]::IsPathRooted($relative)){throw 'Actor source_ref must be a project-relative path.'}
         $path=[IO.Path]::GetFullPath((Join-Path $root $relative))
         if(-not$path.StartsWith($prefix,$comparison)){throw "Actor source_ref escapes project root: $relative"}
@@ -91,7 +104,7 @@ function Invoke-AidosRuntimeActorResultConsumerTick {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RegistryRoot,[string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),[int]$MaxItems=1,[switch]$Push)
     $results=[System.Collections.Generic.List[object]]::new();$processed=0
-    foreach($project in @(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot)){
+    foreach($project in @(Get-AidosConsumerRuntimeProjects -RegistryRoot $RegistryRoot)){
         if($processed-ge$MaxItems){break}
         $transportRoot=Join-Path ([string]$project.local_root) '.aidos/runtime/actor-transport'
         if(-not(Test-Path -LiteralPath $transportRoot -PathType Container)){continue}
@@ -119,4 +132,4 @@ function Invoke-AidosRuntimeActorResultConsumerTick {
     [pscustomobject][ordered]@{schema_version='0.1';observed_at=[DateTimeOffset]::UtcNow.ToString('o');processed=$processed;results=@($results);status=if(@($results|Where-Object {$_.status-eq'CONSUME_ERROR'}).Count){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'}}
 }
 
-Export-ModuleMember -Function Get-AidosProjectApplicabilityProposal,Assert-AidosActorSourceRefs,Invoke-AidosProjectApplicabilityResultConsumer,Invoke-AidosRuntimeActorResultConsumerTick
+Export-ModuleMember -Function Get-AidosConsumerRuntimeProjects,Get-AidosProjectApplicabilityProposal,Assert-AidosActorSourceRefs,Invoke-AidosProjectApplicabilityResultConsumer,Invoke-AidosRuntimeActorResultConsumerTick
