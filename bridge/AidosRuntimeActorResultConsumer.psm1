@@ -50,6 +50,15 @@ function Assert-AidosActorSourceRefs {
     }
     $true
 }
+function Test-AidosApplicabilityProfileMatchesProposal {
+    param([Parameter(Mandatory)]$Profile,[Parameter(Mandatory)][string[]]$PresetIds,[Parameter(Mandatory)][object[]]$Overrides)
+    $actualPresets=@($Profile.selected_presets|ForEach-Object {[string]$_.preset_id}|Sort-Object -Unique)
+    $expectedPresets=@($PresetIds|Sort-Object -Unique)
+    if(($actualPresets -join "`n") -ne ($expectedPresets -join "`n")){return $false}
+    $actualOverrides=@($Profile.overrides|ForEach-Object {[ordered]@{surface_id=[string]$_.surface_id;state=[string]$_.state;reason=[string]$_.reason;source_ref=[string]$_.source_ref}})
+    $expectedOverrides=@($Overrides|ForEach-Object {[ordered]@{surface_id=[string]$_.surface_id;state=[string]$_.state;reason=[string]$_.reason;source_ref=[string]$_.source_ref}})
+    (ConvertTo-Json $actualOverrides -Depth 20 -Compress) -eq (ConvertTo-Json $expectedOverrides -Depth 20 -Compress)
+}
 function Invoke-AidosProjectApplicabilityResultConsumer {
     [CmdletBinding()]
     param(
@@ -65,12 +74,7 @@ function Invoke-AidosProjectApplicabilityResultConsumer {
     if([string]$ActorResult.outcome -ne 'COMPLETED'){throw "Project Applicability actor outcome '$($ActorResult.outcome)' requires a different consumer path."}
     $state=Get-AidosState $root
     if([string]$state.state-ne'IDLE' -or -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'Project Applicability consumption requires pre-Definition IDLE state.'}
-    $profilePath=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
-    if(Test-Path -LiteralPath $profilePath -PathType Leaf){
-        Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId ([string]$ActorResult.assignment_id) -Status CONSUMED|Out-Null
-        $persist=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS consume actor result $($ActorResult.assignment_id)") -Push:$Push
-        return [pscustomobject][ordered]@{status='ALREADY_APPLIED';assignment_id=[string]$ActorResult.assignment_id;profile_ref='.aidos/profile/PROJECT_APPLICABILITY.json';persistence=$persist}
-    }
+
     $proposal=Get-AidosProjectApplicabilityProposal -ActorResult $ActorResult
     if([string]$proposal.authority_classification -ne 'REPO_VERIFIABLE'){throw 'Project Applicability proposal must be REPO_VERIFIABLE or remain a human/auto-decision boundary.'}
     $sourceRefs=@($proposal.source_refs)
@@ -85,16 +89,27 @@ function Invoke-AidosProjectApplicabilityResultConsumer {
         if([string]::IsNullOrWhiteSpace([string]$override.source_ref)){throw 'Every Project Applicability override requires source_ref.'}
         Assert-AidosActorSourceRefs -ProjectRoot $root -SourceRefs @([string]$override.source_ref)|Out-Null
     }
+    $overridesJson=if($overrides.Count-eq0){'[]'}else{$overrides|ConvertTo-Json -Depth 100 -Compress}
+    $profilePath=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
+    if(Test-Path -LiteralPath $profilePath -PathType Leaf){
+        $existingProfile=Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+        if(-not(Test-AidosApplicabilityProfileMatchesProposal -Profile $existingProfile -PresetIds $presetIds -Overrides $overrides)){throw 'Existing Project Applicability does not match completed actor result; refusing idempotent consume.'}
+        Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId ([string]$ActorResult.assignment_id) -Status CONSUMED|Out-Null
+        $persist=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS consume actor result $($ActorResult.assignment_id)") -Push:$Push
+        return [pscustomobject][ordered]@{status='ALREADY_APPLIED';assignment_id=[string]$ActorResult.assignment_id;profile_ref='.aidos/profile/PROJECT_APPLICABILITY.json';persistence=$persist}
+    }
+
     $resolveTool=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'tools/Resolve-AidosProjectApplicability.ps1'
     $catalogTest=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'tools/Test-AidosProfileCatalog.ps1'
     if(-not(Test-Path -LiteralPath $resolveTool -PathType Leaf)){throw 'Project Applicability resolver is unavailable.'}
     & $catalogTest -AidosRoot $AidosRoot|Out-Null
-    $resolved=& $resolveTool -ProjectRoot $root -ProjectId ([string]$Project.project_id) -PresetIds $presetIds -SelectionSource $selectionSource -OverridesJson ($overrides|ConvertTo-Json -Depth 100 -Compress) -AidosRoot $AidosRoot
+    $resolved=& $resolveTool -ProjectRoot $root -ProjectId ([string]$Project.project_id) -PresetIds $presetIds -SelectionSource $selectionSource -OverridesJson $overridesJson -AidosRoot $AidosRoot
     if([string]$resolved.project_id-ne[string]$Project.project_id){throw 'Resolved Project Applicability project binding mismatch.'}
     if(-not(Test-Path -LiteralPath $profilePath -PathType Leaf)){throw 'Project Applicability resolver did not persist its canonical output.'}
     $profile=Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
     if([string]$profile.project_id-ne[string]$Project.project_id){throw 'Persisted Project Applicability project_id mismatch.'}
     if(@($profile.selected_presets|Where-Object {$_.category -eq 'PRODUCT_ARCHETYPE'}).Count-ne1){throw 'Persisted Project Applicability must contain exactly one product archetype.'}
+    if(-not(Test-AidosApplicabilityProfileMatchesProposal -Profile $profile -PresetIds $presetIds -Overrides $overrides)){throw 'Persisted Project Applicability does not match actor proposal.'}
     Add-AidosEvent -ProjectRoot $root -EventType 'PROJECT_APPLICABILITY_RESOLVED' -Actor DEFINITION_AGENT -Payload @{assignment_id=[string]$ActorResult.assignment_id;preset_ids=$presetIds;source_refs=$sourceRefs}|Out-Null
     Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId ([string]$ActorResult.assignment_id) -Status CONSUMED|Out-Null
     $persist=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS consume actor result $($ActorResult.assignment_id)") -Push:$Push
@@ -132,4 +147,4 @@ function Invoke-AidosRuntimeActorResultConsumerTick {
     [pscustomobject][ordered]@{schema_version='0.1';observed_at=[DateTimeOffset]::UtcNow.ToString('o');processed=$processed;results=@($results);status=if(@($results|Where-Object {$_.status-eq'CONSUME_ERROR'}).Count){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'}}
 }
 
-Export-ModuleMember -Function Get-AidosConsumerRuntimeProjects,Get-AidosProjectApplicabilityProposal,Assert-AidosActorSourceRefs,Invoke-AidosProjectApplicabilityResultConsumer,Invoke-AidosRuntimeActorResultConsumerTick
+Export-ModuleMember -Function Get-AidosConsumerRuntimeProjects,Get-AidosProjectApplicabilityProposal,Assert-AidosActorSourceRefs,Test-AidosApplicabilityProfileMatchesProposal,Invoke-AidosProjectApplicabilityResultConsumer,Invoke-AidosRuntimeActorResultConsumerTick
