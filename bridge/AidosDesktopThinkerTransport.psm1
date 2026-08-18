@@ -42,7 +42,7 @@ function Get-AidosDesktopThinkerResponseText {
     $candidates[$candidates.Count-1]
 }
 function New-AidosDesktopThinkerStubBackend {
-    param([string]$ResponseText,[bool]$InteractiveSession=$true)
+    param([string]$ResponseText,[bool]$InteractiveSession=$true,[bool]$ConversationProofAvailable=$true)
     $state=[pscustomobject]@{send_count=0;last_prompt=$null;proof_text=$null}
     [pscustomobject]@{
         State=$state
@@ -52,6 +52,7 @@ function New-AidosDesktopThinkerStubBackend {
         SendPrompt=({param($Context,$Enrollment,[string]$PromptText);$state.send_count++;$state.last_prompt=$PromptText;if($PromptText -match 'AIDOS_THINKER_TRANSPORT_ENROLLMENT::(?<id>[0-9a-f-]+)'){$state.proof_text='AIDOS_THINKER_TRANSPORT_ENROLLMENT::'+$Matches.id}}).GetNewClosure()
         LocateConversation=({
             param($Context,[string]$ProofText,$Enrollment)
+            if(-$ConversationProofAvailable){throw 'Stub Thinker conversation proof is unavailable.'}
             if([string]::IsNullOrWhiteSpace([string]$state.proof_text) -or [string]$state.proof_text -ne $ProofText){throw 'Stub Thinker conversation proof is not present.'}
             $fingerprint=[ordered]@{window_title=$Context.window_title;window_class_name=$Context.window_class_name;conversation_proof_text=$ProofText;path=@([ordered]@{name='stub';control_type='Window'})}
             $json=$fingerprint|ConvertTo-Json -Depth 100 -Compress
@@ -61,6 +62,17 @@ function New-AidosDesktopThinkerStubBackend {
         ReadActorResponseText=({param($Context,$Enrollment,[int]$Attempt,$Assignment);if($state.send_count-lt1){return $null};$ResponseText}).GetNewClosure()
     }
 }
+function Complete-AidosDesktopThinkerEnrollment {
+    param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)]$Enrollment,[Parameter(Mandatory)]$Location)
+    $now=[DateTimeOffset]::UtcNow.ToString('o')
+    $Enrollment.status='ENROLLED'
+    $Enrollment.conversation_fingerprint_sha256=[string]$Location.conversation_fingerprint_sha256
+    $Enrollment.conversation_fingerprint=$Location.conversation_fingerprint
+    if(-$Enrollment.PSObject.Properties['enrolled_at'] -or [string]::IsNullOrWhiteSpace([string]$Enrollment.enrolled_at)){$Enrollment|Add-Member -NotePropertyName enrolled_at -NotePropertyValue $now -Force}
+    $Enrollment.updated_at=$now
+    Write-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $Enrollment|Out-Null
+    $Enrollment
+}
 function Initialize-AidosDesktopThinkerEnrollment {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$StateRoot,[string]$ProcessName='ChatGPT Classic',[object]$Backend)
@@ -69,26 +81,48 @@ function Initialize-AidosDesktopThinkerEnrollment {
     & $Backend.AssertInteractiveSession|Out-Null
     $context=& $Backend.GetProcessContext $ProcessName
     if(-not$context -or -not$context.present){throw 'ChatGPT process/window is unavailable for Thinker enrollment.'}
+
     if($existing){
         if([string]$existing.process_name -ne [string]$context.process_name -or [string]$existing.session_id -ne [string]$context.session_id -or [string]$existing.window_title -ne [string]$context.window_title -or [string]$existing.window_class_name -ne [string]$context.window_class_name){throw 'Desktop Thinker shell binding changed; enrollment is stale.'}
+        $existingStatus=if($existing.PSObject.Properties['status']){[string]$existing.status}else{'ENROLLED'}
+        if($existingStatus -eq 'PENDING_ENROLLMENT'){
+            $loc=$null
+            try{$loc=& $Backend.LocateConversation $context ([string]$existing.conversation_proof_text) $existing}catch{$loc=$null}
+            if(-$loc){
+                return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$true;enrollment=$existing;context=$context}
+            }
+            $completed=Complete-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $existing -Location $loc
+            return [pscustomobject][ordered]@{status='ENROLLED';idempotent=$true;enrollment=$completed;context=$context}
+        }
+        if($existingStatus -ne 'ENROLLED'){throw "Unsupported Desktop Thinker enrollment status '$existingStatus'."}
         $loc=& $Backend.LocateConversation $context ([string]$existing.conversation_proof_text) $existing
         if([string]$loc.conversation_fingerprint_sha256 -ne [string]$existing.conversation_fingerprint_sha256){throw 'Desktop Thinker conversation fingerprint changed; enrollment is stale.'}
         return [pscustomobject][ordered]@{status='ENROLLED';idempotent=$true;enrollment=$existing;context=$context}
     }
+
     if($context.window_is_minimized -or -not[bool]$context.window_is_foreground){$context=& $Backend.FocusConversation $context ([pscustomobject]@{})}
     $marker='AIDOS_THINKER_TRANSPORT_ENROLLMENT::'+[guid]::NewGuid().ToString()
+    $now=[DateTimeOffset]::UtcNow.ToString('o')
+    $pending=[pscustomobject][ordered]@{
+        schema_version='0.2';transport_type='DESKTOP_CHATGPT_THINKER';status='PENDING_ENROLLMENT';process_name=[string]$context.process_name;session_id=[string]$context.session_id;
+        window_title=[string]$context.window_title;window_class_name=[string]$context.window_class_name;conversation_proof_text=$marker;
+        conversation_fingerprint_sha256=$null;conversation_fingerprint=$null;created_at=$now;enrolled_at=$null;updated_at=$now
+    }
+    # Persist the marker before sending it. A crash or proof failure must never cause
+    # the next tick to generate and send a different enrollment marker.
+    Write-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $pending|Out-Null
     $prompt=$marker+"`nThis is a transport enrollment marker for the AIDOS dedicated Thinker shell. Reply with exactly: AIDOS_THINKER_ENROLLMENT_ACK"
-    & $Backend.SendPrompt $context ([pscustomobject]@{}) $prompt
+    & $Backend.SendPrompt $context $pending $prompt
     $loc=$null
     for($attempt=0;$attempt-lt20;$attempt++){
-        try{$loc=& $Backend.LocateConversation $context $marker ([pscustomobject]@{})}catch{$loc=$null}
+        try{$loc=& $Backend.LocateConversation $context $marker $pending}catch{$loc=$null}
         if($loc){break};Start-Sleep -Milliseconds 250
     }
-    if(-not$loc){throw 'Unable to prove the Thinker conversation after enrollment marker send.'}
-    $now=[DateTimeOffset]::UtcNow.ToString('o')
-    $enrollment=[ordered]@{schema_version='0.1';transport_type='DESKTOP_CHATGPT_THINKER';process_name=[string]$context.process_name;session_id=[string]$context.session_id;window_title=[string]$context.window_title;window_class_name=[string]$context.window_class_name;conversation_proof_text=$marker;conversation_fingerprint_sha256=[string]$loc.conversation_fingerprint_sha256;conversation_fingerprint=$loc.conversation_fingerprint;enrolled_at=$now;updated_at=$now}
-    Write-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $enrollment|Out-Null
-    [pscustomobject][ordered]@{status='ENROLLED';idempotent=$false;enrollment=[pscustomobject]$enrollment;context=$context}
+    if(-$loc){
+        return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$false;enrollment=$pending;context=$context}
+    }
+    $completed=Complete-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $pending -Location $loc
+    [pscustomobject][ordered]@{status='ENROLLED';idempotent=$false;enrollment=$completed;context=$context}
 }
 function Get-AidosDesktopThinkerAuthorizedDocuments {
     [CmdletBinding()]
@@ -154,6 +188,10 @@ function Invoke-AidosDesktopThinkerAssignment {
     try{& $Backend.AssertInteractiveSession|Out-Null}catch{$interactive=$false}
     if(-not$interactive){$state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'WINDOWS_LOCKED_OR_SESSION_UNAVAILABLE';return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;transport=$state}}
     $enrolled=Initialize-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -ProcessName $ProcessName -Backend $Backend
+    if([string]$enrolled.status -eq 'PENDING_ENROLLMENT'){
+        $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'THINKER_ENROLLMENT_PROOF_PENDING'
+        return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;enrollment=$enrolled;transport=$state}
+    }
     $context=$enrolled.context;$enrollment=$enrolled.enrollment
     if($context.window_is_minimized -or -not[bool]$context.window_is_foreground){$context=& $Backend.FocusConversation $context $enrollment}
     $loc=& $Backend.LocateConversation $context ([string]$enrollment.conversation_proof_text) $enrollment
@@ -176,4 +214,4 @@ function Invoke-AidosDesktopThinkerAssignment {
     [pscustomobject][ordered]@{status='HANDOFF_COMPLETE';idempotent=$false;assignment_id=$AssignmentId;saved=$saved;result=$result}
 }
 
-Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,New-AidosDesktopThinkerStubBackend,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
+Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,New-AidosDesktopThinkerStubBackend,Complete-AidosDesktopThinkerEnrollment,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
