@@ -16,7 +16,7 @@ Assert-SelfUpdate ($watchdog -match "merge-base','--is-ancestor") 'watchdog prov
 Assert-SelfUpdate ($watchdog -match "worktree','add','--detach") 'remote candidate is validated in a detached temporary worktree'
 Assert-SelfUpdate ($watchdog -match 'Test-AidosCorePortable\.ps1') 'watchdog runs aggregate Core validation against candidate commit'
 Assert-SelfUpdate ($watchdog -match 'Convert-WslPathToUnc') 'candidate validation resolves the detached WSL worktree through its Windows UNC path'
-Assert-SelfUpdate ($watchdog -match "Join-Path \$PSHOME 'pwsh\.exe'") 'candidate validation reuses the installed Windows PowerShell 7 engine'
+Assert-SelfUpdate ($watchdog.Contains("Join-Path `$PSHOME 'pwsh.exe'")) 'candidate validation reuses the installed Windows PowerShell 7 engine'
 Assert-SelfUpdate ($watchdog -match '-ExecutionPolicy Bypass -File \$validator -RepoRoot \$candidateUnc') 'candidate validation runs in an isolated host pwsh child with bounded execution-policy bypass'
 Assert-SelfUpdate ($watchdog -notmatch 'command -v pwsh') 'self-update no longer requires an independent PowerShell installation inside WSL'
 Assert-SelfUpdate ($watchdog -match "merge','--ff-only") 'watchdog applies only fast-forward Core updates'
