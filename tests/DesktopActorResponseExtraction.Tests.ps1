@@ -37,9 +37,10 @@ $mixed="You are the AIDOS Definition Thinker.`nRUNTIME_ACTOR_RESULT_TEMPLATE:`n$
 $selected=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($mixed) -Assignment $assignmentOnly
 Assert-ActorResponse ($selected-eq$response1) 'live assignment-only reader derives the exact hash from the rendered unresolved template'
 
-$wrongRenderedHash=$response1.Replace($assignmentSha,('e'*64))
+$otherValidHash=(('e'*64)-join'')
+$wrongRenderedHash=$response1.Replace($assignmentSha,$otherValidHash)
 $wrongRendered=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @("$template`n$wrongRenderedHash") -Assignment $assignmentOnly
-Assert-ActorResponse ($null-eq$wrongRendered) 'rendered template hash rejects a completed response with the same assignment id but another hash'
+Assert-ActorResponse ($null-eq$wrongRendered) 'rendered template hash rejects a completed response with the same assignment id but another valid hash'
 
 $splitAt1=[int]($response1.Length/3)
 $splitAt2=[int](2*$response1.Length/3)
@@ -55,7 +56,7 @@ Assert-ActorResponse ($selectedSplit-eq$response1) 'response selector reconstruc
 $templateOnly=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($template) -Assignment $assignmentOnly
 Assert-ActorResponse ($null-eq$templateOnly) 'unresolved response template is never accepted as an actor response'
 
-$wrongBound=[pscustomobject]@{assignment=$assignmentOnly;sha256=('f'*64)}
+$wrongBound=[pscustomobject]@{assignment=$assignmentOnly;sha256=(('f'*64)-join'')}
 $wrongHash=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($response1) -Assignment $wrongBound
 Assert-ActorResponse ($null-eq$wrongHash) 'explicit assignment-hash mismatch is rejected when the bound wrapper is available'
 
