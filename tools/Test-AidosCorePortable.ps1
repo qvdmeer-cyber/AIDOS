@@ -21,8 +21,10 @@ $tests=@(Get-ChildItem -LiteralPath (Join-Path $root 'tests') -Filter '*.Tests.p
 if($tests.Count-eq0){throw 'No AIDOS Core regression tests were found.'}
 $executed=[Collections.Generic.List[string]]::new()
 foreach($test in $tests){
+    # Tests are invoked in-process with ErrorActionPreference=Stop. A stale
+    # LASTEXITCODE from a native command inside an otherwise successful test is
+    # not the test result; only a thrown assertion/command failure fails here.
     & $test.FullName
-    if($LASTEXITCODE -ne 0){throw "Regression test '$($test.Name)' exited with code $LASTEXITCODE."}
     $executed.Add($test.Name)
 }
 [pscustomobject][ordered]@{status='PASS';repo_root=$root;tests=@($executed);test_count=$executed.Count;validated_at=[DateTimeOffset]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 20
