@@ -8,7 +8,19 @@ function Get-AidosRuntimeActorAssignmentRoot {
     param([Parameter(Mandatory)][string]$ProjectRoot)
     Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/runtime/actor-assignments'
 }
-
+function Get-AidosRuntimeActorTransportRoot {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/runtime/actor-transport'
+}
+function Get-AidosRuntimeActorAssignmentPath {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentId)
+    Join-Path (Get-AidosRuntimeActorAssignmentRoot -ProjectRoot $ProjectRoot) ($AssignmentId+'.json')
+}
+function Get-AidosRuntimeActorTransportStatePath {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentId)
+    Join-Path (Get-AidosRuntimeActorTransportRoot -ProjectRoot $ProjectRoot) ($AssignmentId+'.json')
+}
 function Get-AidosPendingRuntimeActorAssignments {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot)
@@ -19,7 +31,13 @@ function Get-AidosPendingRuntimeActorAssignments {
         Sort-Object Name |
         ForEach-Object {
             $record=Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
-            if([string]$record.status -eq 'PENDING'){$record}
+            $transportPath=Get-AidosRuntimeActorTransportStatePath -ProjectRoot $ProjectRoot -AssignmentId ([string]$record.assignment_id)
+            $terminal=$false
+            if(Test-Path -LiteralPath $transportPath -PathType Leaf){
+                $transport=Get-Content -LiteralPath $transportPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+                $terminal=[string]$transport.status -in @('COMPLETED','FAILED','ABANDONED')
+            }
+            if(-not$terminal){$record}
         }
     )
 }
@@ -47,7 +65,10 @@ function New-AidosRuntimeActorAssignment {
         [string]$_.binding.definition_version -eq [string]$state.definition_version
     })
     if($existing.Count -gt 1){throw 'Multiple pending actor assignments exist for the same runtime binding.'}
-    if($existing.Count -eq 1){return [pscustomobject][ordered]@{status='ALREADY_PENDING';assignment=$existing[0]}}
+    if($existing.Count -eq 1){
+        $path=Get-AidosRuntimeActorAssignmentPath -ProjectRoot $root -AssignmentId ([string]$existing[0].assignment_id)
+        return [pscustomobject][ordered]@{status='ALREADY_PENDING';assignment_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');assignment_sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant();assignment=$existing[0]}
+    }
 
     if([string]$Selection.action -eq 'START_DEFINITION'){
         if([string]$state.state -ne 'IDLE' -or -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'START_DEFINITION requires new-project IDLE state without Definition lineage.'}
@@ -60,7 +81,6 @@ function New-AidosRuntimeActorAssignment {
         throw "Runtime actor assignment adapter does not yet support action '$($Selection.action)'."
     }
 
-    $now=[DateTimeOffset]::UtcNow.ToString('o')
     $assignment=[ordered]@{
         schema_version='0.1'
         envelope_type='RUNTIME_ACTOR_ASSIGNMENT'
@@ -69,7 +89,6 @@ function New-AidosRuntimeActorAssignment {
         actor_role=[string]$Selection.actor_role
         actor_identity=[string]$Selection.actor_identity
         action=[string]$Selection.action
-        status='PENDING'
         binding=[ordered]@{
             project_state=[string]$state.state
             definition_id=if([string]::IsNullOrWhiteSpace([string]$state.definition_id)){$null}else{[string]$state.definition_id}
@@ -78,18 +97,15 @@ function New-AidosRuntimeActorAssignment {
             revision=$state.revision
             review_id=$state.review_id
         }
-        requested_at=$now
-        activated_at=$null
-        completed_at=$null
-        transport=$null
-        result=$null
+        requested_at=[DateTimeOffset]::UtcNow.ToString('o')
     }
     $assignmentRoot=Get-AidosRuntimeActorAssignmentRoot -ProjectRoot $root
     if(-not(Test-Path -LiteralPath $assignmentRoot -PathType Container)){New-Item -ItemType Directory -Path $assignmentRoot -Force|Out-Null}
     $path=Join-Path $assignmentRoot ($assignment.assignment_id+'.json')
     Write-AidosJsonAtomic $path $assignment
-    Add-AidosEvent -ProjectRoot $root -EventType 'ACTOR_ASSIGNMENT_CREATED' -Actor SYSTEM -Payload @{assignment_id=$assignment.assignment_id;actor_role=$assignment.actor_role;actor_identity=$assignment.actor_identity;action=$assignment.action}|Out-Null
-    [pscustomobject][ordered]@{status='PENDING';assignment_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');assignment=[pscustomobject]$assignment}
+    $sha=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    Add-AidosEvent -ProjectRoot $root -EventType 'ACTOR_ASSIGNMENT_CREATED' -Actor SYSTEM -Payload @{assignment_id=$assignment.assignment_id;assignment_sha256=$sha;actor_role=$assignment.actor_role;actor_identity=$assignment.actor_identity;action=$assignment.action}|Out-Null
+    [pscustomobject][ordered]@{status='PENDING';assignment_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');assignment_sha256=$sha;assignment=[pscustomobject]$assignment}
 }
 
-Export-ModuleMember -Function Get-AidosRuntimeActorAssignmentRoot,Get-AidosPendingRuntimeActorAssignments,New-AidosRuntimeActorAssignment
+Export-ModuleMember -Function Get-AidosRuntimeActorAssignmentRoot,Get-AidosRuntimeActorTransportRoot,Get-AidosRuntimeActorAssignmentPath,Get-AidosRuntimeActorTransportStatePath,Get-AidosPendingRuntimeActorAssignments,New-AidosRuntimeActorAssignment
