@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/runtime-actor-assignment.schema.json",
+  "title": "AIDOS Runtime Actor Assignment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","envelope_type","assignment_id","project_id","actor_role","actor_identity","action","status","binding","requested_at","activated_at","completed_at","transport","result"],
+  "properties": {
+    "schema_version": {"type":"string","const":"0.1"},
+    "envelope_type": {"type":"string","const":"RUNTIME_ACTOR_ASSIGNMENT"},
+    "assignment_id": {"type":"string","minLength":1},
+    "project_id": {"type":"string","minLength":1},
+    "actor_role": {"type":"string","enum":["THINKER","WORKER"]},
+    "actor_identity": {"type":"string","minLength":1},
+    "action": {"type":"string","minLength":1},
+    "status": {"type":"string","enum":["PENDING","ACTIVATED","WAITING_TRANSPORT","COMPLETED","FAILED","ABANDONED"]},
+    "binding": {
+      "type":"object",
+      "additionalProperties": false,
+      "required":["project_state","definition_id","definition_version","execution_id","revision","review_id"],
+      "properties": {
+        "project_state":{"type":"string","minLength":1},
+        "definition_id":{"type":["string","null"]},
+        "definition_version":{"type":["integer","null"],"minimum":1},
+        "execution_id":{"type":["string","null"]},
+        "revision":{"type":["integer","null"]},
+        "review_id":{"type":["string","null"]}
+      }
+    },
+    "requested_at":{"type":"string","format":"date-time"},
+    "activated_at":{"type":["string","null"],"format":"date-time"},
+    "completed_at":{"type":["string","null"],"format":"date-time"},
+    "transport":{"type":["object","null"]},
+    "result":{"type":["object","null"]}
+  }
+}
