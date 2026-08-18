@@ -124,6 +124,110 @@ function Get-AidosDesktopThinkerResponseText {
     if($candidates.Count-eq0){return $null}
     $candidates[$candidates.Count-1]
 }
+function ConvertTo-AidosDesktopThinkerPromptProofText {
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if($null-eq$Text){return ''}
+    ([string]$Text).Replace("`r`n","`n").Replace("`r","`n").Trim()
+}
+function Get-AidosDesktopThinkerCommittedPromptProof {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)]$Enrollment,
+        [Parameter(Mandatory)]$BoundAssignment,
+        [Parameter(Mandatory)][string]$ExpectedPrompt
+    )
+    $assignment=$BoundAssignment.assignment
+    if($null-eq$assignment){throw 'Committed Thinker prompt proof requires a bound runtime actor assignment.'}
+    $assignmentId=[string]$assignment.assignment_id
+    $assignmentSha=[string]$BoundAssignment.sha256
+    if([string]::IsNullOrWhiteSpace($assignmentId)-or[string]::IsNullOrWhiteSpace($assignmentSha)){throw 'Committed Thinker prompt proof requires assignment identity and hash.'}
+    if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw 'ChatGPT window is not present for committed prompt proof.'}
+    if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+    $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+    if(-not$root){throw 'ChatGPT window is not accessible through UI Automation for committed prompt proof.'}
+    $normalizedPrompt=ConvertTo-AidosDesktopThinkerPromptProofText -Text $ExpectedPrompt
+    $requiredFragments=[ordered]@{
+        runtime_assignment_heading='RUNTIME_ACTOR_ASSIGNMENT:'
+        authorized_documents_heading='AUTHORIZED_SOURCE_DOCUMENTS:'
+        result_template_heading='RUNTIME_ACTOR_RESULT_TEMPLATE:'
+        assignment_id=$assignmentId
+        assignment_sha256=$assignmentSha
+    }
+    $texts=[System.Collections.Generic.List[string]]::new()
+    $proofState='NOT_PROVEN'
+    $proofSource='BOUND_PROMPT_NOT_VISIBLE_IN_ENROLLED_CONVERSATION'
+    foreach($element in @($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
+        try {
+            if([string]$element.Current.AutomationId -eq 'prompt-textarea'){continue}
+            $text=Get-AidosDesktopChatGPTElementText $element
+        } catch {continue}
+        if([string]::IsNullOrWhiteSpace([string]$text)){continue}
+        $normalized=ConvertTo-AidosDesktopThinkerPromptProofText -Text ([string]$text)
+        if([string]::IsNullOrWhiteSpace($normalized)){continue}
+        $texts.Add($normalized)
+        if(-not[string]::IsNullOrWhiteSpace($normalizedPrompt) -and $normalized.IndexOf($normalizedPrompt,[StringComparison]::Ordinal)-ge0){
+            $proofState='PROVEN'
+            $proofSource='EXACT_BOUND_PROMPT_VISIBLE_IN_ENROLLED_CONVERSATION'
+            break
+        }
+        $resolvedResponseVisible=(
+            $normalized.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-ge0 -and
+            $normalized.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-ge0 -and
+            $normalized.IndexOf($assignmentSha,[StringComparison]::OrdinalIgnoreCase)-ge0 -and
+            $normalized.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-lt0 -and
+            $normalized.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-lt0
+        )
+        if($resolvedResponseVisible){
+            $proofState='PROVEN'
+            $proofSource='BOUND_ACTOR_RESPONSE_VISIBLE_IN_ENROLLED_CONVERSATION'
+            break
+        }
+    }
+    $missing=[System.Collections.Generic.List[string]]::new()
+    if($proofState-ne'PROVEN'){
+        $aggregate=[string]::Join("`n",@($texts))
+        foreach($name in @($requiredFragments.Keys)){
+            $fragment=[string]$requiredFragments[$name]
+            if($aggregate.IndexOf($fragment,[StringComparison]::OrdinalIgnoreCase)-lt0){$missing.Add([string]$name)}
+        }
+        if($missing.Count-eq0){
+            $proofState='PROVEN'
+            $proofSource='BOUND_PROMPT_FRAGMENTS_VISIBLE_IN_ENROLLED_CONVERSATION'
+        }
+    }
+    [pscustomobject][ordered]@{
+        schema_version='0.1'
+        assignment_id=$assignmentId
+        assignment_sha256=$assignmentSha
+        conversation_fingerprint_sha256=[string]$Enrollment.conversation_fingerprint_sha256
+        prompt_sha256=Get-AidosDesktopThinkerPromptHash -Prompt $ExpectedPrompt
+        proof_state=$proofState
+        proof_source=$proofSource
+        missing_fragments=@($missing)
+    }
+}
+function Test-AidosDesktopThinkerCommittedPromptProofContract {
+    param([Parameter(Mandatory)]$Result)
+    foreach($name in @('schema_version','assignment_id','assignment_sha256','conversation_fingerprint_sha256','prompt_sha256','proof_state','proof_source','missing_fragments')){
+        if(-not $Result.PSObject.Properties[$name]){throw "Committed Thinker prompt proof contract is missing '$name'."}
+    }
+    if([string]$Result.schema_version-ne'0.1'){throw 'Committed Thinker prompt proof schema_version mismatch.'}
+    if([string]$Result.proof_state-notin@('PROVEN','NOT_PROVEN')){throw 'Committed Thinker prompt proof state is invalid.'}
+    foreach($name in @('assignment_id','assignment_sha256','conversation_fingerprint_sha256','prompt_sha256','proof_source')){
+        if([string]::IsNullOrWhiteSpace([string]$Result.$name)){throw "Committed Thinker prompt proof requires '$name'."}
+    }
+    [pscustomobject][ordered]@{
+        schema_version=[string]$Result.schema_version
+        assignment_id=[string]$Result.assignment_id
+        assignment_sha256=[string]$Result.assignment_sha256
+        conversation_fingerprint_sha256=[string]$Result.conversation_fingerprint_sha256
+        prompt_sha256=[string]$Result.prompt_sha256
+        proof_state=[string]$Result.proof_state
+        proof_source=[string]$Result.proof_source
+        missing_fragments=@($Result.missing_fragments)
+    }
+}
 function New-AidosDesktopThinkerStubBackend {
     param([string]$ResponseText,[bool]$InteractiveSession=$true,[bool]$ConversationProofAvailable=$true)
     $state=[pscustomobject]@{send_count=0;last_prompt=$null;proof_text=$null;composer_text=$null;successful_commit_count=0}
@@ -383,12 +487,39 @@ function Invoke-AidosDesktopThinkerAssignment {
             return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state}
         }
         if([string]$composer.send_invocation_state -eq 'FAILED' -and $observation.composer_result -eq 'EMPTY'){
+            $proof=$null;$proofError=$null
+            try {
+                $rawProof=if($Backend.PSObject.Properties['ProveCommittedPrompt']){& $Backend.ProveCommittedPrompt $context $enrollment $bound $prompt}else{Get-AidosDesktopThinkerCommittedPromptProof -Context $context -Enrollment $enrollment -BoundAssignment $bound -ExpectedPrompt $prompt}
+                $proof=Test-AidosDesktopThinkerCommittedPromptProofContract -Result $rawProof
+                if([string]$proof.assignment_id-ne$AssignmentId){throw 'Committed Thinker prompt proof assignment_id mismatch.'}
+                if([string]$proof.assignment_sha256-ne[string]$bound.sha256){throw 'Committed Thinker prompt proof assignment_sha256 mismatch.'}
+                if([string]$proof.conversation_fingerprint_sha256-ne[string]$enrollment.conversation_fingerprint_sha256){throw 'Committed Thinker prompt proof conversation binding mismatch.'}
+                if([string]$proof.prompt_sha256-ne$promptHash){throw 'Committed Thinker prompt proof prompt_sha256 mismatch.'}
+            } catch {$proofError=$_.Exception.Message;$proof=$null}
+            if($proof -and [string]$proof.proof_state-eq'PROVEN'){
+                $now=[DateTimeOffset]::UtcNow.ToString('o')
+                $composer.composer_state='COMMITTED'
+                $composer.composer_result='EMPTY'
+                $composer.send_invocation_state='INVOKED'
+                $composer.committed_message_proof_state='PROVEN'
+                $composer.failure_reason=$null
+                $composer.observed_composer_text_sha256=$observation.composer_text_sha256
+                $composer.observed_composer_text_length=$observation.composer_text_length
+                $composer.updated_at=$now
+                $composer|Add-Member -NotePropertyName committed_message_proof_source -NotePropertyValue ([string]$proof.proof_source) -Force
+                $composer|Add-Member -NotePropertyName committed_message_proven_at -NotePropertyValue $now -Force
+                Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+                $transport=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status ACTIVATED -TransportType DESKTOP_CHATGPT_THINKER
+                # Re-enter through durable ACTIVATED state so the normal response reader is reused without resending.
+                return Invoke-AidosDesktopThinkerAssignment -ProjectRoot $root -AssignmentId $AssignmentId -StateRoot $StateRoot -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -Backend $Backend
+            }
             $composer.composer_state='FAILED'
-            $composer.failure_reason='Composer payload is no longer present after a failed send; bounded recovery requires the exact staged payload.'
+            $composer.committed_message_proof_state='NOT_PROVEN'
+            $composer.failure_reason=if(-not[string]::IsNullOrWhiteSpace($proofError)){"Delayed committed-send proof failed: $proofError"}elseif($proof){'Bound outbound prompt is not visible in the enrolled Thinker conversation; delayed commit remains unproven.'}else{'Delayed committed-send proof is unavailable.'}
             $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
             Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
             $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError $composer.failure_reason
-            return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state}
+            return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state;commit_proof=$proof}
         }
         $composer.send_invocation_state='INVOKED'
         $composer.committed_message_proof_state='NOT_PROVEN'
@@ -445,4 +576,4 @@ function Invoke-AidosDesktopThinkerAssignment {
     [pscustomobject][ordered]@{status='HANDOFF_COMPLETE';idempotent=$false;assignment_id=$AssignmentId;saved=$saved;result=$result}
 }
 
-Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Get-AidosDesktopThinkerComposerStatePath,Get-AidosDesktopThinkerPromptHash,Read-AidosDesktopThinkerComposerState,Write-AidosDesktopThinkerComposerState,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,New-AidosDesktopThinkerStubBackend,New-AidosDesktopThinkerWindowsBackend,Complete-AidosDesktopThinkerEnrollment,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
+Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Get-AidosDesktopThinkerComposerStatePath,Get-AidosDesktopThinkerPromptHash,Read-AidosDesktopThinkerComposerState,Write-AidosDesktopThinkerComposerState,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,Get-AidosDesktopThinkerCommittedPromptProof,Test-AidosDesktopThinkerCommittedPromptProofContract,New-AidosDesktopThinkerStubBackend,New-AidosDesktopThinkerWindowsBackend,Complete-AidosDesktopThinkerEnrollment,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
