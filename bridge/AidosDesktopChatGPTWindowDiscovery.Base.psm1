@@ -1,0 +1,430 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference='Stop'
+
+$script:BaseDesktopChatGPTModule = Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking -PassThru
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTConversationProof.psm1') -DisableNameChecking
+
+# Capture the base factory from the exact imported module instance. This remains
+# stable even when the resilient compatibility shim exports the same public name.
+$script:BaseDesktopChatGPTWindowsBackendCommand = $script:BaseDesktopChatGPTModule.ExportedCommands['New-AidosDesktopChatGPTWindowsBackend']
+if($null-eq$script:BaseDesktopChatGPTWindowsBackendCommand){throw 'Base Desktop ChatGPT Windows backend factory is unavailable.'}
+
+function Initialize-AidosDesktopChatGPTWindowDiscovery {
+    if(-not [OperatingSystem]::IsWindows()){throw 'Desktop ChatGPT window discovery is Windows-only.'}
+    if(-not ('AidosWindowDiscoveryV1' -as [type])){
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class AidosWindowDiscoveryV1 {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", SetLastError=true)] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)] public static extern int GetWindowTextW(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)] public static extern int GetClassNameW(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+}
+'@
+    }
+    if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+}
+
+function Get-AidosWindowDiscoveryText {
+    param([Parameter(Mandatory)][IntPtr]$WindowHandle)
+    $sb=New-Object System.Text.StringBuilder 2048
+    [void][AidosWindowDiscoveryV1]::GetWindowTextW($WindowHandle,$sb,$sb.Capacity)
+    $sb.ToString()
+}
+
+function Get-AidosWindowDiscoveryClass {
+    param([Parameter(Mandatory)][IntPtr]$WindowHandle)
+    $sb=New-Object System.Text.StringBuilder 256
+    [void][AidosWindowDiscoveryV1]::GetClassNameW($WindowHandle,$sb,$sb.Capacity)
+    $sb.ToString()
+}
+
+function Get-AidosDesktopChatGPTFallbackProcessContexts {
+    [CmdletBinding()]
+    param([string]$ProcessName='ChatGPT Classic')
+    Initialize-AidosDesktopChatGPTWindowDiscovery
+    $sessionId=[Diagnostics.Process]::GetCurrentProcess().SessionId
+    $processes=@(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue|Where-Object {$_.SessionId -eq $sessionId})
+    if($processes.Count-eq0){return @()}
+    $byPid=@{}
+    foreach($process in $processes){$byPid[[int]$process.Id]=$process}
+    $handles=[Collections.Generic.List[IntPtr]]::new()
+    $callback=[AidosWindowDiscoveryV1+EnumWindowsProc]{
+        param([IntPtr]$hWnd,[IntPtr]$lParam)
+        $pid=0
+        [void][AidosWindowDiscoveryV1]::GetWindowThreadProcessId($hWnd,[ref]$pid)
+        if($byPid.ContainsKey([int]$pid)){$handles.Add($hWnd)}
+        return $true
+    }.GetNewClosure()
+    [void][AidosWindowDiscoveryV1]::EnumWindows($callback,[IntPtr]::Zero)
+    $contexts=[Collections.Generic.List[object]]::new()
+    foreach($handle in @($handles)){
+        $pid=0;[void][AidosWindowDiscoveryV1]::GetWindowThreadProcessId($handle,[ref]$pid)
+        $process=$byPid[[int]$pid]
+        if(-not$process){continue}
+        if(-not[AidosWindowDiscoveryV1]::IsWindowVisible($handle)){continue}
+        $windowText=Get-AidosWindowDiscoveryText $handle
+        $windowClass=Get-AidosWindowDiscoveryClass $handle
+        if([string]::IsNullOrWhiteSpace($windowText)-or$windowClass-ne'Chrome_WidgetWin_1'){continue}
+        try{$uia=[Windows.Automation.AutomationElement]::FromHandle($handle)}catch{$uia=$null}
+        if(-not$uia){continue}
+        $uiaPid=[int]$uia.Current.ProcessId
+        $uiaHandle=[int64]$uia.Current.NativeWindowHandle
+        $uiaClass=[string]$uia.Current.ClassName
+        $uiaType=[string]$uia.Current.ControlType.ProgrammaticName
+        $uiaName=[string]$uia.Current.Name
+        $typeOk=($uiaType -match '(^|\.|:)Window$' -or $uiaType -match 'Window$')
+        $titleOk=(-not[string]::IsNullOrWhiteSpace($uiaName) -and [string]::Equals($uiaName,$windowText,[StringComparison]::Ordinal))
+        $usable=([int]$process.SessionId-eq$sessionId -and $uiaPid-eq[int]$process.Id -and $uiaHandle-eq[int64]$handle.ToInt64() -and $uiaClass-eq$windowClass -and $typeOk -and $titleOk)
+        if(-not$usable){continue}
+        $contexts.Add([pscustomobject][ordered]@{
+            present=$true;process_id=[int]$process.Id;process_name=[string]$process.ProcessName;session_id=[int]$process.SessionId;
+            main_window_handle=[string](([IntPtr]$process.MainWindowHandle).ToInt64());window_handle=[string]$handle.ToInt64();window_title=$windowText;window_class_name=$windowClass;
+            window_is_minimized=[AidosWindowDiscoveryV1]::IsIconic($handle);window_is_foreground=([AidosWindowDiscoveryV1]::GetForegroundWindow()-eq$handle);window_is_visible=$true;
+            window_source='EnumWindowsFallback';uia_process_id=$uiaPid;uia_native_window_handle=[string]$uiaHandle;uia_class_name=$uiaClass;uia_control_type=$uiaType;uia_name=$uiaName;
+            usable_application_window=$true;proof_reason='Accepted EnumWindows fallback shell candidate.';proof_failures=@()
+        })
+    }
+    @($contexts)
+}
+
+function Get-AidosDesktopChatGPTResilientProcessContext {
+    [CmdletBinding()]
+    param([string]$ProcessName='ChatGPT Classic',[scriptblock]$PrimaryResolver,[scriptblock]$FallbackResolver)
+    if($PrimaryResolver){
+        try{$primary=& $PrimaryResolver $ProcessName;if($primary){return $primary}}catch{$primaryError=$_.Exception.Message}
+    }elseif(Get-Command Get-AidosDesktopChatGPTProcessContext -ErrorAction SilentlyContinue){
+        try{$primary=Get-AidosDesktopChatGPTProcessContext -ProcessName $ProcessName;if($primary){return $primary}}catch{$primaryError=$_.Exception.Message}
+    }
+    $fallback=if($FallbackResolver){@(& $FallbackResolver $ProcessName)}else{@(Get-AidosDesktopChatGPTFallbackProcessContexts -ProcessName $ProcessName)}
+    if($fallback.Count-eq1){return $fallback[0]}
+    if($fallback.Count-gt1){
+        $details=($fallback|ForEach-Object{"pid=$($_.process_id);handle=$($_.window_handle);title=$($_.window_title)"})-join' | '
+        throw "Multiple fallback ChatGPT shell windows were discovered: $details"
+    }
+    if([string]::IsNullOrWhiteSpace([string]$primaryError)){$primaryError='Primary ChatGPT shell discovery returned no usable window.'}
+    throw "ChatGPT shell discovery failed. Primary: $primaryError Fallback: no exact PID/session/UIA-bound visible shell candidate."
+}
+
+function ConvertTo-AidosDesktopChatGPTComposerSemanticText {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$Text='')
+    if([string]::Equals($Text,'Vraag het aan ChatGPT',[StringComparison]::Ordinal)){return ''}
+    $Text
+}
+
+function Get-AidosDesktopChatGPTFreshComposerObservation {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context)
+    Initialize-AidosDesktopChatGPTWindowDiscovery
+    if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw 'ChatGPT window is not present.'}
+    $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+    if(-not$root){throw 'ChatGPT window is not accessible through UI Automation.'}
+    $matches=@($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition)|Where-Object {
+        $_.Current.AutomationId -eq 'prompt-textarea' -and
+        $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and
+        $_.Current.IsKeyboardFocusable
+    })
+    if($matches.Count-ne1){throw "Expected exactly one fresh ChatGPT composer control, found $($matches.Count)."}
+    $composer=$matches[0]
+    $text=''
+    try {
+        $valuePattern=$composer.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if($valuePattern){$text=[string]$valuePattern.Current.Value}
+    } catch {}
+    if([string]::IsNullOrWhiteSpace($text)){
+        try {
+            $textPattern=$composer.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+            if($textPattern){$text=[string]$textPattern.DocumentRange.GetText(-1)}
+        } catch {}
+    }
+    $text=ConvertTo-AidosDesktopChatGPTComposerSemanticText -Text $text
+    $hash=if([string]::IsNullOrWhiteSpace($text)){$null}else{[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()}
+    [pscustomobject][ordered]@{
+        present=$true
+        composer_text=$text
+        composer_text_sha256=$hash
+        composer_text_length=$text.Length
+        observation='FRESH_UIA_LOOKUP'
+    }
+}
+
+function Wait-AidosDesktopChatGPTFreshComposerCleared {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)][string]$PromptText,
+        [int]$Attempts=10,
+        [int]$DelayMilliseconds=200
+    )
+    for($attempt=1;$attempt-le$Attempts;$attempt++){
+        Start-Sleep -Milliseconds $DelayMilliseconds
+        $fresh=Get-AidosDesktopChatGPTFreshComposerObservation -Context $Context
+        if([string]::IsNullOrWhiteSpace([string]$fresh.composer_text)){return $fresh}
+        if(-not[string]::Equals([string]$fresh.composer_text,$PromptText,[StringComparison]::Ordinal)){
+            throw 'Fresh ChatGPT composer contains unrelated text after submit; committed-send proof remains fail-closed.'
+        }
+    }
+    throw 'Fresh ChatGPT composer still contains the exact outbound payload after bounded submit observation; committed-send proof is absent.'
+}
+
+function Add-AidosDesktopChatGPTFreshComposerProof {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Backend)
+    $primarySend=$Backend.SendPrompt
+    $freshComposerObservation=Get-Command Get-AidosDesktopChatGPTFreshComposerObservation -CommandType Function -ErrorAction Stop
+    $freshComposerCleared=Get-Command Wait-AidosDesktopChatGPTFreshComposerCleared -CommandType Function -ErrorAction Stop
+    $Backend.InspectComposer=({
+        param($Context,$Enrollment)
+        & $freshComposerObservation -Context $Context
+    }).GetNewClosure()
+    $Backend.SendPrompt=({
+        param($Context,$Enrollment,[string]$PromptText,$Assignment)
+        $before=& $freshComposerObservation -Context $Context
+        try{return & $primarySend $Context $Enrollment $PromptText $Assignment}catch{
+            $message=$_.Exception.Message
+            if($message -ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'){throw}
+        }
+        $fresh=& $freshComposerCleared -Context $Context -PromptText $PromptText
+        [pscustomobject][ordered]@{
+            schema_version='0.1'
+            assignment_id=if($Assignment -and $Assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment_id}elseif($Assignment -and $Assignment.PSObject.Properties['assignment'] -and $Assignment.assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment.assignment_id}else{$null}
+            assignment_sha256=if($Assignment -and $Assignment.PSObject.Properties['assignment_sha256']){[string]$Assignment.assignment_sha256}elseif($Assignment -and $Assignment.PSObject.Properties['sha256']){[string]$Assignment.sha256}else{$null}
+            conversation_fingerprint_sha256=if($Enrollment -and $Enrollment.PSObject.Properties['conversation_fingerprint_sha256']){[string]$Enrollment.conversation_fingerprint_sha256}else{$null}
+            composer_state='COMMITTED'
+            composer_result=if([string]::IsNullOrWhiteSpace([string]$before.composer_text)){'EMPTY'}elseif([string]::Equals([string]$before.composer_text,$PromptText,[StringComparison]::Ordinal)){'MATCHING_EXACT'}else{'MISMATCH'}
+            mutation_occurred=(-not[string]::Equals([string]$before.composer_text,$PromptText,[StringComparison]::Ordinal))
+            send_invocation_state='INVOKED'
+            committed_message_proof_state='PROVEN'
+            committed_message_proof_source='FRESH_EMPTY_COMPOSER'
+            failure_reason=$null
+            committed=$true
+        }
+    }).GetNewClosure()
+    $Backend
+}
+
+function Get-AidosDesktopChatGPTElementSearchTexts {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Element)
+    $values=[Collections.Generic.List[string]]::new()
+    try {
+        $textPattern=$Element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+        if($textPattern){
+            $text=[string]$textPattern.DocumentRange.GetText(-1)
+            if(-not[string]::IsNullOrWhiteSpace($text)){$values.Add($text)}
+        }
+    } catch {}
+    try {
+        $valuePattern=$Element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if($valuePattern){
+            $text=[string]$valuePattern.Current.Value
+            if(-not[string]::IsNullOrWhiteSpace($text)){$values.Add($text)}
+        }
+    } catch {}
+    foreach($propertyName in @('Name','HelpText','AutomationId','ClassName')){
+        try {
+            $text=[string]$Element.Current.$propertyName
+            if(-not[string]::IsNullOrWhiteSpace($text)){$values.Add($text)}
+        } catch {}
+    }
+    @($values|Select-Object -Unique)
+}
+
+function Get-AidosDesktopChatGPTJsonObjectCandidates {
+    [CmdletBinding()]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if([string]::IsNullOrWhiteSpace($Text)){return @()}
+    $objects=[Collections.Generic.List[string]]::new()
+    $start=-1
+    $depth=0
+    $inString=$false
+    $escaped=$false
+    for($index=0;$index-lt$Text.Length;$index++){
+        $character=$Text[$index]
+        if($start-lt0){
+            if($character-eq'{'){
+                $start=$index
+                $depth=1
+                $inString=$false
+                $escaped=$false
+            }
+            continue
+        }
+        if($inString){
+            if($escaped){$escaped=$false;continue}
+            if($character-eq'\'){$escaped=$true;continue}
+            if($character-eq'"'){$inString=$false}
+            continue
+        }
+        if($character-eq'"'){$inString=$true;continue}
+        if($character-eq'{'){$depth++;continue}
+        if($character-ne'}'){continue}
+        $depth--
+        if($depth-ne0){continue}
+        $candidate=$Text.Substring($start,$index-$start+1)
+        try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{$parsed=$null}
+        if($null-ne$parsed){$objects.Add($candidate)}
+        $start=-1
+        $depth=0
+        $inString=$false
+        $escaped=$false
+    }
+    @($objects)
+}
+
+function Select-AidosDesktopChatGPTResolvedActorResponseText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string[]]$Texts,[Parameter(Mandatory)]$Assignment)
+    if(-not$Assignment){return $null}
+    $assignmentObject=if($Assignment.PSObject.Properties['assignment']){$Assignment.assignment}else{$Assignment}
+    if(-not$assignmentObject -or [string]::IsNullOrWhiteSpace([string]$assignmentObject.assignment_id)){return $null}
+    $assignmentId=[string]$assignmentObject.assignment_id
+    $expectedAssignmentHashes=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    if($Assignment.PSObject.Properties['sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.sha256)}
+    elseif($Assignment.PSObject.Properties['assignment_sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.assignment_sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.assignment_sha256)}
+    $surfaces=[Collections.Generic.List[string]]::new()
+    $seenSurfaces=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($text in @($Texts)){
+        if([string]::IsNullOrWhiteSpace([string]$text)){continue}
+        $value=[string]$text
+        if($seenSurfaces.Add($value)){$surfaces.Add($value)}
+    }
+    $orderedSurfaces=@($surfaces)
+    if($orderedSurfaces.Count-gt1){
+        $compact=[string]::Concat($orderedSurfaces)
+        if($seenSurfaces.Add($compact)){$surfaces.Add($compact)}
+        $aggregate=[string]::Join("`n",$orderedSurfaces)
+        if($seenSurfaces.Add($aggregate)){$surfaces.Add($aggregate)}
+    }
+    if($expectedAssignmentHashes.Count-eq0){
+        foreach($surface in @($surfaces)){
+            if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
+                if($candidate.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-lt0 -and $candidate.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+                try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
+                if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
+                if([string]$parsed.assignment_id-ne$assignmentId){continue}
+                $templateHash=[string]$parsed.assignment_sha256
+                if($templateHash-match'^[0-9a-fA-F]{64}$'){[void]$expectedAssignmentHashes.Add($templateHash)}
+            }
+        }
+    }
+    $responses=[Collections.Generic.List[string]]::new()
+    $seenResponses=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($surface in @($surfaces)){
+        if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
+            if($candidate.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+            if($candidate.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+            try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
+            if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
+            if([string]$parsed.assignment_id-ne$assignmentId){continue}
+            $candidateHash=[string]$parsed.assignment_sha256
+            if($candidateHash-notmatch'^[0-9a-fA-F]{64}$'){continue}
+            if($expectedAssignmentHashes.Count-gt0 -and -not$expectedAssignmentHashes.Contains($candidateHash)){continue}
+            if($seenResponses.Add($candidate)){$responses.Add($candidate)}
+        }
+    }
+    if($responses.Count-eq0){return $null}
+    $responses[$responses.Count-1]
+}
+
+function Get-AidosDesktopChatGPTResolvedActorResponseText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context,[Parameter(Mandatory)]$Assignment)
+    if(-not$Assignment){return $null}
+    $assignmentObject=if($Assignment.PSObject.Properties['assignment']){$Assignment.assignment}else{$Assignment}
+    if(-not$assignmentObject -or [string]::IsNullOrWhiteSpace([string]$assignmentObject.assignment_id)){return $null}
+    if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){return $null}
+    Initialize-AidosDesktopChatGPTWindowDiscovery
+    $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+    if(-not$root){return $null}
+    $rootTexts=@(Get-AidosDesktopChatGPTElementSearchTexts -Element $root)
+    $rootResponse=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts $rootTexts -Assignment $Assignment
+    if(-not[string]::IsNullOrWhiteSpace([string]$rootResponse)){return $rootResponse}
+    $texts=[Collections.Generic.List[string]]::new()
+    foreach($text in $rootTexts){if(-not[string]::IsNullOrWhiteSpace([string]$text)){$texts.Add([string]$text)}}
+    foreach($element in @($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
+        try{if([string]$element.Current.AutomationId-eq'prompt-textarea'){continue}}catch{}
+        foreach($text in @(Get-AidosDesktopChatGPTElementSearchTexts -Element $element)){
+            if(-not[string]::IsNullOrWhiteSpace([string]$text)){$texts.Add([string]$text)}
+        }
+    }
+    Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($texts) -Assignment $Assignment
+}
+
+function Add-AidosDesktopChatGPTResolvedActorResponseReader {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Backend)
+    $resolvedReader=Get-Command Get-AidosDesktopChatGPTResolvedActorResponseText -CommandType Function -ErrorAction Stop
+    $Backend|Add-Member -NotePropertyName ReadActorResponseText -NotePropertyValue ({
+        param($Context,$Enrollment,[int]$Attempt,$Assignment)
+        & $resolvedReader -Context $Context -Assignment $Assignment
+    }).GetNewClosure() -Force
+    $Backend
+}
+
+function Add-AidosDesktopChatGPTConversationProofRecovery {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Backend)
+    $primaryLocate=$Backend.LocateConversation
+    $elementProof=Get-Command Get-AidosDesktopChatGPTElementConversationProof -CommandType Function -ErrorAction Stop
+    $Backend.LocateConversation=({
+        param($Context,[string]$ProofText,$Enrollment)
+        try{return & $primaryLocate $Context $ProofText $Enrollment}catch{$primaryError=$_.Exception.Message}
+        if(-not$Context -or [string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw $primaryError}
+        if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+        $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+        if(-not$root){throw $primaryError}
+        $accountProof=''
+        if($Enrollment -and $Enrollment.PSObject.Properties['account_proof_text']){$accountProof=[string]$Enrollment.account_proof_text}
+        try{$observed=& $elementProof -RootElement $root -Context $Context -ProofText $ProofText -AccountProofText $accountProof}
+        catch{throw "$primaryError Recovery proof failed: $($_.Exception.Message)"}
+        if($Enrollment -and $Enrollment.PSObject.Properties['conversation_fingerprint_sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Enrollment.conversation_fingerprint_sha256) -and $Enrollment.PSObject.Properties['conversation_fingerprint'] -and $Enrollment.conversation_fingerprint){
+            return [pscustomobject][ordered]@{
+                conversation_fingerprint=$Enrollment.conversation_fingerprint
+                conversation_fingerprint_sha256=[string]$Enrollment.conversation_fingerprint_sha256
+                proof_surface_rebound=$true
+                observed_conversation_fingerprint=$observed.conversation_fingerprint
+                observed_conversation_fingerprint_sha256=$observed.conversation_fingerprint_sha256
+                primary_proof_error=$primaryError
+            }
+        }
+        $observed
+    }).GetNewClosure()
+    $Backend
+}
+
+function New-AidosDesktopChatGPTResilientWindowsBackend {
+    [CmdletBinding()]
+    param([string]$ProcessName='ChatGPT Classic')
+    $backend=& $script:BaseDesktopChatGPTWindowsBackendCommand -ProcessName $ProcessName
+    $primaryResolver=$backend.GetProcessContext
+    $backend.GetProcessContext=({
+        param([string]$RequestedProcessName)
+        Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
+    }).GetNewClosure()
+    $backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
+    $backend=Add-AidosDesktopChatGPTFreshComposerProof -Backend $backend
+    $backend=Add-AidosDesktopChatGPTResolvedActorResponseReader -Backend $backend
+    Add-AidosDesktopChatGPTConversationProofRecovery -Backend $backend
+}
+
+# Compatibility shim for existing Thinker callers. It deliberately delegates to
+# the uniquely named wrapper; the base command above is bound to the exact base
+# module instance and therefore cannot resolve back to this shim.
+function New-AidosDesktopChatGPTWindowsBackend {
+    [CmdletBinding()]
+    param([string]$ProcessName='ChatGPT Classic')
+    New-AidosDesktopChatGPTResilientWindowsBackend -ProcessName $ProcessName
+}
+
+Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosWindowDiscoveryText,Get-AidosWindowDiscoveryClass,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,Get-AidosDesktopChatGPTFreshComposerObservation,Wait-AidosDesktopChatGPTFreshComposerCleared,Add-AidosDesktopChatGPTFreshComposerProof,Get-AidosDesktopChatGPTElementSearchTexts,Get-AidosDesktopChatGPTJsonObjectCandidates,Select-AidosDesktopChatGPTResolvedActorResponseText,Get-AidosDesktopChatGPTResolvedActorResponseText,Add-AidosDesktopChatGPTResolvedActorResponseReader,Add-AidosDesktopChatGPTConversationProofRecovery,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
