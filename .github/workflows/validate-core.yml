@@ -76,3 +76,6 @@ jobs:
       - name: Runtime Actor Transport regression tests
         shell: pwsh
         run: ./tests/RuntimeActorTransport.Tests.ps1
+      - name: Desktop Thinker Transport regression tests
+        shell: pwsh
+        run: ./tests/DesktopThinkerTransport.Tests.ps1
