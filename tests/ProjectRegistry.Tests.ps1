@@ -43,6 +43,17 @@ try{
     $phase=Set-AidosPreparationProjectPhase -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Phase 'BASELINE_ACCEPTANCE' -Status READY_FOR_ONBOARDING
     Assert-Registry ($phase.preparation_phase -eq 'BASELINE_ACCEPTANCE' -and $phase.status -eq 'READY_FOR_ONBOARDING') 'tracks preparation lifecycle independently from project runtime'
 
+    $promoted=Set-AidosPreparationProjectPhase -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Phase 'RUNTIME' -Status PROMOTED
+    Assert-Registry ($promoted.stage -eq 'RUNTIME' -and $promoted.status -eq 'PROMOTED' -and $promoted.preparation_phase -eq 'RUNTIME') 'promotion creates canonical runtime registry state'
+    $promotedAt=[string]$promoted.promoted_at
+    Start-Sleep -Milliseconds 10
+    $replayedPromotion=Set-AidosPreparationProjectPhase -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Phase 'RUNTIME' -Status PROMOTED
+    Assert-Registry ([string]$replayedPromotion.promoted_at -eq $promotedAt) 'idempotent promotion preserves original promoted_at'
+
+    $downgradeBlocked=$false
+    try{Set-AidosPreparationProjectPhase -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Phase 'RUNTIME_ONBOARDING' -Status READY_FOR_ONBOARDING|Out-Null}catch{$downgradeBlocked=$_.Exception.Message -match 'may not be downgraded'}
+    Assert-Registry $downgradeBlocked 'runtime project cannot be downgraded to preparation status'
+
     $duplicate=$false
     try{Register-AidosPreparationProject -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Repository $bare -LocalRoot $work|Out-Null}catch{$duplicate=$_.Exception.Message -match 'already registered'}
     Assert-Registry $duplicate 'registration is fail-closed on duplicate project identity'
