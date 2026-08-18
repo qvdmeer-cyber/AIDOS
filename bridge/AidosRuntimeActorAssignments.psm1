@@ -70,8 +70,12 @@ function New-AidosRuntimeActorAssignment {
         return [pscustomobject][ordered]@{status='ALREADY_PENDING';assignment_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');assignment_sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant();assignment=$existing[0]}
     }
 
-    if([string]$Selection.action -eq 'START_DEFINITION'){
+    if([string]$Selection.action -eq 'RESOLVE_PROJECT_APPLICABILITY'){
+        if([string]$state.state -ne 'IDLE' -or -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'RESOLVE_PROJECT_APPLICABILITY requires new-project IDLE state without Definition lineage.'}
+        if(Test-Path -LiteralPath (Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json') -PathType Leaf){throw 'Project Applicability already exists.'}
+    } elseif([string]$Selection.action -eq 'START_DEFINITION'){
         if([string]$state.state -ne 'IDLE' -or -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'START_DEFINITION requires new-project IDLE state without Definition lineage.'}
+        if(-not(Test-Path -LiteralPath (Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json') -PathType Leaf)){throw 'START_DEFINITION requires resolved Project Applicability.'}
         $definitionId=('DEF-'+[guid]::NewGuid().ToString())
         $state=Set-AidosState -ProjectRoot $root -NewState WAITING_DEFINITION -Actor SYSTEM -Patch @{definition_id=$definitionId;definition_version=1}
     } elseif([string]$Selection.action -eq 'RESUME_DEFINITION'){
