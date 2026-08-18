@@ -295,8 +295,11 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
         $value=[string]$text
         if($seenSurfaces.Add($value)){$surfaces.Add($value)}
     }
-    if($surfaces.Count-gt1){
-        $aggregate=[string]::Join("`n",@($surfaces))
+    $orderedSurfaces=@($surfaces)
+    if($orderedSurfaces.Count-gt1){
+        $compact=[string]::Concat($orderedSurfaces)
+        if($seenSurfaces.Add($compact)){$surfaces.Add($compact)}
+        $aggregate=[string]::Join("`n",$orderedSurfaces)
         if($seenSurfaces.Add($aggregate)){$surfaces.Add($aggregate)}
     }
     $responses=[Collections.Generic.List[string]]::new()
@@ -328,9 +331,12 @@ function Get-AidosDesktopChatGPTResolvedActorResponseText {
     Initialize-AidosDesktopChatGPTWindowDiscovery
     $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
     if(-not$root){return $null}
+    $rootTexts=@(Get-AidosDesktopChatGPTElementSearchTexts -Element $root)
+    $rootResponse=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts $rootTexts -Assignment $Assignment
+    if(-not[string]::IsNullOrWhiteSpace([string]$rootResponse)){return $rootResponse}
     $texts=[Collections.Generic.List[string]]::new()
-    $elements=@($root)+@($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))
-    foreach($element in $elements){
+    foreach($text in $rootTexts){if(-not[string]::IsNullOrWhiteSpace([string]$text)){$texts.Add([string]$text)}}
+    foreach($element in @($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
         try{if([string]$element.Current.AutomationId-eq'prompt-textarea'){continue}}catch{}
         foreach($text in @(Get-AidosDesktopChatGPTElementSearchTexts -Element $element)){
             if(-not[string]::IsNullOrWhiteSpace([string]$text)){$texts.Add([string]$text)}
