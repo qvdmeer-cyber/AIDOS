@@ -44,7 +44,8 @@ try {
     $backend=New-AidosDesktopThinkerStubBackend -ResponseText ($result|ConvertTo-Json -Depth 100 -Compress)
     $handoff=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id) -StateRoot $stateRoot -Backend $backend -ResponseTimeoutSeconds 1
     Assert-Thinker ($handoff.status -eq 'HANDOFF_COMPLETE') 'desktop Thinker handoff completes with exact-bound result'
-    Assert-Thinker ((Read-AidosDesktopThinkerEnrollment -StateRoot $stateRoot).transport_type -eq 'DESKTOP_CHATGPT_THINKER') 'Thinker conversation is auto-enrolled durably'
+    $enrollment=Read-AidosDesktopThinkerEnrollment -StateRoot $stateRoot
+    Assert-Thinker ($enrollment.transport_type -eq 'DESKTOP_CHATGPT_THINKER' -and $enrollment.status -eq 'ENROLLED') 'Thinker conversation is auto-enrolled durably'
     Assert-Thinker ($backend.State.send_count -eq 2) 'enrollment marker and actor assignment are each sent exactly once'
     Assert-Thinker ($backend.State.last_prompt -match 'AUTHORIZED_SOURCE_DOCUMENTS' -and $backend.State.last_prompt -match 'docs/PRODUCT.md') 'actor prompt carries authorized project source pack'
     $transport=Read-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id)
@@ -62,6 +63,25 @@ try {
     $lockedBackend=New-AidosDesktopThinkerStubBackend -InteractiveSession:$false
     $waiting=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $secondRoot -AssignmentId ([string]$created2.assignment.assignment_id) -StateRoot (Join-Path $base 'locked-host') -Backend $lockedBackend -ResponseTimeoutSeconds 1
     Assert-Thinker ($waiting.status -eq 'WAITING_TRANSPORT') 'locked desktop leaves assignment durably waiting for transport'
+
+    $proofRoot=Join-Path $base 'proof-project'
+    $proofState=Join-Path $base 'proof-host'
+    New-ThinkerProject -ProjectRoot $proofRoot
+    $project3=[pscustomobject]@{project_id='THINKER-PROJECT';local_root=$proofRoot}
+    $selection3=Get-AidosRuntimeNextActor -ProjectRoot $proofRoot
+    $created3=New-AidosRuntimeActorAssignment -Project $project3 -Selection $selection3
+    $proofBackend=New-AidosDesktopThinkerStubBackend -ConversationProofAvailable:$false
+    $firstPending=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $proofRoot -AssignmentId ([string]$created3.assignment.assignment_id) -StateRoot $proofState -Backend $proofBackend -ResponseTimeoutSeconds 1
+    Assert-Thinker ($firstPending.status -eq 'WAITING_TRANSPORT') 'unavailable conversation proof leaves enrollment pending instead of failing open'
+    $pendingEnrollment=Read-AidosDesktopThinkerEnrollment -StateRoot $proofState
+    $pendingMarker=[string]$pendingEnrollment.conversation_proof_text
+    Assert-Thinker ($pendingEnrollment.status -eq 'PENDING_ENROLLMENT' -and -not[string]::IsNullOrWhiteSpace($pendingMarker)) 'pending enrollment marker is durable before proof succeeds'
+    Assert-Thinker ($proofBackend.State.send_count -eq 1) 'first proof failure sends exactly one enrollment marker'
+    $secondPending=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $proofRoot -AssignmentId ([string]$created3.assignment.assignment_id) -StateRoot $proofState -Backend $proofBackend -ResponseTimeoutSeconds 1
+    Assert-Thinker ($secondPending.status -eq 'WAITING_TRANSPORT') 'replayed proof failure remains waiting'
+    $pendingReplay=Read-AidosDesktopThinkerEnrollment -StateRoot $proofState
+    Assert-Thinker ([string]$pendingReplay.conversation_proof_text -eq $pendingMarker) 'replayed proof failure reuses the same enrollment marker'
+    Assert-Thinker ($proofBackend.State.send_count -eq 1) 'replayed proof failure never sends another enrollment marker'
 } finally {
     if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force}
 }
