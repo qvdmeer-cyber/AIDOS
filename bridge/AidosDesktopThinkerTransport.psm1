@@ -50,7 +50,14 @@ function New-AidosDesktopThinkerStubBackend {
         GetProcessContext=({param([string]$ProcessName);[pscustomobject]@{present=$true;process_id=42;process_name=$ProcessName;session_id=1;main_window_handle='99';window_handle='99';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1';window_is_minimized=$false;window_is_foreground=$true;window_is_visible=$true;window_source='stub'}}).GetNewClosure()
         FocusConversation=({param($Context,$Enrollment);$Context.window_is_foreground=$true;$Context}).GetNewClosure()
         SendPrompt=({param($Context,$Enrollment,[string]$PromptText);$state.send_count++;$state.last_prompt=$PromptText;if($PromptText -match 'AIDOS_THINKER_TRANSPORT_ENROLLMENT::(?<id>[0-9a-f-]+)'){$state.proof_text='AIDOS_THINKER_TRANSPORT_ENROLLMENT::'+$Matches.id}}).GetNewClosure()
-        LocateConversation=({param($Context,[string]$ProofText,$Enrollment);[pscustomobject]@{conversation_fingerprint=[ordered]@{window_title=$Context.window_title;window_class_name=$Context.window_class_name;conversation_proof_text=$ProofText;path=@([ordered]@{name='stub';control_type='Window'})};conversation_fingerprint_sha256=(Get-AidosDesktopChatGPTFingerprintHash ([ordered]@{window_title=$Context.window_title;window_class_name=$Context.window_class_name;conversation_proof_text=$ProofText;path=@([ordered]@{name='stub';control_type='Window'})}))}}).GetNewClosure()
+        LocateConversation=({
+            param($Context,[string]$ProofText,$Enrollment)
+            if([string]::IsNullOrWhiteSpace([string]$state.proof_text) -or [string]$state.proof_text -ne $ProofText){throw 'Stub Thinker conversation proof is not present.'}
+            $fingerprint=[ordered]@{window_title=$Context.window_title;window_class_name=$Context.window_class_name;conversation_proof_text=$ProofText;path=@([ordered]@{name='stub';control_type='Window'})}
+            $json=$fingerprint|ConvertTo-Json -Depth 100 -Compress
+            $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($json))).ToLowerInvariant()
+            [pscustomobject]@{conversation_fingerprint=$fingerprint;conversation_fingerprint_sha256=$hash}
+        }).GetNewClosure()
         ReadActorResponseText=({param($Context,$Enrollment,[int]$Attempt,$Assignment);if($state.send_count-lt1){return $null};$ResponseText}).GetNewClosure()
     }
 }
