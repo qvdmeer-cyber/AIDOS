@@ -33,10 +33,12 @@ try {
     Assert-Transport ($transport.status -eq 'PENDING' -and $transport.assignment_sha256 -eq $sha) 'transport state binds immutable assignment hash'
     $waiting=Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id) -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'WINDOWS_LOCKED_OR_SESSION_UNAVAILABLE'
     Assert-Transport ($waiting.status -eq 'WAITING_TRANSPORT') 'assignment may wait for a transport adapter without changing assignment'
-    $waitingUpdatedAt=[string]$waiting.updated_at
+    $statePath=Get-AidosRuntimeActorTransportStatePath -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id)
+    $waitingHash=(Get-FileHash -LiteralPath $statePath -Algorithm SHA256).Hash
     Start-Sleep -Milliseconds 20
-    $waitingReplay=Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id) -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'WINDOWS_LOCKED_OR_SESSION_UNAVAILABLE'
-    Assert-Transport ([string]$waitingReplay.updated_at -eq $waitingUpdatedAt) 'identical WAITING_TRANSPORT replay is a semantic no-op'
+    $null=Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id) -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'WINDOWS_LOCKED_OR_SESSION_UNAVAILABLE'
+    $waitingReplayHash=(Get-FileHash -LiteralPath $statePath -Algorithm SHA256).Hash
+    Assert-Transport ($waitingReplayHash -eq $waitingHash) 'identical WAITING_TRANSPORT replay is a semantic no-op'
     $activated=Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id) -Status ACTIVATED -TransportType TEST
     Assert-Transport ($activated.status -eq 'ACTIVATED' -and $activated.transport_type -eq 'TEST') 'transport activation is explicit'
 
