@@ -1,0 +1,68 @@
+[CmdletBinding()]
+param()
+Set-StrictMode -Version Latest
+$ErrorActionPreference='Stop'
+
+$root=Split-Path $PSScriptRoot -Parent
+Import-Module (Join-Path $root 'bridge/AidosRuntimeProjectManager.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosRuntimeActorAssignments.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosRuntimeActorTransport.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Force -DisableNameChecking
+$script:passed=0
+function Assert-Thinker([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
+
+function New-ThinkerProject {
+    param([string]$ProjectRoot)
+    New-Item -ItemType Directory -Path (Join-Path $ProjectRoot '.aidos/documentation') -Force|Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $ProjectRoot '.aidos/evidence') -Force|Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $ProjectRoot '.aidos/runtime') -Force|Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $ProjectRoot 'docs') -Force|Out-Null
+    & git -C $ProjectRoot init -q
+    & git -C $ProjectRoot config user.email 'aidos-tests@example.invalid'
+    & git -C $ProjectRoot config user.name 'AIDOS Tests'
+    & git -C $ProjectRoot remote add origin 'https://example.invalid/thinker.git'
+    [ordered]@{schema_version='0.1';project_id='THINKER-PROJECT';project_mode='NEW_PROJECT';repository='https://example.invalid/thinker.git';official_root=$ProjectRoot;runner_policy='UNATTENDED_ALLOWED';git_runtime=[ordered]@{kind='NATIVE';project_root=$ProjectRoot;git_path='git'}}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $ProjectRoot '.aidos/PROJECT.json') -Encoding utf8NoBOM
+    [ordered]@{schema_version='0.1';project_id='THINKER-PROJECT';state='IDLE';definition_id=$null;definition_version=$null;execution_id=$null;revision=$null;codex_session_id=$null;review_id=$null;lease_id=$null;terminal_result=$null;git_head=$null;validation_result=$null;updated_at='2026-08-18T00:00:00Z'}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $ProjectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
+    [ordered]@{contract_version='0.3.0';catalog_version='0.2.0';project_id='THINKER-PROJECT';baseline_version=1;accepted_at='2026-08-18T00:00:00Z';accepted_by='TEST';accepted_commit='abc';items=[ordered]@{}}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $ProjectRoot '.aidos/documentation/PROJECT_BASELINE.json') -Encoding utf8NoBOM
+    [ordered]@{contract_version='0.1.0';project_id='THINKER-PROJECT'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $ProjectRoot '.aidos/documentation/PROJECT_ACCESS.json') -Encoding utf8NoBOM
+    [ordered]@{contract_version='0.2.0';project_id='THINKER-PROJECT'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $ProjectRoot '.aidos/evidence/EVIDENCE_INVENTORY.json') -Encoding utf8NoBOM
+    Set-Content -LiteralPath (Join-Path $ProjectRoot 'docs/PRODUCT.md') -Value '# Product`nDefinition transport test product.' -Encoding utf8NoBOM
+    & git -C $ProjectRoot add .
+    & git -C $ProjectRoot commit -q -m init
+}
+
+$base=Join-Path ([IO.Path]::GetTempPath()) ('aidos-desktop-thinker-'+[guid]::NewGuid().ToString('N'))
+$projectRoot=Join-Path $base 'project'
+$stateRoot=Join-Path $base 'host'
+try {
+    New-ThinkerProject -ProjectRoot $projectRoot
+    $project=[pscustomobject]@{project_id='THINKER-PROJECT';local_root=$projectRoot}
+    $selection=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
+    $created=New-AidosRuntimeActorAssignment -Project $project -Selection $selection
+    $a=$created.assignment
+    $result=[ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$a.assignment_id;assignment_sha256=[string]$created.assignment_sha256;project_id=[string]$a.project_id;actor_role=[string]$a.actor_role;actor_identity=[string]$a.actor_identity;action=[string]$a.action;binding=$a.binding;outcome='COMPLETED';result=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='test';proposed_artifacts=@();human_input_request=$null};responded_at='2026-08-18T00:00:01Z'}
+    $backend=New-AidosDesktopThinkerStubBackend -ResponseText ($result|ConvertTo-Json -Depth 100 -Compress)
+    $handoff=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id) -StateRoot $stateRoot -Backend $backend -ResponseTimeoutSeconds 1
+    Assert-Thinker ($handoff.status -eq 'HANDOFF_COMPLETE') 'desktop Thinker handoff completes with exact-bound result'
+    Assert-Thinker ((Read-AidosDesktopThinkerEnrollment -StateRoot $stateRoot).transport_type -eq 'DESKTOP_CHATGPT_THINKER') 'Thinker conversation is auto-enrolled durably'
+    Assert-Thinker ($backend.State.send_count -eq 2) 'enrollment marker and actor assignment are each sent exactly once'
+    Assert-Thinker ($backend.State.last_prompt -match 'AUTHORIZED_SOURCE_DOCUMENTS' -and $backend.State.last_prompt -match 'docs/PRODUCT.md') 'actor prompt carries authorized project source pack'
+    $transport=Read-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id)
+    Assert-Thinker ($transport.status -eq 'COMPLETED') 'Thinker result closes transport state'
+
+    $replay=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id) -StateRoot $stateRoot -Backend $backend -ResponseTimeoutSeconds 1
+    Assert-Thinker ($replay.status -eq 'HANDOFF_COMPLETE' -and $replay.idempotent) 'completed Thinker handoff replays idempotently'
+    Assert-Thinker ($backend.State.send_count -eq 2) 'completed replay does not send again'
+
+    $secondRoot=Join-Path $base 'locked-project'
+    New-ThinkerProject -ProjectRoot $secondRoot
+    $project2=[pscustomobject]@{project_id='THINKER-PROJECT';local_root=$secondRoot}
+    $selection2=Get-AidosRuntimeNextActor -ProjectRoot $secondRoot
+    $created2=New-AidosRuntimeActorAssignment -Project $project2 -Selection $selection2
+    $lockedBackend=New-AidosDesktopThinkerStubBackend -InteractiveSession:$false
+    $waiting=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $secondRoot -AssignmentId ([string]$created2.assignment.assignment_id) -StateRoot (Join-Path $base 'locked-host') -Backend $lockedBackend -ResponseTimeoutSeconds 1
+    Assert-Thinker ($waiting.status -eq 'WAITING_TRANSPORT') 'locked desktop leaves assignment durably waiting for transport'
+} finally {
+    if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force}
+}
+Write-Output "PASS: $passed desktop Thinker transport assertions"
