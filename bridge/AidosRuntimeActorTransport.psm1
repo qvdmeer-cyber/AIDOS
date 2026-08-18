@@ -46,23 +46,28 @@ function Set-AidosRuntimeActorTransportState {
     param(
         [Parameter(Mandatory)][string]$ProjectRoot,
         [Parameter(Mandatory)][string]$AssignmentId,
-        [ValidateSet('WAITING_TRANSPORT','ACTIVATED','COMPLETED','FAILED','ABANDONED')][string]$Status,
+        [ValidateSet('WAITING_TRANSPORT','ACTIVATED','COMPLETED','CONSUMED','FAILED','ABANDONED')][string]$Status,
         [string]$TransportType,
         [string]$LastError,
         [string]$ResultRef
     )
     $root=Resolve-AidosFileSystemPath $ProjectRoot
     $state=Initialize-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId
-    if([string]$state.status -in @('COMPLETED','FAILED','ABANDONED')){
+    if([string]$state.status -in @('CONSUMED','FAILED','ABANDONED')){
         if([string]$state.status -eq $Status){return $state}
         throw "Runtime actor transport is terminal: $($state.status)"
     }
-    $allowed=@{PENDING=@('WAITING_TRANSPORT','ACTIVATED','FAILED','ABANDONED');WAITING_TRANSPORT=@('WAITING_TRANSPORT','ACTIVATED','FAILED','ABANDONED');ACTIVATED=@('ACTIVATED','COMPLETED','FAILED','ABANDONED')}
+    $allowed=@{
+        PENDING=@('WAITING_TRANSPORT','ACTIVATED','FAILED','ABANDONED')
+        WAITING_TRANSPORT=@('WAITING_TRANSPORT','ACTIVATED','FAILED','ABANDONED')
+        ACTIVATED=@('ACTIVATED','COMPLETED','FAILED','ABANDONED')
+        COMPLETED=@('COMPLETED','CONSUMED','FAILED','ABANDONED')
+    }
     if($Status -notin @($allowed[[string]$state.status])){throw "Illegal runtime actor transport transition: $($state.status) -> $Status"}
     $state.status=$Status
     if(-not[string]::IsNullOrWhiteSpace($TransportType)){$state.transport_type=$TransportType}
     if($Status -eq 'ACTIVATED' -and [string]::IsNullOrWhiteSpace([string]$state.activated_at)){$state.activated_at=[DateTimeOffset]::UtcNow.ToString('o')}
-    if($Status -in @('COMPLETED','FAILED','ABANDONED')){$state.completed_at=[DateTimeOffset]::UtcNow.ToString('o')}
+    if($Status -in @('COMPLETED','CONSUMED','FAILED','ABANDONED') -and [string]::IsNullOrWhiteSpace([string]$state.completed_at)){$state.completed_at=[DateTimeOffset]::UtcNow.ToString('o')}
     $state.last_error=if([string]::IsNullOrWhiteSpace($LastError)){$null}else{$LastError}
     $state.result_ref=if([string]::IsNullOrWhiteSpace($ResultRef)){$state.result_ref}else{$ResultRef}
     $state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
