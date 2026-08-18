@@ -31,6 +31,10 @@ $threw=$false
 try{Select-AidosDesktopChatGPTMostSpecificProofCandidate -Candidates @([pscustomobject]@{id='a';exact=$true;text_length=10;depth=4},[pscustomobject]@{id='b';exact=$true;text_length=10;depth=4}) -ProofText 'marker'|Out-Null}catch{$threw=$true}
 Assert-Proof $threw 'truly equivalent proof candidates remain fail-closed'
 
+$emptyError=$null
+try{Select-AidosDesktopChatGPTMostSpecificProofCandidate -Candidates @() -ProofText 'missing-marker'|Out-Null}catch{$emptyError=$_.Exception.Message}
+Assert-Proof ($emptyError -eq "Conversation proof text 'missing-marker' was not found in the active ChatGPT window.") 'empty fallback candidate sets produce the intended fail-closed proof error instead of parameter binding failure'
+
 Assert-Proof ((Get-AidosDesktopChatGPTProofSurfaceName ([pscustomobject]@{proof_surface='DOCUMENT'})) -eq 'DOCUMENT') 'explicit Document proof surface is recognized'
 Assert-Proof ((Get-AidosDesktopChatGPTProofSurfaceName ([pscustomobject]@{document_control_type='ControlType.Document'})) -eq 'DOCUMENT_LEGACY') 'legacy Document fingerprint is recognized for representation migration'
 Assert-Proof ((Get-AidosDesktopChatGPTProofSurfaceName ([pscustomobject]@{proof_surface='MOST_SPECIFIC_UIA_ELEMENT'})) -eq 'MOST_SPECIFIC_UIA_ELEMENT') 'element fallback proof surface is recognized'
