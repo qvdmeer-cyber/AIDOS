@@ -10,6 +10,12 @@ Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Disab
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopThinkerTransport.psm1') -DisableNameChecking
 
+function Test-AidosWindowsRuntimeHost {
+    [CmdletBinding()]
+    param()
+    return [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+}
+
 function Get-AidosPreparationRegistryProjects {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RegistryRoot)
@@ -112,7 +118,7 @@ function Invoke-AidosRuntimeActorTransportDispatch {
     )
     if($MaxItems-lt1){throw 'MaxItems must be at least 1.'}
     if([string]::IsNullOrWhiteSpace($StateRoot)){$StateRoot=Join-Path (Split-Path ([IO.Path]::GetFullPath($RegistryRoot)) -Parent) 'host-agent'}
-    if(-$IsWindows -and -not$ActorTransportDispatcher){return [pscustomobject][ordered]@{status='SKIPPED_NON_WINDOWS';processed=0;results=@()}}
+    if(-not(Test-AidosWindowsRuntimeHost) -and -not$ActorTransportDispatcher){return [pscustomobject][ordered]@{status='SKIPPED_NON_WINDOWS';processed=0;results=@()}}
     $results=[System.Collections.Generic.List[object]]::new();$processed=0
     foreach($project in @(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot)){
         if($processed-ge$MaxItems){break}
@@ -215,4 +221,4 @@ function Invoke-AidosPreparationDispatcherTick {
     }
 }
 
-Export-ModuleMember -Function Get-AidosPreparationRegistryProjects,Get-AidosPendingPreparationResumeIds,Invoke-AidosPreparationControlInbox,Get-AidosPreparationDirtyPaths,Assert-AidosPreparationDirtyRecoveryScope,Invoke-AidosRuntimeActorTransportDispatch,Invoke-AidosPreparationDispatcherTick
+Export-ModuleMember -Function Test-AidosWindowsRuntimeHost,Get-AidosPreparationRegistryProjects,Get-AidosPendingPreparationResumeIds,Invoke-AidosPreparationControlInbox,Get-AidosPreparationDirtyPaths,Assert-AidosPreparationDirtyRecoveryScope,Invoke-AidosRuntimeActorTransportDispatch,Invoke-AidosPreparationDispatcherTick
