@@ -31,7 +31,11 @@ try {
     [ordered]@{request_id='hir-a';binding=[ordered]@{definition_id='DEF-A';definition_version=1}}|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $base '.aidos/human-input/hir-a.json') -Encoding utf8NoBOM
     [ordered]@{request_id='hir-b';binding=[ordered]@{definition_id='DEF-B';definition_version=1}}|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $base '.aidos/human-input/hir-b.json') -Encoding utf8NoBOM
 
-    $bound=[pscustomobject]@{sha256=('a'*64);assignment=[pscustomobject][ordered]@{assignment_id='assignment-a';action='RESUME_DEFINITION';binding=[pscustomobject][ordered]@{definition_id='DEF-A';definition_version=1}}}
+    $assignment=[pscustomobject][ordered]@{
+        schema_version='0.1';envelope_type='RUNTIME_ACTOR_ASSIGNMENT';assignment_id='assignment-a';project_id='SOURCE-TEST';actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='RESUME_DEFINITION';
+        binding=[pscustomobject][ordered]@{project_state='WAITING_DEFINITION';definition_id='DEF-A';definition_version=1;execution_id=$null;revision=$null;review_id=$null};requested_at='2026-08-18T00:00:00Z'
+    }
+    $bound=[pscustomobject]@{sha256=('a'*64);assignment=$assignment}
     $documents=@(Get-AidosDesktopThinkerAuthorizedDocuments -ProjectRoot $base -BoundAssignment $bound)
     $paths=@($documents|ForEach-Object {[string]$_.path})
     Assert-Source ($paths -contains '.aidos/profile/PROJECT_APPLICABILITY.json') 'bound Definition source pack includes Project Applicability'
