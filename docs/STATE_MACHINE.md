@@ -161,6 +161,8 @@ Current additional states include:
 - `GPT_REVIEWING`;
 - `EXECUTION_VALIDATION_FAILED`.
 
+A binding-valid actor result that fails deterministic **pre-application semantic validation** is preserved as evidence and its actor transport is terminalized as `FAILED` with an `ACTOR_RESULT_REJECTED` event. This terminal status removes the rejected attempt from the pending scheduler set so AIDOS can issue a fresh exact-bound assignment. Infrastructure or post-application consumer failures remain `CONSUME_ERROR` and are not silently reclassified as semantic rejection.
+
 `ABANDONED` remains a terminal **review transport status**, not a project/workstream state. It never fabricates a review outcome.
 
 Revision-scoped dispatch rebinding may occur while remaining `TASK_READY`; it is not a general self-transition permission.
