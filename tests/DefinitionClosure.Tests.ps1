@@ -61,7 +61,13 @@ try {
     [ordered]@{contract_version='0.2.0';project_id='DEFINITION-CLOSURE'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/evidence/EVIDENCE_INVENTORY.json') -Encoding utf8NoBOM
     Set-Content -LiteralPath (Join-Path $projectRoot 'docs/PRODUCT.md') -Value '# Product' -Encoding utf8NoBOM
 
-    & (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEFINITION-CLOSURE' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -AidosRoot $root|Out-Null
+    $projectProfile=& (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEFINITION-CLOSURE' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -AidosRoot $root
+    $projectOverrides=@($projectProfile.resolved_surfaces|Where-Object {[string]$_.state-eq'UNRESOLVED'}|ForEach-Object {
+        [ordered]@{surface_id=[string]$_.surface_id;state='APPLICABLE';reason='Definition closure fixture explicitly resolves project applicability before Definition scope.';source_ref='.aidos/documentation/PROJECT_BASELINE.json'}
+    })
+    if($projectOverrides.Count){
+        & (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEFINITION-CLOSURE' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson ($projectOverrides|ConvertTo-Json -Depth 20 -Compress) -AidosRoot $root|Out-Null
+    }
     Ensure-AidosDefinitionWorkspace -ProjectRoot $projectRoot -AidosRoot $root|Out-Null
 
     $appPath=Join-Path $projectRoot ('.aidos/definitions/{0}/v1/APPLICABILITY.json' -f $definitionId)
