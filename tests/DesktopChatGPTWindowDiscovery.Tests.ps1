@@ -23,7 +23,7 @@ Assert-Discovery $threw 'multiple fallback candidates fail closed'
 
 $hostText=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosPersistentLocalDesktopAgent.psm1') -Raw
 $thinkerText=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Raw
-Assert-Discovery ($hostText -match 'Get-AidosDesktopChatGPTResilientProcessContext') 'host shell health uses resilient discovery'
-Assert-Discovery ($thinkerText -match 'New-AidosDesktopThinkerWindowsBackend' -and $thinkerText -match 'Get-AidosDesktopChatGPTResilientProcessContext') 'Thinker transport backend uses resilient discovery'
+Assert-Discovery ($hostText -match 'ResilientProcessContextCommand=.*ExportedCommands\[''Get-AidosDesktopChatGPTResilientProcessContext''\]' -and $hostText -match '& \$script:ResilientProcessContextCommand') 'host shell health binds the exact exported resilient discovery command'
+Assert-Discovery ($thinkerText -match 'New-AidosDesktopThinkerWindowsBackend' -and $thinkerText -match 'ResilientProcessContextCommand=.*ExportedCommands\[''Get-AidosDesktopChatGPTResilientProcessContext''\]' -and $thinkerText -match '& \$resilientProcessContext') 'Thinker transport backend binds the exact exported resilient discovery command'
 
 Write-Output "PASS: $passed resilient Desktop ChatGPT discovery assertions"

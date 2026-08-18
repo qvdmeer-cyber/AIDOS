@@ -17,8 +17,11 @@ if([string]::IsNullOrWhiteSpace($StateRoot)){$StateRoot=Join-Path $env:LOCALAPPD
 function Test-AidosLeaseProcessIdentity {
     param([Parameter(Mandatory)]$Lease,[Parameter(Mandatory)]$Process)
     if([int]$Lease.pid -ne [int]$Process.Id){return $false}
-    $actual=$Process.StartTime.ToUniversalTime().ToString('o')
-    [string]$Lease.process_started_at -eq $actual
+    # ConvertFrom-Json materializes ISO timestamps as DateTime.  Stringifying that
+    # value is culture-dependent, so compare the stable UTC tick identity instead.
+    $expected=([DateTimeOffset]$Lease.process_started_at).UtcDateTime.Ticks
+    $actual=$Process.StartTime.ToUniversalTime().Ticks
+    $expected -eq $actual
 }
 
 function Stop-AidosLeasedHostAgentProcess {

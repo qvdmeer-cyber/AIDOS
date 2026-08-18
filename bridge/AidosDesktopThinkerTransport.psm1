@@ -3,7 +3,9 @@ $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.psm1') -DisableNameChecking
+$script:DesktopChatGPTWindowDiscoveryModule=Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.psm1') -DisableNameChecking -PassThru
+$script:ResilientProcessContextCommand=$script:DesktopChatGPTWindowDiscoveryModule.ExportedCommands['Get-AidosDesktopChatGPTResilientProcessContext']
+if($null-eq$script:ResilientProcessContextCommand){throw 'Resilient Desktop ChatGPT process-context command is unavailable.'}
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorTransport.psm1') -DisableNameChecking
 
 function Get-AidosDesktopThinkerRoot {
@@ -67,7 +69,8 @@ function New-AidosDesktopThinkerWindowsBackend {
     param([string]$ProcessName='ChatGPT Classic')
     $backend=New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName
     $primaryResolver=$backend.GetProcessContext
-    $backend.GetProcessContext=({param([string]$RequestedProcessName);Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver}).GetNewClosure()
+    $resilientProcessContext=$script:ResilientProcessContextCommand
+    $backend.GetProcessContext=({param([string]$RequestedProcessName);& $resilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver}).GetNewClosure()
     $backend
 }
 function Complete-AidosDesktopThinkerEnrollment {

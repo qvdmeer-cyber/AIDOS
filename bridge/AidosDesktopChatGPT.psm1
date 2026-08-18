@@ -1,7 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -DisableNameChecking
+# Nested reloads can evict the caller's public AidosBridge module instance.
+Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 
 function Get-AidosDesktopChatGPTAdapterRoot {
     param([string]$ProjectRoot)
