@@ -70,13 +70,21 @@ $baselinePath=Join-Path $projectRoot '.aidos/documentation/PROJECT_BASELINE.json
 $baseline=Get-Content -LiteralPath $baselinePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
 $acceptance=$null
 if([string]::IsNullOrWhiteSpace([string]$baseline.accepted_at)){
+    if([string]$registered.stage -eq 'RUNTIME'){throw 'Runtime-promoted project cannot return to baseline acceptance.'}
     $acceptance=Invoke-AidosBootstrapModuleCommand -ModulePath $runtimeModule -CommandName 'New-AidosPreparationBaselineAcceptanceRequest' -Arguments @{ProjectRoot=$projectRoot;BuilderRoot=$builderRoot;ContractsRoot=$contractsRoot}
     $registered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Get-AidosRegisteredProject' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId}
     $persistence=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Invoke-AidosPreparationGitPersistence' -Arguments @{Project=$registered;CommitMessage='AIDOS publish formal Project Baseline acceptance request';Push=$true}
     Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Set-AidosPreparationProjectPhase' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId;Phase='BASELINE_ACCEPTANCE';Status='WAITING_HUMAN'}|Out-Null
 }else{
     $persistence=[pscustomobject]@{status='NO_CHANGES';commit=$null;pushed=$false;paths=@()}
-    Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Set-AidosPreparationProjectPhase' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId;Phase='RUNTIME_ONBOARDING';Status='READY_FOR_ONBOARDING'}|Out-Null
+    $registered=Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Get-AidosRegisteredProject' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId}
+    $runtimeProfilePath=Join-Path $projectRoot '.aidos/PROJECT.json'
+    $alreadyPromoted=([string]$registered.stage -eq 'RUNTIME' -or -not[string]::IsNullOrWhiteSpace([string]$registered.promoted_at) -or (Test-Path -LiteralPath $runtimeProfilePath -PathType Leaf))
+    if($alreadyPromoted){
+        Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Set-AidosPreparationProjectPhase' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId;Phase='RUNTIME';Status='PROMOTED'}|Out-Null
+    }else{
+        Invoke-AidosBootstrapModuleCommand -ModulePath $registryModule -CommandName 'Set-AidosPreparationProjectPhase' -Arguments @{RegistryRoot=$registryRoot;ProjectId=$PreparationProjectId;Phase='RUNTIME_ONBOARDING';Status='READY_FOR_ONBOARDING'}|Out-Null
+    }
 }
 
 if([string]::IsNullOrWhiteSpace($RuntimeProjectRoot)){
@@ -94,7 +102,7 @@ $installJson=& $agentEntry -Command Install -ProjectRoot $RuntimeProjectRoot -Au
 $install=$installJson|ConvertFrom-Json -Depth 30
 
 # Wait for the newly installed agent to publish its first post-install tick so the
-# bootstrap output proves whether autonomous preparation actually advanced.
+# bootstrap output proves whether autonomous preparation/runtime actually advanced.
 $agentRuntime=$null
 $statusPath=Join-Path $stateRoot 'STATUS.json'
 $deadline=[DateTimeOffset]::UtcNow.AddSeconds(15)
