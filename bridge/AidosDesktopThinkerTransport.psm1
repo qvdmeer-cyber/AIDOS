@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorTransport.psm1') -DisableNameChecking
 
 function Get-AidosDesktopThinkerRoot {
@@ -62,6 +63,13 @@ function New-AidosDesktopThinkerStubBackend {
         ReadActorResponseText=({param($Context,$Enrollment,[int]$Attempt,$Assignment);if($state.send_count-lt1){return $null};$ResponseText}).GetNewClosure()
     }
 }
+function New-AidosDesktopThinkerWindowsBackend {
+    param([string]$ProcessName='ChatGPT Classic')
+    $backend=New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName
+    $primaryResolver=$backend.GetProcessContext
+    $backend.GetProcessContext=({param([string]$RequestedProcessName);Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver}).GetNewClosure()
+    $backend
+}
 function Complete-AidosDesktopThinkerEnrollment {
     param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)]$Enrollment,[Parameter(Mandatory)]$Location)
     $now=[DateTimeOffset]::UtcNow.ToString('o')
@@ -77,7 +85,7 @@ function Initialize-AidosDesktopThinkerEnrollment {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$StateRoot,[string]$ProcessName='ChatGPT Classic',[object]$Backend)
     $existing=Read-AidosDesktopThinkerEnrollment -StateRoot $StateRoot
-    if(-not$Backend){$Backend=New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName}
+    if(-not$Backend){$Backend=New-AidosDesktopThinkerWindowsBackend -ProcessName $ProcessName}
     & $Backend.AssertInteractiveSession|Out-Null
     $context=& $Backend.GetProcessContext $ProcessName
     if(-not$context -or -not$context.present){throw 'ChatGPT process/window is unavailable for Thinker enrollment.'}
@@ -202,7 +210,7 @@ function Invoke-AidosDesktopThinkerAssignment {
     $bound=Read-AidosRuntimeActorAssignment -ProjectRoot $root -AssignmentId $AssignmentId
     $transport=Initialize-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId
     if([string]$transport.status -eq 'COMPLETED'){return [pscustomobject][ordered]@{status='HANDOFF_COMPLETE';idempotent=$true;assignment_id=$AssignmentId;result_ref=[string]$transport.result_ref}}
-    if(-not$Backend){$Backend=New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName}
+    if(-not$Backend){$Backend=New-AidosDesktopThinkerWindowsBackend -ProcessName $ProcessName}
     $interactive=$true
     try{& $Backend.AssertInteractiveSession|Out-Null}catch{$interactive=$false}
     if(-not$interactive){$state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError 'WINDOWS_LOCKED_OR_SESSION_UNAVAILABLE';return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;transport=$state}}
@@ -230,4 +238,4 @@ function Invoke-AidosDesktopThinkerAssignment {
     [pscustomobject][ordered]@{status='HANDOFF_COMPLETE';idempotent=$false;assignment_id=$AssignmentId;saved=$saved;result=$result}
 }
 
-Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,New-AidosDesktopThinkerStubBackend,Complete-AidosDesktopThinkerEnrollment,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
+Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,New-AidosDesktopThinkerStubBackend,New-AidosDesktopThinkerWindowsBackend,Complete-AidosDesktopThinkerEnrollment,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
