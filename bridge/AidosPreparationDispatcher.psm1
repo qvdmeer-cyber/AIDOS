@@ -9,6 +9,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -DisableNameCheck
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopThinkerTransport.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousReview.psm1') -DisableNameChecking
 
 function Test-AidosWindowsRuntimeHost {
     [CmdletBinding()]
@@ -114,11 +115,12 @@ function Invoke-AidosRuntimeActorTransportDispatch {
         [string]$ProcessName='ChatGPT Classic',
         [int]$MaxItems=1,
         [switch]$Push,
-        [scriptblock]$ActorTransportDispatcher
+        [scriptblock]$ActorTransportDispatcher,
+        [scriptblock]$ReviewTransportDispatcher
     )
     if($MaxItems-lt1){throw 'MaxItems must be at least 1.'}
     if([string]::IsNullOrWhiteSpace($StateRoot)){$StateRoot=Join-Path (Split-Path ([IO.Path]::GetFullPath($RegistryRoot)) -Parent) 'host-agent'}
-    if(-not(Test-AidosWindowsRuntimeHost) -and -not$ActorTransportDispatcher){return [pscustomobject][ordered]@{status='SKIPPED_NON_WINDOWS';processed=0;results=@()}}
+    if(-not(Test-AidosWindowsRuntimeHost) -and -not$ActorTransportDispatcher -and -not$ReviewTransportDispatcher){return [pscustomobject][ordered]@{status='SKIPPED_NON_WINDOWS';processed=0;results=@();review_result=$null}}
     $results=[System.Collections.Generic.List[object]]::new();$processed=0
     foreach($project in @(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot)){
         if($processed-ge$MaxItems){break}
@@ -136,7 +138,27 @@ function Invoke-AidosRuntimeActorTransportDispatch {
             $processed++
         }
     }
-    [pscustomobject][ordered]@{status=if(@($results|Where-Object {$_.status -eq 'TRANSPORT_ERROR'}).Count){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'};processed=$processed;results=@($results)}
+
+    # The host calls this dispatcher only after the interactive-session and shell
+    # health gate has passed. Reuse that exact boundary for portfolio reviews.
+    # Definition transport keeps priority; review gets only remaining capacity.
+    $reviewResult=$null
+    $remaining=$MaxItems-$processed
+    if($remaining-gt0){
+        try{
+            $reviewResult=if($ReviewTransportDispatcher){& $ReviewTransportDispatcher $RegistryRoot $ProcessName $remaining}else{Invoke-AidosAutonomousReviewTransportDispatch -RegistryRoot $RegistryRoot -ProcessName $ProcessName -MaxItems $remaining}
+        }catch{$reviewResult=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+        if($reviewResult){$processed += [int]$reviewResult.processed}
+    }else{$reviewResult=[pscustomobject][ordered]@{status='DEFERRED_CAPACITY';processed=0;results=@()}}
+
+    $transportError=@($results|Where-Object {$_.status -eq 'TRANSPORT_ERROR'}).Count -gt 0
+    $reviewError=$reviewResult -and [string]$reviewResult.status -eq 'ERROR'
+    [pscustomobject][ordered]@{
+        status=if($transportError-or$reviewError){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'}
+        processed=$processed
+        results=@($results)
+        review_result=$reviewResult
+    }
 }
 
 function Invoke-AidosPreparationDispatcherTick {
@@ -198,7 +220,7 @@ function Invoke-AidosPreparationDispatcherTick {
                 if([string]$outcome.status -eq 'ACTOR_RESUME_REQUIRED'){$fallbackPersistence=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS record Human Input $requestId") -Push:$Push}
                 $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;request_id=$requestId;status=[string]$outcome.status;sync=$sync;control=@($inbox);outcome=$outcome;persistence=$fallbackPersistence})
             }catch{
-                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;request_id=$requestId;status='ERROR';sync=$sync;control=@($inbox);error=$_.Exception.Message})
+                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;request_id=[string]$intent.payload.request_id;status='ERROR';sync=$sync;control=@($inbox);error=$_.Exception.Message})
             }
             $processed++
         }
@@ -210,10 +232,10 @@ function Invoke-AidosPreparationDispatcherTick {
 
     $actorTransport=$null
     if($DeferActorTransport){
-        $actorTransport=[pscustomobject][ordered]@{status='DEFERRED_INTERACTIVE_GATE';processed=0;results=@()}
+        $actorTransport=[pscustomobject][ordered]@{status='DEFERRED_INTERACTIVE_GATE';processed=0;results=@();review_result=$null}
     }else{
         try{$actorTransport=Invoke-AidosRuntimeActorTransportDispatch -RegistryRoot $RegistryRoot -StateRoot $ActorTransportStateRoot -ProcessName $ActorProcessName -MaxItems $MaxItems -Push:$Push -ActorTransportDispatcher $ActorTransportDispatcher}
-        catch{$actorTransport=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+        catch{$actorTransport=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();review_result=$null;error=$_.Exception.Message}}
     }
 
     $preparationError=@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count -gt 0
@@ -221,7 +243,7 @@ function Invoke-AidosPreparationDispatcherTick {
     $transportError=$actorTransport -and [string]$actorTransport.status -eq 'ERROR'
     $didWork=($processed -gt 0 -or ($runtime -and [int]$runtime.processed -gt 0) -or ($actorTransport -and [int]$actorTransport.processed -gt 0))
     [pscustomobject][ordered]@{
-        schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;actor_transport_result=$actorTransport;
+        schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;actor_transport_result=$actorTransport;
         status=if($preparationError-or$runtimeError-or$transportError){'ERROR'}elseif($didWork){'PROCESSED'}else{'IDLE'}
     }
 }
