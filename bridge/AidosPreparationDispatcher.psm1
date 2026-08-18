@@ -7,6 +7,8 @@ Import-Module (Join-Path $PSScriptRoot 'AidosPreparationRuntime.psm1') -DisableN
 Import-Module (Join-Path $PSScriptRoot 'AidosPreparationOnboarding.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopThinkerTransport.psm1') -DisableNameChecking
 
 function Get-AidosPreparationRegistryProjects {
     [CmdletBinding()]
@@ -98,6 +100,39 @@ function Assert-AidosPreparationDirtyRecoveryScope {
     [pscustomobject][ordered]@{status='DIRTY_RECOVERY_ALLOWED';paths=@($paths)}
 }
 
+function Invoke-AidosRuntimeActorTransportDispatch {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RegistryRoot,
+        [string]$StateRoot,
+        [string]$ProcessName='ChatGPT Classic',
+        [int]$MaxItems=1,
+        [switch]$Push,
+        [scriptblock]$ActorTransportDispatcher
+    )
+    if($MaxItems-lt1){throw 'MaxItems must be at least 1.'}
+    if([string]::IsNullOrWhiteSpace($StateRoot)){$StateRoot=Join-Path (Split-Path ([IO.Path]::GetFullPath($RegistryRoot)) -Parent) 'host-agent'}
+    if(-$IsWindows -and -not$ActorTransportDispatcher){return [pscustomobject][ordered]@{status='SKIPPED_NON_WINDOWS';processed=0;results=@()}}
+    $results=[System.Collections.Generic.List[object]]::new();$processed=0
+    foreach($project in @(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot)){
+        if($processed-ge$MaxItems){break}
+        foreach($assignment in @(Get-AidosPendingRuntimeActorAssignments -ProjectRoot ([string]$project.local_root))){
+            if($processed-ge$MaxItems){break}
+            if([string]$assignment.actor_identity -ne 'DEFINITION_AGENT'){continue}
+            try{
+                $transport=if($ActorTransportDispatcher){& $ActorTransportDispatcher $project $assignment $StateRoot}else{Invoke-AidosDesktopThinkerAssignment -ProjectRoot ([string]$project.local_root) -AssignmentId ([string]$assignment.assignment_id) -StateRoot $StateRoot -ProcessName $ProcessName}
+                $persistence=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS persist actor transport $($assignment.assignment_id)") -Push:$Push
+                $status=if([string]$transport.status -eq 'HANDOFF_COMPLETE'){'RESULT_READY'}else{[string]$transport.status}
+                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$assignment.assignment_id;status=$status;transport=$transport;persistence=$persistence})
+            }catch{
+                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$assignment.assignment_id;status='TRANSPORT_ERROR';error=$_.Exception.Message})
+            }
+            $processed++
+        }
+    }
+    [pscustomobject][ordered]@{status=if(@($results|Where-Object {$_.status -eq 'TRANSPORT_ERROR'}).Count){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'};processed=$processed;results=@($results)}
+}
+
 function Invoke-AidosPreparationDispatcherTick {
     [CmdletBinding()]
     param(
@@ -109,7 +144,10 @@ function Invoke-AidosPreparationDispatcherTick {
         [scriptblock]$ResumeProcessor,
         [scriptblock]$SyncProcessor,
         [scriptblock]$OnboardingProcessor,
-        [scriptblock]$RuntimeProjectManager
+        [scriptblock]$RuntimeProjectManager,
+        [scriptblock]$ActorTransportDispatcher,
+        [string]$ActorTransportStateRoot,
+        [string]$ActorProcessName='ChatGPT Classic'
     )
     if($MaxItems -lt 1){throw 'MaxItems must be at least 1.'}
     $projects=@(Get-AidosPreparationRegistryProjects -RegistryRoot $RegistryRoot)
@@ -160,18 +198,21 @@ function Invoke-AidosPreparationDispatcherTick {
     }
 
     $runtime=$null
-    try{
-        $runtime=if($RuntimeProjectManager){& $RuntimeProjectManager $RegistryRoot $MaxItems $Push}else{Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RegistryRoot -MaxProjects $MaxItems -Push:$Push}
-    }catch{
-        $runtime=[pscustomobject][ordered]@{schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;results=@();status='ERROR';error=$_.Exception.Message}
-    }
+    try{$runtime=if($RuntimeProjectManager){& $RuntimeProjectManager $RegistryRoot $MaxItems $Push}else{Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RegistryRoot -MaxProjects $MaxItems -Push:$Push}}
+    catch{$runtime=[pscustomobject][ordered]@{schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;results=@();status='ERROR';error=$_.Exception.Message}}
+
+    $actorTransport=$null
+    try{$actorTransport=Invoke-AidosRuntimeActorTransportDispatch -RegistryRoot $RegistryRoot -StateRoot $ActorTransportStateRoot -ProcessName $ActorProcessName -MaxItems $MaxItems -Push:$Push -ActorTransportDispatcher $ActorTransportDispatcher}
+    catch{$actorTransport=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+
     $preparationError=@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count -gt 0
     $runtimeError=$runtime -and [string]$runtime.status -eq 'ERROR'
-    $didWork=($processed -gt 0 -or ($runtime -and [int]$runtime.processed -gt 0))
+    $transportError=$actorTransport -and [string]$actorTransport.status -eq 'ERROR'
+    $didWork=($processed -gt 0 -or ($runtime -and [int]$runtime.processed -gt 0) -or ($actorTransport -and [int]$actorTransport.processed -gt 0))
     [pscustomobject][ordered]@{
-        schema_version='0.2';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;
-        status=if($preparationError-or$runtimeError){'ERROR'}elseif($didWork){'PROCESSED'}else{'IDLE'}
+        schema_version='0.3';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;actor_transport_result=$actorTransport;
+        status=if($preparationError-or$runtimeError-or$transportError){'ERROR'}elseif($didWork){'PROCESSED'}else{'IDLE'}
     }
 }
 
-Export-ModuleMember -Function Get-AidosPreparationRegistryProjects,Get-AidosPendingPreparationResumeIds,Invoke-AidosPreparationControlInbox,Get-AidosPreparationDirtyPaths,Assert-AidosPreparationDirtyRecoveryScope,Invoke-AidosPreparationDispatcherTick
+Export-ModuleMember -Function Get-AidosPreparationRegistryProjects,Get-AidosPendingPreparationResumeIds,Invoke-AidosPreparationControlInbox,Get-AidosPreparationDirtyPaths,Assert-AidosPreparationDirtyRecoveryScope,Invoke-AidosRuntimeActorTransportDispatch,Invoke-AidosPreparationDispatcherTick
