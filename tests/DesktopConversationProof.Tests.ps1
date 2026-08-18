@@ -32,7 +32,22 @@ Assert-Proof $threw 'truly equivalent proof candidates remain fail-closed'
 
 $thinkerModule=Get-Module AidosDesktopThinkerTransport -ErrorAction Stop
 $command=& $thinkerModule { Get-Command New-AidosDesktopChatGPTWindowsBackend -ErrorAction Stop }
-Assert-Proof ($command.Source -eq 'AidosDesktopChatGPTWindowDiscovery') 'Thinker module scope resolves the resilient backend wrapper after the base Desktop ChatGPT module'
+Assert-Proof ($command.Source -eq 'AidosDesktopChatGPTWindowDiscovery') 'Thinker module scope resolves the resilient backend compatibility shim after the base Desktop ChatGPT module'
+
+$windowModule=Get-Module AidosDesktopChatGPTWindowDiscovery -ErrorAction Stop
+$binding=& $windowModule {
+    [pscustomobject]@{
+        base_source=[string]$script:BaseDesktopChatGPTWindowsBackendCommand.Source
+        base_name=[string]$script:BaseDesktopChatGPTWindowsBackendCommand.Name
+        shim=(Get-Command New-AidosDesktopChatGPTWindowsBackend -ErrorAction Stop)
+        resilient=(Get-Command New-AidosDesktopChatGPTResilientWindowsBackend -ErrorAction Stop)
+    }
+}
+Assert-Proof ($binding.base_source -eq 'AidosDesktopChatGPT') 'resilient wrapper captures base backend from the exact AidosDesktopChatGPT module instance'
+Assert-Proof ($binding.base_name -eq 'New-AidosDesktopChatGPTWindowsBackend') 'captured base command is the original Windows backend factory'
+Assert-Proof ($binding.shim.Source -eq 'AidosDesktopChatGPTWindowDiscovery') 'compatibility shim belongs to the window-discovery module'
+Assert-Proof ($binding.resilient.Source -eq 'AidosDesktopChatGPTWindowDiscovery') 'uniquely named resilient factory belongs to the window-discovery module'
+Assert-Proof (-not [object]::ReferenceEquals($binding.shim,$windowModule.SessionState.PSVariable.GetValue('BaseDesktopChatGPTWindowsBackendCommand'))) 'compatibility shim is not the captured base command object'
 
 $proofSource=Get-Content -LiteralPath $proofModulePath -Raw -Encoding UTF8
 $backendStart=$proofSource.IndexOf('function New-AidosDesktopChatGPTResilientConversationBackend',[StringComparison]::Ordinal)
