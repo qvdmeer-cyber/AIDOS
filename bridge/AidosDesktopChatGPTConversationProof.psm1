@@ -163,20 +163,58 @@ function Get-AidosDesktopChatGPTElementConversationProof {
     }
 }
 
+function Get-AidosDesktopChatGPTProofSurfaceName {
+    param($Fingerprint)
+    if(-not$Fingerprint){return $null}
+    if($Fingerprint.PSObject.Properties['proof_surface'] -and -not[string]::IsNullOrWhiteSpace([string]$Fingerprint.proof_surface)){return [string]$Fingerprint.proof_surface}
+    # Fingerprints written before proof_surface was explicit were created only by
+    # the Document/RootWebArea proof path.
+    if($Fingerprint.PSObject.Properties['document_control_type']){return 'DOCUMENT_LEGACY'}
+    $null
+}
+
 function Get-AidosDesktopChatGPTResilientConversationProof {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$RootElement,
         [Parameter(Mandatory)]$Context,
         [Parameter(Mandatory)][string]$ProofText,
-        [AllowEmptyString()][string]$AccountProofText=''
+        [AllowEmptyString()][string]$AccountProofText='',
+        $ExistingFingerprint,
+        [AllowEmptyString()][string]$ExistingFingerprintSha256=''
     )
     $document=Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing
-    if($document){
+    $observed=if($document){
         # Preserve the established Document proof path whenever ChatGPT exposes it.
-        return Get-AidosDesktopChatGPTDocumentConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
+        Get-AidosDesktopChatGPTDocumentConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
+    }else{
+        Get-AidosDesktopChatGPTElementConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
     }
-    Get-AidosDesktopChatGPTElementConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
+
+    # An enrolled conversation can survive a Chromium accessibility-provider
+    # representation change. Reuse its durable identity only when the current
+    # observation has independently re-proven the same enrollment marker/account
+    # and the only identity difference is the known proof-surface class.
+    if($ExistingFingerprint -and -not[string]::IsNullOrWhiteSpace($ExistingFingerprintSha256)){
+        $oldSurface=Get-AidosDesktopChatGPTProofSurfaceName $ExistingFingerprint
+        $newSurface=Get-AidosDesktopChatGPTProofSurfaceName $observed.conversation_fingerprint
+        $surfaceChanged=(
+            $oldSurface -in @('DOCUMENT','DOCUMENT_LEGACY','MOST_SPECIFIC_UIA_ELEMENT') -and
+            $newSurface -in @('DOCUMENT','MOST_SPECIFIC_UIA_ELEMENT') -and
+            $oldSurface -ne $newSurface -and
+            -not($oldSurface-eq'DOCUMENT_LEGACY' -and $newSurface-eq'DOCUMENT')
+        )
+        if($surfaceChanged){
+            return [pscustomobject][ordered]@{
+                conversation_fingerprint=$ExistingFingerprint
+                conversation_fingerprint_sha256=$ExistingFingerprintSha256
+                proof_surface_rebound=$true
+                observed_conversation_fingerprint=$observed.conversation_fingerprint
+                observed_conversation_fingerprint_sha256=$observed.conversation_fingerprint_sha256
+            }
+        }
+    }
+    $observed
 }
 
 function New-AidosDesktopChatGPTResilientConversationBackend {
@@ -194,11 +232,15 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
         if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
         $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
         if(-not$root){throw 'ChatGPT window is not accessible through UI Automation.'}
-        $accountProof=''
-        if($Enrollment -and $Enrollment.PSObject.Properties['account_proof_text']){$accountProof=[string]$Enrollment.account_proof_text}
-        & $resilientConversationProof -RootElement $root -Context $Context -ProofText $ProofText -AccountProofText $accountProof
+        $accountProof='';$existingFingerprint=$null;$existingFingerprintSha=''
+        if($Enrollment){
+            if($Enrollment.PSObject.Properties['account_proof_text']){$accountProof=[string]$Enrollment.account_proof_text}
+            if($Enrollment.PSObject.Properties['conversation_fingerprint']){$existingFingerprint=$Enrollment.conversation_fingerprint}
+            if($Enrollment.PSObject.Properties['conversation_fingerprint_sha256']){$existingFingerprintSha=[string]$Enrollment.conversation_fingerprint_sha256}
+        }
+        & $resilientConversationProof -RootElement $root -Context $Context -ProofText $ProofText -AccountProofText $accountProof -ExistingFingerprint $existingFingerprint -ExistingFingerprintSha256 $existingFingerprintSha
     }).GetNewClosure()
     [pscustomobject]$values
 }
 
-Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
+Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTProofSurfaceName,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
