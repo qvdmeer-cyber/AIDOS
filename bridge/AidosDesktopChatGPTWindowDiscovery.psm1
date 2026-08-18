@@ -111,6 +111,37 @@ function Get-AidosDesktopChatGPTResilientProcessContext {
     throw "ChatGPT shell discovery failed. Primary: $primaryError Fallback: no exact PID/session/UIA-bound visible shell candidate."
 }
 
+function Add-AidosDesktopChatGPTConversationProofRecovery {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Backend)
+    $primaryLocate=$Backend.LocateConversation
+    $elementProof=Get-Command Get-AidosDesktopChatGPTElementConversationProof -CommandType Function -ErrorAction Stop
+    $Backend.LocateConversation=({
+        param($Context,[string]$ProofText,$Enrollment)
+        try{return & $primaryLocate $Context $ProofText $Enrollment}catch{$primaryError=$_.Exception.Message}
+        if(-not$Context -or [string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw $primaryError}
+        if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+        $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+        if(-not$root){throw $primaryError}
+        $accountProof=''
+        if($Enrollment -and $Enrollment.PSObject.Properties['account_proof_text']){$accountProof=[string]$Enrollment.account_proof_text}
+        try{$observed=& $elementProof -RootElement $root -Context $Context -ProofText $ProofText -AccountProofText $accountProof}
+        catch{throw "$primaryError Recovery proof failed: $($_.Exception.Message)"}
+        if($Enrollment -and $Enrollment.PSObject.Properties['conversation_fingerprint_sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Enrollment.conversation_fingerprint_sha256) -and $Enrollment.PSObject.Properties['conversation_fingerprint'] -and $Enrollment.conversation_fingerprint){
+            return [pscustomobject][ordered]@{
+                conversation_fingerprint=$Enrollment.conversation_fingerprint
+                conversation_fingerprint_sha256=[string]$Enrollment.conversation_fingerprint_sha256
+                proof_surface_rebound=$true
+                observed_conversation_fingerprint=$observed.conversation_fingerprint
+                observed_conversation_fingerprint_sha256=$observed.conversation_fingerprint_sha256
+                primary_proof_error=$primaryError
+            }
+        }
+        $observed
+    }).GetNewClosure()
+    $Backend
+}
+
 function New-AidosDesktopChatGPTResilientWindowsBackend {
     [CmdletBinding()]
     param([string]$ProcessName='ChatGPT Classic')
@@ -120,7 +151,8 @@ function New-AidosDesktopChatGPTResilientWindowsBackend {
         param([string]$RequestedProcessName)
         Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
     }).GetNewClosure()
-    New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
+    $backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
+    Add-AidosDesktopChatGPTConversationProofRecovery -Backend $backend
 }
 
 # Compatibility shim for existing Thinker callers. It deliberately delegates to
@@ -132,4 +164,4 @@ function New-AidosDesktopChatGPTWindowsBackend {
     New-AidosDesktopChatGPTResilientWindowsBackend -ProcessName $ProcessName
 }
 
-Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
+Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,Add-AidosDesktopChatGPTConversationProofRecovery,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
