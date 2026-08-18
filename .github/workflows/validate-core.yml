@@ -103,6 +103,9 @@ jobs:
       - name: Definition Result Consumer regression tests
         shell: pwsh
         run: ./tests/DefinitionResultConsumer.Tests.ps1
+      - name: Definition Closure regression tests
+        shell: pwsh
+        run: ./tests/DefinitionClosure.Tests.ps1
       - name: Desktop ChatGPT Window Discovery regression tests
         shell: pwsh
         run: ./tests/DesktopChatGPTWindowDiscovery.Tests.ps1
