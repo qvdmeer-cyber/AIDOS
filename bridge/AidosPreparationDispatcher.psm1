@@ -204,7 +204,7 @@ function Invoke-AidosPreparationDispatcherTick {
     }
 
     $runtime=$null
-    try{$runtime=if($RuntimeProjectManager){& $RuntimeProjectManager $RegistryRoot $MaxItems $Push}else{Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RegistryRoot -MaxProjects $MaxItems -Push:$Push}}
+    try{$runtime=if($RuntimeProjectManager){& $RuntimeProjectManager $RegistryRoot $MaxItems $Push}else{Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RegistryRoot -MaxProjects $MaxItems -ContractsRoot $ContractsRoot -Push:$Push}}
     catch{$runtime=[pscustomobject][ordered]@{schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;results=@();status='ERROR';error=$_.Exception.Message}}
 
     $actorTransport=$null
