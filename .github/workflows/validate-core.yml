@@ -79,12 +79,18 @@ jobs:
       - name: Runtime Actor Result Consumer regression tests
         shell: pwsh
         run: ./tests/RuntimeActorResultConsumer.Tests.ps1
+      - name: Runtime Human Input Resume regression tests
+        shell: pwsh
+        run: ./tests/RuntimeHumanInputResume.Tests.ps1
       - name: Definition Runtime regression tests
         shell: pwsh
         run: ./tests/DefinitionRuntime.Tests.ps1
       - name: Definition Result Consumer regression tests
         shell: pwsh
         run: ./tests/DefinitionResultConsumer.Tests.ps1
+      - name: Desktop Thinker Source Binding regression tests
+        shell: pwsh
+        run: ./tests/DesktopThinkerSourceBinding.Tests.ps1
       - name: Desktop Thinker Transport regression tests
         shell: pwsh
         run: ./tests/DesktopThinkerTransport.Tests.ps1
