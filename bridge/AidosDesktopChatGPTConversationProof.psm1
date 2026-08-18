@@ -191,6 +191,40 @@ function Test-AidosDesktopChatGPTStoredConversationIdentity {
     [string]::Equals($ObservedDocumentValue,[string]$ExistingFingerprint.document_value,[StringComparison]::Ordinal)
 }
 
+function Select-AidosDesktopChatGPTStoredConversationDocumentCandidate {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Candidates)
+    if($Candidates.Count-eq0){return $null}
+    $ordered=@($Candidates|Sort-Object @{Expression={[int]$_.depth};Descending=$true})
+    $best=$ordered[0]
+    $ties=@($ordered|Where-Object {[int]$_.depth-eq[int]$best.depth})
+    if($ties.Count-ne1){throw 'Stored ChatGPT conversation URL matched multiple equally specific Document elements.'}
+    $best
+}
+
+function Find-AidosDesktopChatGPTStoredConversationDocument {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$RootElement,
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)]$ExistingFingerprint
+    )
+    if(-not(Test-AidosDesktopChatGPTStoredConversationIdentity -Context $Context -ExistingFingerprint $ExistingFingerprint -ObservedDocumentValue ([string]$ExistingFingerprint.document_value))){return $null}
+    $condition=New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ControlTypeProperty),([System.Windows.Automation.ControlType]::Document)
+    $candidates=[System.Collections.Generic.List[object]]::new()
+    foreach($document in @($RootElement.FindAll([System.Windows.Automation.TreeScope]::Subtree,$condition))){
+        $documentValue=''
+        try {
+            $valuePattern=$document.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            if($valuePattern){$documentValue=[string]$valuePattern.Current.Value}
+        }catch{}
+        if(-not[string]::Equals($documentValue,[string]$ExistingFingerprint.document_value,[StringComparison]::Ordinal)){continue}
+        $candidates.Add([pscustomobject][ordered]@{element=$document;depth=(Get-AidosDesktopChatGPTProofElementDepth $document)})
+    }
+    $selected=Select-AidosDesktopChatGPTStoredConversationDocumentCandidate -Candidates @($candidates)
+    if($selected){$selected.element}else{$null}
+}
+
 function Get-AidosDesktopChatGPTResilientConversationProof {
     [CmdletBinding()]
     param(
@@ -201,28 +235,22 @@ function Get-AidosDesktopChatGPTResilientConversationProof {
         $ExistingFingerprint,
         [AllowEmptyString()][string]$ExistingFingerprintSha256=''
     )
-    $document=Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing
-
     # Enrollment uses the marker to prove the initial conversation. After enrollment,
-    # the exact ChatGPT conversation URL captured from the Document ValuePattern is a
-    # more durable identity than historic message text that Chromium may virtualize
-    # out of the active accessibility tree.
-    if($document -and $ExistingFingerprint -and -not[string]::IsNullOrWhiteSpace($ExistingFingerprintSha256)){
-        $documentValue=''
-        try {
-            $valuePattern=$document.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-            if($valuePattern){$documentValue=[string]$valuePattern.Current.Value}
-        }catch{}
-        if(Test-AidosDesktopChatGPTStoredConversationIdentity -Context $Context -ExistingFingerprint $ExistingFingerprint -ObservedDocumentValue $documentValue){
+    # locate the exact stored conversation URL across every Document exposed by the
+    # Electron window before considering the generic first-Document path.
+    if($ExistingFingerprint -and -not[string]::IsNullOrWhiteSpace($ExistingFingerprintSha256)){
+        $storedDocument=Find-AidosDesktopChatGPTStoredConversationDocument -RootElement $RootElement -Context $Context -ExistingFingerprint $ExistingFingerprint
+        if($storedDocument){
             return [pscustomobject][ordered]@{
                 conversation_fingerprint=$ExistingFingerprint
                 conversation_fingerprint_sha256=$ExistingFingerprintSha256
                 proof_surface_revalidated='STORED_CONVERSATION_URL'
-                observed_document_value=$documentValue
+                observed_document_value=[string]$ExistingFingerprint.document_value
             }
         }
     }
 
+    $document=Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing
     $observed=if($document){
         # Preserve the established Document proof path whenever ChatGPT exposes it.
         Get-AidosDesktopChatGPTDocumentConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
@@ -282,4 +310,4 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
     [pscustomobject]$values
 }
 
-Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTProofSurfaceName,Test-AidosDesktopChatGPTStoredConversationIdentity,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
+Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTProofSurfaceName,Test-AidosDesktopChatGPTStoredConversationIdentity,Select-AidosDesktopChatGPTStoredConversationDocumentCandidate,Find-AidosDesktopChatGPTStoredConversationDocument,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
