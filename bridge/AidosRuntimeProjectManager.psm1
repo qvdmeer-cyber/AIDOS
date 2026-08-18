@@ -16,16 +16,12 @@ Import-Module (Join-Path $PSScriptRoot 'AidosReviewBlocker.psm1') -DisableNameCh
 Import-Module (Join-Path $PSScriptRoot 'AidosWorkerDispatchGuard.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RegistryRoot)
-    $projectsRoot=Join-Path ([IO.Path]::GetFullPath($RegistryRoot)) 'projects'
-    if(-not(Test-Path -LiteralPath $projectsRoot -PathType Container)){return @()}
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot)
+    $projectsRoot=Join-Path ([IO.Path]::GetFullPath($RegistryRoot)) 'projects';if(-not(Test-Path -LiteralPath $projectsRoot -PathType Container)){return @()}
     @(Get-ChildItem -LiteralPath $projectsRoot -Filter '*.json' -File -ErrorAction SilentlyContinue|Sort-Object Name|ForEach-Object {$record=Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50;if([string]$record.stage-eq'RUNTIME' -and [string]$record.status-eq'PROMOTED'){$record}})
 }
-
 function Get-AidosRuntimeNextActor {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot)
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$ProjectRoot)
     $root=Resolve-AidosFileSystemPath $ProjectRoot;Test-AidosProjectBinding $root|Out-Null;$state=Get-AidosState $root;$control=Get-AidosOperatorControlState -ProjectRoot $root
     if([string]$control.mode -in @('PAUSED','SAFE_STOPPED')){return [pscustomobject][ordered]@{project_root=$root;project_state=[string]$state.state;control_mode=[string]$control.mode;actor_role=$null;actor_identity=$null;action='CONTROL_BLOCKED';priority=0;activatable=$false}}
     $selection=switch([string]$state.state){
@@ -48,12 +44,10 @@ function Get-AidosRuntimeNextActor {
     }
     [pscustomobject][ordered]@{project_root=$root;project_state=[string]$state.state;control_mode=[string]$control.mode;actor_role=$selection.actor_role;actor_identity=$selection.actor_identity;action=$selection.action;priority=[int]$selection.priority;activatable=[bool]$selection.activatable}
 }
-
 function New-AidosRuntimeManagerErrorResult {
     param([string]$RegistryRoot,$Integration,$BlockerResume,$Consume,$FinalResume,$HumanResume,$Closure)
-    [pscustomobject][ordered]@{schema_version='0.11';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;integration_result=$Integration;review_blocker_resume_result=$BlockerResume;consumer_result=$Consume;final_acceptance_resume_result=$FinalResume;human_input_resume_result=$HumanResume;definition_closure_result=$Closure;results=@();status='ERROR'}
+    [pscustomobject][ordered]@{schema_version='0.12';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;integration_result=$Integration;review_blocker_resume_result=$BlockerResume;consumer_result=$Consume;final_acceptance_resume_result=$FinalResume;human_input_resume_result=$HumanResume;definition_closure_result=$Closure;results=@();status='ERROR'}
 }
-
 function Invoke-AidosRuntimeProjectManagerTick {
     [CmdletBinding()]
     param(
@@ -85,11 +79,16 @@ function Invoke-AidosRuntimeProjectManagerTick {
             elseif([string]$selection.actor_identity-eq'EXECUTION_AGENT' -and [string]$selection.action-eq'DISPATCH_EXECUTION'){
                 try{
                     $repair=Ensure-AidosReviewRepairRevision -Project $candidate.project
-                    $guard=New-AidosWorkerDispatchGuard -ProjectRoot ([string]$candidate.project.local_root)
-                    $activation=Invoke-AidosAutonomousWorkerDispatch -Project $candidate.project -Push:$Push -WorkerInvoker $WorkerInvoker
-                    $guardCheck=Test-AidosWorkerDispatchGuard -ProjectRoot ([string]$candidate.project.local_root) -ExecutionId ([string]$guard.execution_id) -Revision ([int]$guard.revision)
-                    $activation|Add-Member -NotePropertyName repair_preflight -NotePropertyValue $repair -Force;$activation|Add-Member -NotePropertyName dispatch_guard -NotePropertyValue $guardCheck -Force
-                    $status=if([string]$guardCheck.status-ne'PASS'){'WORKER_AUTHORITY_VIOLATION'}elseif([string]$activation.status-eq'PROFILE_ADAPTER_REQUIRED'){'ACTOR_ADAPTER_REQUIRED'}else{'WORKER_DISPATCHED'}
+                    # Planning must precede the guard on a first execution because
+                    # TASK_READY has no execution_id until Core creates EXECUTION.json.
+                    $preplan=New-AidosExecutionFromAcceptedDefinition -Project $candidate.project -Push:$Push
+                    if([string]$preplan.status-eq'PROFILE_ADAPTER_REQUIRED'){$activation=$preplan;$status='ACTOR_ADAPTER_REQUIRED'}else{
+                        $guard=New-AidosWorkerDispatchGuard -ProjectRoot ([string]$candidate.project.local_root)
+                        $activation=Invoke-AidosAutonomousWorkerDispatch -Project $candidate.project -Push:$Push -WorkerInvoker $WorkerInvoker
+                        $guardCheck=Test-AidosWorkerDispatchGuard -ProjectRoot ([string]$candidate.project.local_root) -ExecutionId ([string]$guard.execution_id) -Revision ([int]$guard.revision)
+                        $activation|Add-Member -NotePropertyName preplan -NotePropertyValue $preplan -Force;$activation|Add-Member -NotePropertyName repair_preflight -NotePropertyValue $repair -Force;$activation|Add-Member -NotePropertyName dispatch_guard -NotePropertyValue $guardCheck -Force
+                        $status=if([string]$guardCheck.status-ne'PASS'){'WORKER_AUTHORITY_VIOLATION'}else{'WORKER_DISPATCHED'}
+                    }
                 }catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
             }
             elseif([string]$selection.actor_identity-eq'WORKER_AGENT' -and [string]$selection.action-eq'REVIEW' -and [string]$selection.project_state-eq'REVIEW_READY'){try{$activation=if($ReviewPublisher){& $ReviewPublisher $candidate.project}else{Publish-AidosAutonomousReview -Project $candidate.project};$status='REVIEW_PUBLISHED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
@@ -99,11 +98,7 @@ function Invoke-AidosRuntimeProjectManagerTick {
         }
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
-    [pscustomobject][ordered]@{
-        schema_version='0.11';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;
-        integration_result=$integration;review_blocker_resume_result=$blockerResume;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$definitionClosure;results=@($results);
-        status=if(@($results|Where-Object {$_.status-eq'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed-gt0-or[int]$integration.processed-gt0-or[int]$blockerResume.processed-gt0-or[int]$consume.processed-gt0-or[int]$finalAcceptanceResume.processed-gt0-or[int]$humanResume.processed-gt0-or[int]$definitionClosure.processed-gt0){'ACTIONABLE'}elseif($projects.Count-gt0){'IDLE'}else{'EMPTY'}
-    }
+    [pscustomobject][ordered]@{schema_version='0.12';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;integration_result=$integration;review_blocker_resume_result=$blockerResume;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$definitionClosure;results=@($results);status=if(@($results|Where-Object {$_.status-eq'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed-gt0-or[int]$integration.processed-gt0-or[int]$blockerResume.processed-gt0-or[int]$consume.processed-gt0-or[int]$finalAcceptanceResume.processed-gt0-or[int]$humanResume.processed-gt0-or[int]$definitionClosure.processed-gt0){'ACTIONABLE'}elseif($projects.Count-gt0){'IDLE'}else{'EMPTY'}}
 }
 
 Export-ModuleMember -Function Get-AidosRuntimeRegistryProjects,Get-AidosRuntimeNextActor,New-AidosRuntimeManagerErrorResult,Invoke-AidosRuntimeProjectManagerTick
