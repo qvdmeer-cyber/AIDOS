@@ -1,6 +1,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTConversationProof.psm1') -DisableNameChecking
+
 function Initialize-AidosDesktopChatGPTWindowDiscovery {
     if(-not [OperatingSystem]::IsWindows()){throw 'Desktop ChatGPT window discovery is Windows-only.'}
     if(-not ('AidosWindowDiscoveryV1' -as [type])){
@@ -103,4 +106,16 @@ function Get-AidosDesktopChatGPTResilientProcessContext {
     throw "ChatGPT shell discovery failed. Primary: $primaryError Fallback: no exact PID/session/UIA-bound visible shell candidate."
 }
 
-Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext
+function New-AidosDesktopChatGPTWindowsBackend {
+    [CmdletBinding()]
+    param([string]$ProcessName='ChatGPT Classic')
+    $backend=AidosDesktopChatGPT\New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName
+    $primaryResolver=$backend.GetProcessContext
+    $backend.GetProcessContext=({
+        param([string]$RequestedProcessName)
+        Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
+    }).GetNewClosure()
+    New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
+}
+
+Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,New-AidosDesktopChatGPTWindowsBackend
