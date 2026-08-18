@@ -51,7 +51,11 @@ function Assert-AidosActorSourceRefs {
     $true
 }
 function Test-AidosApplicabilityProfileMatchesProposal {
-    param([Parameter(Mandatory)]$Profile,[Parameter(Mandatory)][string[]]$PresetIds,[Parameter(Mandatory)][object[]]$Overrides)
+    param(
+        [Parameter(Mandatory)]$Profile,
+        [Parameter(Mandatory)][string[]]$PresetIds,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Overrides
+    )
     $actualPresets=@($Profile.selected_presets|ForEach-Object {[string]$_.preset_id}|Sort-Object -Unique)
     $expectedPresets=@($PresetIds|Sort-Object -Unique)
     if(($actualPresets -join "`n") -ne ($expectedPresets -join "`n")){return $false}
