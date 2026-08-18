@@ -98,6 +98,10 @@ function Get-AidosDesktopChatGPTDocumentConversationProof {
 
     $first=$documentText.IndexOf($ProofText,[StringComparison]::OrdinalIgnoreCase)
     if($first-lt0){throw "Conversation proof text '$ProofText' was not found in the active ChatGPT document."}
+    # This is already a single, UIA-bound ChatGPT Document/RootWebArea. The same
+    # enrollment marker may be represented twice by the desktop accessibility
+    # tree (or quoted by the enrolled conversation); repetition inside that one
+    # document is not evidence of a second conversation.
     if(-not[string]::IsNullOrWhiteSpace($AccountProofText) -and $documentText.IndexOf($AccountProofText,[StringComparison]::OrdinalIgnoreCase)-lt0){throw 'ChatGPT account proof text is stale or mismatched.'}
 
     $documentValue=''
@@ -132,6 +136,10 @@ function Get-AidosDesktopChatGPTElementConversationProof {
         [Parameter(Mandatory)][string]$ProofText,
         [AllowEmptyString()][string]$AccountProofText=''
     )
+    # Chromium/Electron does not guarantee that its accessibility tree exposes a
+    # ControlType.Document/RootWebArea. When it does not, the enrollment marker
+    # itself remains the authoritative conversation proof. Select its unique,
+    # most-specific UIA carrier and separately verify account proof when bound.
     $proofElement=Find-AidosDesktopChatGPTMostSpecificConversationElement -RootElement $RootElement -ProofText $ProofText
     if(-not[string]::IsNullOrWhiteSpace($AccountProofText)){
         $null=Find-AidosDesktopChatGPTMostSpecificConversationElement -RootElement $RootElement -ProofText $AccountProofText
@@ -159,6 +167,8 @@ function Get-AidosDesktopChatGPTProofSurfaceName {
     param($Fingerprint)
     if(-not$Fingerprint){return $null}
     if($Fingerprint.PSObject.Properties['proof_surface'] -and -not[string]::IsNullOrWhiteSpace([string]$Fingerprint.proof_surface)){return [string]$Fingerprint.proof_surface}
+    # Fingerprints written before proof_surface was explicit were created only by
+    # the Document/RootWebArea proof path.
     if($Fingerprint.PSObject.Properties['document_control_type']){return 'DOCUMENT_LEGACY'}
     $null
 }
@@ -175,11 +185,16 @@ function Get-AidosDesktopChatGPTResilientConversationProof {
     )
     $document=Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing
     $observed=if($document){
+        # Preserve the established Document proof path whenever ChatGPT exposes it.
         Get-AidosDesktopChatGPTDocumentConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
     }else{
         Get-AidosDesktopChatGPTElementConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
     }
 
+    # An enrolled conversation can survive a Chromium accessibility-provider
+    # representation change. Reuse its durable identity only when the current
+    # observation has independently re-proven the same enrollment marker/account
+    # and the only identity difference is the known proof-surface class.
     if($ExistingFingerprint -and -not[string]::IsNullOrWhiteSpace($ExistingFingerprintSha256)){
         $oldSurface=Get-AidosDesktopChatGPTProofSurfaceName $ExistingFingerprint
         $newSurface=Get-AidosDesktopChatGPTProofSurfaceName $observed.conversation_fingerprint
@@ -207,6 +222,8 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
     param([Parameter(Mandatory)]$Backend)
     $values=[ordered]@{}
     foreach($property in $Backend.PSObject.Properties){$values[[string]$property.Name]=$property.Value}
+    # LocateConversation runs later from a backend callback scope. Capture the
+    # exact resilient proof command now instead of depending on ambient exports.
     $resilientConversationProof=Get-Command Get-AidosDesktopChatGPTResilientConversationProof -CommandType Function -ErrorAction Stop
     $values['LocateConversation']=({
         param($Context,[string]$ProofText,$Enrollment)
