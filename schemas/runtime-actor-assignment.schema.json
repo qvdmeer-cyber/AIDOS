@@ -4,7 +4,7 @@
   "title": "AIDOS Runtime Actor Assignment",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version","envelope_type","assignment_id","project_id","actor_role","actor_identity","action","status","binding","requested_at","activated_at","completed_at","transport","result"],
+  "required": ["schema_version","envelope_type","assignment_id","project_id","actor_role","actor_identity","action","binding","requested_at"],
   "properties": {
     "schema_version": {"type":"string","const":"0.1"},
     "envelope_type": {"type":"string","const":"RUNTIME_ACTOR_ASSIGNMENT"},
@@ -13,7 +13,6 @@
     "actor_role": {"type":"string","enum":["THINKER","WORKER"]},
     "actor_identity": {"type":"string","minLength":1},
     "action": {"type":"string","minLength":1},
-    "status": {"type":"string","enum":["PENDING","ACTIVATED","WAITING_TRANSPORT","COMPLETED","FAILED","ABANDONED"]},
     "binding": {
       "type":"object",
       "additionalProperties": false,
@@ -27,10 +26,6 @@
         "review_id":{"type":["string","null"]}
       }
     },
-    "requested_at":{"type":"string","format":"date-time"},
-    "activated_at":{"type":["string","null"],"format":"date-time"},
-    "completed_at":{"type":["string","null"],"format":"date-time"},
-    "transport":{"type":["object","null"]},
-    "result":{"type":["object","null"]}
+    "requested_at":{"type":"string","format":"date-time"}
   }
 }
