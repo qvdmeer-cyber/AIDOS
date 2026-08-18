@@ -82,6 +82,9 @@ jobs:
       - name: Definition Runtime regression tests
         shell: pwsh
         run: ./tests/DefinitionRuntime.Tests.ps1
+      - name: Definition Result Consumer regression tests
+        shell: pwsh
+        run: ./tests/DefinitionResultConsumer.Tests.ps1
       - name: Desktop Thinker Transport regression tests
         shell: pwsh
         run: ./tests/DesktopThinkerTransport.Tests.ps1
