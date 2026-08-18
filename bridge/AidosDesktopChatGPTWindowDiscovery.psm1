@@ -6,9 +6,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTConversationProof.psm
 
 # Capture the base factory from the exact imported module instance. This remains
 # stable even when the resilient compatibility shim exports the same public name.
-$script:BaseDesktopChatGPTWindowsBackendCommand = & $script:BaseDesktopChatGPTModule {
-    Get-Command New-AidosDesktopChatGPTWindowsBackend -CommandType Function -ErrorAction Stop
-}
+$script:BaseDesktopChatGPTWindowsBackendCommand = $script:BaseDesktopChatGPTModule.ExportedCommands['New-AidosDesktopChatGPTWindowsBackend']
 if($null-eq$script:BaseDesktopChatGPTWindowsBackendCommand){throw 'Base Desktop ChatGPT Windows backend factory is unavailable.'}
 
 function Initialize-AidosDesktopChatGPTWindowDiscovery {
