@@ -88,6 +88,30 @@ function Test-AidosRuntimeActorResultBinding {
     }
     [pscustomobject][ordered]@{valid=$true;assignment_id=[string]$a.assignment_id;assignment_sha256=$bound.sha256;project_id=[string]$a.project_id}
 }
+function ConvertTo-AidosCanonicalActorValue {
+    param($Value)
+    if($null -eq $Value){return $null}
+    if($Value -is [string] -or $Value -is [char] -or $Value -is [bool] -or $Value -is [ValueType]){return $Value}
+    if($Value -is [System.Collections.IDictionary]){
+        $ordered=[ordered]@{}
+        foreach($key in @($Value.Keys|ForEach-Object {[string]$_}|Sort-Object -CaseSensitive)){$ordered[$key]=ConvertTo-AidosCanonicalActorValue $Value[$key]}
+        return $ordered
+    }
+    if($Value -is [System.Collections.IEnumerable] -and -not($Value -is [pscustomobject])){
+        return @($Value|ForEach-Object {ConvertTo-AidosCanonicalActorValue $_})
+    }
+    $properties=@($Value.PSObject.Properties|Where-Object {$_.MemberType -in @('NoteProperty','Property')}|Sort-Object Name -CaseSensitive)
+    if($properties.Count -gt 0){
+        $ordered=[ordered]@{}
+        foreach($property in $properties){$ordered[[string]$property.Name]=ConvertTo-AidosCanonicalActorValue $property.Value}
+        return $ordered
+    }
+    $Value
+}
+function ConvertTo-AidosCanonicalActorJson {
+    param([Parameter(Mandatory)]$Value)
+    (ConvertTo-AidosCanonicalActorValue $Value)|ConvertTo-Json -Depth 100 -Compress
+}
 function Save-AidosRuntimeActorResult {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$Result)
@@ -96,7 +120,7 @@ function Save-AidosRuntimeActorResult {
     $path=Get-AidosRuntimeActorResultPath -ProjectRoot $root -AssignmentId ([string]$Result.assignment_id)
     if(Test-Path -LiteralPath $path -PathType Leaf){
         $existing=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
-        if((ConvertTo-Json $existing -Depth 100 -Compress) -ne (ConvertTo-Json $Result -Depth 100 -Compress)){throw 'Conflicting runtime actor result already exists.'}
+        if((ConvertTo-AidosCanonicalActorJson $existing) -cne (ConvertTo-AidosCanonicalActorJson $Result)){throw 'Conflicting runtime actor result already exists.'}
         return [pscustomobject][ordered]@{status='ALREADY_SAVED';path=$path;binding=$binding}
     }
     Write-AidosJsonAtomic $path $Result
@@ -106,4 +130,4 @@ function Save-AidosRuntimeActorResult {
     [pscustomobject][ordered]@{status='SAVED';path=$path;binding=$binding}
 }
 
-Export-ModuleMember -Function Get-AidosRuntimeActorResultRoot,Get-AidosRuntimeActorResultPath,Read-AidosRuntimeActorAssignment,Read-AidosRuntimeActorTransportState,Initialize-AidosRuntimeActorTransportState,Set-AidosRuntimeActorTransportState,Test-AidosRuntimeActorResultBinding,Save-AidosRuntimeActorResult
+Export-ModuleMember -Function Get-AidosRuntimeActorResultRoot,Get-AidosRuntimeActorResultPath,Read-AidosRuntimeActorAssignment,Read-AidosRuntimeActorTransportState,Initialize-AidosRuntimeActorTransportState,Set-AidosRuntimeActorTransportState,Test-AidosRuntimeActorResultBinding,ConvertTo-AidosCanonicalActorValue,ConvertTo-AidosCanonicalActorJson,Save-AidosRuntimeActorResult
