@@ -2,6 +2,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDefinitionRuntime.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeActorAssignmentRoot {
     [CmdletBinding()]
@@ -78,9 +79,11 @@ function New-AidosRuntimeActorAssignment {
         if(-not(Test-Path -LiteralPath (Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json') -PathType Leaf)){throw 'START_DEFINITION requires resolved Project Applicability.'}
         $definitionId=('DEF-'+[guid]::NewGuid().ToString())
         $state=Set-AidosState -ProjectRoot $root -NewState WAITING_DEFINITION -Actor SYSTEM -Patch @{definition_id=$definitionId;definition_version=1}
+        Ensure-AidosDefinitionWorkspace -ProjectRoot $root|Out-Null
     } elseif([string]$Selection.action -eq 'RESUME_DEFINITION'){
         if([string]$state.state -ne 'WAITING_DEFINITION'){throw 'RESUME_DEFINITION requires WAITING_DEFINITION state.'}
         if([string]::IsNullOrWhiteSpace([string]$state.definition_id) -or $null -eq $state.definition_version){throw 'RESUME_DEFINITION requires exact Definition binding.'}
+        Ensure-AidosDefinitionWorkspace -ProjectRoot $root|Out-Null
     } else {
         throw "Runtime actor assignment adapter does not yet support action '$($Selection.action)'."
     }
