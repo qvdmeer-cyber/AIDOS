@@ -20,10 +20,12 @@ $bound=[pscustomobject]@{
 }
 $template=@"
 {"schema_version":"0.1","envelope_type":"RUNTIME_ACTOR_RESULT","assignment_id":"$assignmentId","assignment_sha256":"$assignmentSha","outcome":"COMPLETED","result":{"summary":"REQUIRED: resolve this value"},"responded_at":"REQUIRED: ISO-8601 completion timestamp"}
-"@.Trim()
+"@
+$template=$template.Trim()
 $response1=@"
 {"schema_version":"0.1","envelope_type":"RUNTIME_ACTOR_RESULT","assignment_id":"$assignmentId","assignment_sha256":"$assignmentSha","project_id":"AIDOS-INTERFACE","actor_role":"THINKER","actor_identity":"DEFINITION_AGENT","action":"RESOLVE_PROJECT_APPLICABILITY","binding":{"project_state":"IDLE","definition_id":null,"definition_version":null,"execution_id":null,"revision":null,"review_id":null},"outcome":"COMPLETED","result":{"result_type":"DEFINITION_THINKER_OUTPUT","summary":"Resolved object with escaped quote: \"browser\" and literal brace text {ok}.","proposed_artifacts":[{"artifact_type":"PROJECT_APPLICABILITY_PROPOSAL","authority_classification":"REPO_VERIFIABLE","preset_ids":["WEB_APPLICATION"],"selection_source":"BASELINE_DERIVED","overrides":[],"source_refs":["docs/PRODUCT.md"]}],"human_input_request":null},"responded_at":"2026-08-18T22:20:00Z"}
-"@.Trim()
+"@
+$response1=$response1.Trim()
 $response2=$response1.Replace('Resolved object with escaped quote: \"browser\" and literal brace text {ok}.','Resolved corrected response.').Replace('2026-08-18T22:20:00Z','2026-08-18T22:21:00Z')
 
 $objects=@(Get-AidosDesktopChatGPTJsonObjectCandidates -Text ("prefix`n$template`nassistant`n```json`n$response1`n```"))
