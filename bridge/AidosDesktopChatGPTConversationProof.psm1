@@ -38,7 +38,7 @@ function Get-AidosDesktopChatGPTProofElementDepth {
 
 function Select-AidosDesktopChatGPTMostSpecificProofCandidate {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][object[]]$Candidates,[string]$ProofText='conversation proof')
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Candidates,[string]$ProofText='conversation proof')
     if($Candidates.Count-eq0){throw "Conversation proof text '$ProofText' was not found in the active ChatGPT window."}
     $ordered=@($Candidates|Sort-Object @{Expression={[bool]$_.exact};Descending=$true},@{Expression={[int]$_.text_length};Descending=$false},@{Expression={[int]$_.depth};Descending=$true})
     $best=$ordered[0]
