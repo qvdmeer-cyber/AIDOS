@@ -5,9 +5,8 @@ Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameC
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTConversationProof.psm1') -DisableNameChecking
 
 # Capture the already-loaded base backend command once at module import time.
-# Do not use module-qualified invocation later: the persistent host imports this
-# dependency by path, so AidosDesktopChatGPT is not guaranteed to be resolvable
-# again through PSModulePath during a runtime tick.
+# The resilient wrapper has a distinct command name, so import order can never
+# turn this capture into a self-reference.
 $script:BaseDesktopChatGPTWindowsBackendCommand = Get-Command New-AidosDesktopChatGPTWindowsBackend -Module AidosDesktopChatGPT -ErrorAction Stop
 
 function Initialize-AidosDesktopChatGPTWindowDiscovery {
@@ -112,7 +111,7 @@ function Get-AidosDesktopChatGPTResilientProcessContext {
     throw "ChatGPT shell discovery failed. Primary: $primaryError Fallback: no exact PID/session/UIA-bound visible shell candidate."
 }
 
-function New-AidosDesktopChatGPTWindowsBackend {
+function New-AidosDesktopChatGPTResilientWindowsBackend {
     [CmdletBinding()]
     param([string]$ProcessName='ChatGPT Classic')
     $backend=& $script:BaseDesktopChatGPTWindowsBackendCommand -ProcessName $ProcessName
@@ -124,4 +123,4 @@ function New-AidosDesktopChatGPTWindowsBackend {
     New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
 }
 
-Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,New-AidosDesktopChatGPTWindowsBackend
+Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,New-AidosDesktopChatGPTResilientWindowsBackend
