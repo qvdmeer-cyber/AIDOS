@@ -64,12 +64,20 @@ function Set-AidosRuntimeActorTransportState {
         COMPLETED=@('COMPLETED','CONSUMED','FAILED','ABANDONED')
     }
     if($Status -notin @($allowed[[string]$state.status])){throw "Illegal runtime actor transport transition: $($state.status) -> $Status"}
+
+    $desiredTransportType=if([string]::IsNullOrWhiteSpace($TransportType)){if($null-eq$state.transport_type){$null}else{[string]$state.transport_type}}else{$TransportType}
+    $desiredLastError=if([string]::IsNullOrWhiteSpace($LastError)){$null}else{$LastError}
+    $desiredResultRef=if([string]::IsNullOrWhiteSpace($ResultRef)){if($null-eq$state.result_ref){$null}else{[string]$state.result_ref}}else{$ResultRef}
+    $needsActivatedAt=($Status -eq 'ACTIVATED' -and [string]::IsNullOrWhiteSpace([string]$state.activated_at))
+    $needsCompletedAt=($Status -in @('COMPLETED','CONSUMED','FAILED','ABANDONED') -and [string]::IsNullOrWhiteSpace([string]$state.completed_at))
+    if([string]$state.status -eq $Status -and [string]$state.transport_type -eq [string]$desiredTransportType -and [string]$state.last_error -eq [string]$desiredLastError -and [string]$state.result_ref -eq [string]$desiredResultRef -and -not$needsActivatedAt -and -not$needsCompletedAt){return $state}
+
     $state.status=$Status
     if(-not[string]::IsNullOrWhiteSpace($TransportType)){$state.transport_type=$TransportType}
     if($Status -eq 'ACTIVATED' -and [string]::IsNullOrWhiteSpace([string]$state.activated_at)){$state.activated_at=[DateTimeOffset]::UtcNow.ToString('o')}
     if($Status -in @('COMPLETED','CONSUMED','FAILED','ABANDONED') -and [string]::IsNullOrWhiteSpace([string]$state.completed_at)){$state.completed_at=[DateTimeOffset]::UtcNow.ToString('o')}
-    $state.last_error=if([string]::IsNullOrWhiteSpace($LastError)){$null}else{$LastError}
-    $state.result_ref=if([string]::IsNullOrWhiteSpace($ResultRef)){$state.result_ref}else{$ResultRef}
+    $state.last_error=$desiredLastError
+    $state.result_ref=$desiredResultRef
     $state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
     Write-AidosJsonAtomic (Get-AidosRuntimeActorTransportStatePath -ProjectRoot $root -AssignmentId $AssignmentId) $state
     $state
