@@ -97,6 +97,9 @@ jobs:
       - name: Desktop ChatGPT Window Discovery regression tests
         shell: pwsh
         run: ./tests/DesktopChatGPTWindowDiscovery.Tests.ps1
+      - name: Desktop Conversation Proof regression tests
+        shell: pwsh
+        run: ./tests/DesktopConversationProof.Tests.ps1
       - name: Desktop Thinker Source Binding regression tests
         shell: pwsh
         run: ./tests/DesktopThinkerSourceBinding.Tests.ps1
