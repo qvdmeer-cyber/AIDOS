@@ -67,6 +67,9 @@ jobs:
       - name: Dirty Onboarding Recovery regression tests
         shell: pwsh
         run: ./tests/PreparationDirtyOnboardingRecovery.Tests.ps1
+      - name: Host Agent Runtime Transport Gate regression tests
+        shell: pwsh
+        run: ./tests/HostAgentRuntimeTransportGate.Tests.ps1
       - name: Runtime Contracts Wiring regression tests
         shell: pwsh
         run: ./tests/RuntimeContractsWiring.Tests.ps1
