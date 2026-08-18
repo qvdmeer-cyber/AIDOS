@@ -101,22 +101,15 @@ function Assert-AidosPreparationDirtyRecoveryScope {
     param([Parameter(Mandatory)]$Project)
     $paths=@(Get-AidosPreparationDirtyPaths -Project $Project)
     if($paths.Count-eq0){throw 'Dirty-worktree recovery was requested but no changed paths were found.'}
-    foreach($path in $paths){
-        if(-not(Test-AidosAllowedPersistencePath -Project $Project -Path $path)){throw "Dirty onboarding recovery blocked by unauthorized changed path: $path"}
-    }
+    foreach($path in $paths){if(-not(Test-AidosAllowedPersistencePath -Project $Project -Path $path)){throw "Dirty onboarding recovery blocked by unauthorized changed path: $path"}}
     [pscustomobject][ordered]@{status='DIRTY_RECOVERY_ALLOWED';paths=@($paths)}
 }
 
 function Invoke-AidosRuntimeActorTransportDispatch {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$RegistryRoot,
-        [string]$StateRoot,
-        [string]$ProcessName='ChatGPT Classic',
-        [int]$MaxItems=1,
-        [switch]$Push,
-        [scriptblock]$ActorTransportDispatcher,
-        [scriptblock]$ReviewTransportDispatcher
+        [Parameter(Mandatory)][string]$RegistryRoot,[string]$StateRoot,[string]$ProcessName='ChatGPT Classic',[int]$MaxItems=1,[switch]$Push,
+        [scriptblock]$ActorTransportDispatcher,[scriptblock]$ReviewTransportDispatcher
     )
     if($MaxItems-lt1){throw 'MaxItems must be at least 1.'}
     if([string]::IsNullOrWhiteSpace($StateRoot)){$StateRoot=Join-Path (Split-Path ([IO.Path]::GetFullPath($RegistryRoot)) -Parent) 'host-agent'}
@@ -132,120 +125,71 @@ function Invoke-AidosRuntimeActorTransportDispatch {
                 $persistence=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS persist actor transport $($assignment.assignment_id)") -Push:$Push
                 $status=if([string]$transport.status -eq 'HANDOFF_COMPLETE'){'RESULT_READY'}else{[string]$transport.status}
                 $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$assignment.assignment_id;status=$status;transport=$transport;persistence=$persistence})
-            }catch{
-                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$assignment.assignment_id;status='TRANSPORT_ERROR';error=$_.Exception.Message})
-            }
+            }catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$assignment.assignment_id;status='TRANSPORT_ERROR';error=$_.Exception.Message})}
             $processed++
         }
     }
-
-    # The host calls this dispatcher only after the interactive-session and shell
-    # health gate has passed. Reuse that exact boundary for portfolio reviews.
-    # Definition transport keeps priority; review gets only remaining capacity.
-    $reviewResult=$null
+    # This dispatcher is invoked by the host only after the interactive-session
+    # and ChatGPT-shell health gate. Definition transport has priority; review
+    # uses only remaining bounded capacity.
     $remaining=$MaxItems-$processed
     if($remaining-gt0){
-        try{
-            $reviewResult=if($ReviewTransportDispatcher){& $ReviewTransportDispatcher $RegistryRoot $ProcessName $remaining}else{Invoke-AidosAutonomousReviewTransportDispatch -RegistryRoot $RegistryRoot -ProcessName $ProcessName -MaxItems $remaining}
-        }catch{$reviewResult=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+        try{$reviewResult=if($ReviewTransportDispatcher){& $ReviewTransportDispatcher $RegistryRoot $ProcessName $remaining}else{Invoke-AidosAutonomousReviewTransportDispatch -RegistryRoot $RegistryRoot -ProcessName $ProcessName -MaxItems $remaining}}
+        catch{$reviewResult=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
         if($reviewResult){$processed += [int]$reviewResult.processed}
     }else{$reviewResult=[pscustomobject][ordered]@{status='DEFERRED_CAPACITY';processed=0;results=@()}}
-
     $transportError=@($results|Where-Object {$_.status -eq 'TRANSPORT_ERROR'}).Count -gt 0
     $reviewError=$reviewResult -and [string]$reviewResult.status -eq 'ERROR'
-    [pscustomobject][ordered]@{
-        status=if($transportError-or$reviewError){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'}
-        processed=$processed
-        results=@($results)
-        review_result=$reviewResult
-    }
+    [pscustomobject][ordered]@{status=if($transportError-or$reviewError){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'};processed=$processed;results=@($results);review_result=$reviewResult}
 }
 
 function Invoke-AidosPreparationDispatcherTick {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$RegistryRoot,
-        [string]$BuilderRoot,
-        [string]$ContractsRoot,
-        [int]$MaxItems=1,
-        [switch]$Push,
-        [switch]$DeferActorTransport,
-        [scriptblock]$ResumeProcessor,
-        [scriptblock]$SyncProcessor,
-        [scriptblock]$OnboardingProcessor,
-        [scriptblock]$RuntimeProjectManager,
-        [scriptblock]$ActorTransportDispatcher,
-        [string]$ActorTransportStateRoot,
-        [string]$ActorProcessName='ChatGPT Classic'
+        [Parameter(Mandatory)][string]$RegistryRoot,[string]$BuilderRoot,[string]$ContractsRoot,[int]$MaxItems=1,[switch]$Push,[switch]$DeferActorTransport,
+        [scriptblock]$ResumeProcessor,[scriptblock]$SyncProcessor,[scriptblock]$OnboardingProcessor,[scriptblock]$RuntimeProjectManager,[scriptblock]$ActorTransportDispatcher,
+        [string]$ActorTransportStateRoot,[string]$ActorProcessName='ChatGPT Classic'
     )
-    if($MaxItems -lt 1){throw 'MaxItems must be at least 1.'}
-    $projects=@(Get-AidosPreparationRegistryProjects -RegistryRoot $RegistryRoot)
-    $results=[System.Collections.Generic.List[object]]::new();$processed=0
+    if($MaxItems-lt1){throw 'MaxItems must be at least 1.'}
+    $projects=@(Get-AidosPreparationRegistryProjects -RegistryRoot $RegistryRoot);$results=[System.Collections.Generic.List[object]]::new();$processed=0
     foreach($project in $projects){
-        if($processed -ge $MaxItems){break}
-        if([string]$project.stage -ne 'PREPARATION'){continue}
-        if([string]$project.status -in @('BLOCKED','PROMOTED')){continue}
-        try{
-            $sync=if($SyncProcessor){& $SyncProcessor $project}else{Sync-AidosRegisteredPreparationProject $project}
-        }catch{
+        if($processed-ge$MaxItems){break}
+        if([string]$project.stage-ne'PREPARATION' -or [string]$project.status-in@('BLOCKED','PROMOTED')){continue}
+        try{$sync=if($SyncProcessor){& $SyncProcessor $project}else{Sync-AidosRegisteredPreparationProject $project}}
+        catch{
             $syncError=$_.Exception.Message
-            if([string]$project.status -eq 'READY_FOR_ONBOARDING' -and $syncError -eq 'Preparation project synchronization requires a clean worktree.'){
-                try{$sync=Assert-AidosPreparationDirtyRecoveryScope -Project $project}
-                catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$_.Exception.Message});continue}
-            }else{
-                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$syncError});continue
-            }
+            if([string]$project.status-eq'READY_FOR_ONBOARDING' -and $syncError-eq'Preparation project synchronization requires a clean worktree.'){
+                try{$sync=Assert-AidosPreparationDirtyRecoveryScope -Project $project}catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$_.Exception.Message});continue}
+            }else{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='SYNC_ERROR';error=$syncError});continue}
         }
         $project=Get-AidosRegisteredProject -RegistryRoot $RegistryRoot -ProjectId ([string]$project.project_id)
-        if([string]$project.status -eq 'READY_FOR_ONBOARDING'){
-            try{
-                $onboarding=if($OnboardingProcessor){& $OnboardingProcessor $project}else{Invoke-AidosPreparationRuntimeOnboarding -RegistryRoot $RegistryRoot -ProjectId ([string]$project.project_id) -Push:$Push}
-                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status=[string]$onboarding.status;sync=$sync;onboarding=$onboarding})
-            }catch{
-                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='ONBOARDING_ERROR';sync=$sync;error=$_.Exception.Message})
-            }
+        if([string]$project.status-eq'READY_FOR_ONBOARDING'){
+            try{$onboarding=if($OnboardingProcessor){& $OnboardingProcessor $project}else{Invoke-AidosPreparationRuntimeOnboarding -RegistryRoot $RegistryRoot -ProjectId ([string]$project.project_id) -Push:$Push};$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status=[string]$onboarding.status;sync=$sync;onboarding=$onboarding})}
+            catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='ONBOARDING_ERROR';sync=$sync;error=$_.Exception.Message})}
             $processed++;continue
         }
-        $inbox=@(Invoke-AidosPreparationControlInbox -Project $project -MaxItems $MaxItems)
-        $requestIds=@(Get-AidosPendingPreparationResumeIds -Project $project)
+        $inbox=@(Invoke-AidosPreparationControlInbox -Project $project -MaxItems $MaxItems);$requestIds=@(Get-AidosPendingPreparationResumeIds -Project $project)
         if($requestIds.Count-eq0 -and $inbox.Count-gt0){
             try{$persist=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage 'AIDOS persist preparation control intent outcome' -Push:$Push}catch{$persist=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}
             $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;status='CONTROL_ONLY';sync=$sync;control=@($inbox);persistence=$persist});$processed++;continue
         }
         foreach($requestId in $requestIds){
-            if($processed -ge $MaxItems){break}
+            if($processed-ge$MaxItems){break}
             try{
                 $outcome=if($ResumeProcessor){& $ResumeProcessor $project $requestId}else{Invoke-AidosPreparationResume -RegistryRoot $RegistryRoot -ProjectId ([string]$project.project_id) -RequestId $requestId -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -Push:$Push}
-                $fallbackPersistence=$null
-                if([string]$outcome.status -eq 'ACTOR_RESUME_REQUIRED'){$fallbackPersistence=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS record Human Input $requestId") -Push:$Push}
+                $fallbackPersistence=$null;if([string]$outcome.status-eq'ACTOR_RESUME_REQUIRED'){$fallbackPersistence=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS record Human Input $requestId") -Push:$Push}
                 $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;request_id=$requestId;status=[string]$outcome.status;sync=$sync;control=@($inbox);outcome=$outcome;persistence=$fallbackPersistence})
-            }catch{
-                $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;request_id=[string]$intent.payload.request_id;status='ERROR';sync=$sync;control=@($inbox);error=$_.Exception.Message})
-            }
+            }catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;request_id=$requestId;status='ERROR';sync=$sync;control=@($inbox);error=$_.Exception.Message})}
             $processed++
         }
     }
-
-    $runtime=$null
     try{$runtime=if($RuntimeProjectManager){& $RuntimeProjectManager $RegistryRoot $MaxItems $Push}else{Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RegistryRoot -MaxProjects $MaxItems -ContractsRoot $ContractsRoot -Push:$Push}}
     catch{$runtime=[pscustomobject][ordered]@{schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;results=@();status='ERROR';error=$_.Exception.Message}}
-
-    $actorTransport=$null
-    if($DeferActorTransport){
-        $actorTransport=[pscustomobject][ordered]@{status='DEFERRED_INTERACTIVE_GATE';processed=0;results=@();review_result=$null}
-    }else{
-        try{$actorTransport=Invoke-AidosRuntimeActorTransportDispatch -RegistryRoot $RegistryRoot -StateRoot $ActorTransportStateRoot -ProcessName $ActorProcessName -MaxItems $MaxItems -Push:$Push -ActorTransportDispatcher $ActorTransportDispatcher}
-        catch{$actorTransport=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();review_result=$null;error=$_.Exception.Message}}
-    }
-
-    $preparationError=@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count -gt 0
-    $runtimeError=$runtime -and [string]$runtime.status -eq 'ERROR'
-    $transportError=$actorTransport -and [string]$actorTransport.status -eq 'ERROR'
-    $didWork=($processed -gt 0 -or ($runtime -and [int]$runtime.processed -gt 0) -or ($actorTransport -and [int]$actorTransport.processed -gt 0))
-    [pscustomobject][ordered]@{
-        schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;actor_transport_result=$actorTransport;
-        status=if($preparationError-or$runtimeError-or$transportError){'ERROR'}elseif($didWork){'PROCESSED'}else{'IDLE'}
-    }
+    if($DeferActorTransport){$actorTransport=[pscustomobject][ordered]@{status='DEFERRED_INTERACTIVE_GATE';processed=0;results=@();review_result=$null}}
+    else{try{$actorTransport=Invoke-AidosRuntimeActorTransportDispatch -RegistryRoot $RegistryRoot -StateRoot $ActorTransportStateRoot -ProcessName $ActorProcessName -MaxItems $MaxItems -Push:$Push -ActorTransportDispatcher $ActorTransportDispatcher}catch{$actorTransport=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();review_result=$null;error=$_.Exception.Message}}}
+    $preparationError=@($results|Where-Object {$_.status-in@('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count-gt0;$runtimeError=$runtime-and[string]$runtime.status-eq'ERROR';$transportError=$actorTransport-and[string]$actorTransport.status-eq'ERROR'
+    $didWork=($processed-gt0-or($runtime-and[int]$runtime.processed-gt0)-or($actorTransport-and[int]$actorTransport.processed-gt0))
+    [pscustomobject][ordered]@{schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;actor_transport_result=$actorTransport;status=if($preparationError-or$runtimeError-or$transportError){'ERROR'}elseif($didWork){'PROCESSED'}else{'IDLE'}}
 }
 
 Export-ModuleMember -Function Test-AidosWindowsRuntimeHost,Get-AidosPreparationRegistryProjects,Get-AidosPendingPreparationResumeIds,Invoke-AidosPreparationControlInbox,Get-AidosPreparationDirtyPaths,Assert-AidosPreparationDirtyRecoveryScope,Invoke-AidosRuntimeActorTransportDispatch,Invoke-AidosPreparationDispatcherTick
