@@ -35,7 +35,13 @@ $policy = & $policyTool -AssessmentJson $AssessmentJson -ContractsRoot $contract
 if (-not $policy.pass -or -not $policy.decision_allowed) { throw "Decision Governance requires HUMAN_REQUIRED: $(@($policy.errors) -join '; ')" }
 
 try { $chosen = $ChosenValueJson | ConvertFrom-Json -Depth 100 } catch { throw "ChosenValueJson is invalid JSON: $($_.Exception.Message)" }
-try { $alternatives = @($AlternativesJson | ConvertFrom-Json -Depth 100) } catch { throw "AlternativesJson is invalid JSON: $($_.Exception.Message)" }
+try {
+    if ([string]::IsNullOrWhiteSpace($AlternativesJson)) { $alternatives = @() }
+    else {
+        $parsedAlternatives = $AlternativesJson | ConvertFrom-Json -Depth 100
+        $alternatives = if ($null -eq $parsedAlternatives) { @() } else { @($parsedAlternatives) }
+    }
+} catch { throw "AlternativesJson is invalid JSON: $($_.Exception.Message)" }
 try { $assessment = $AssessmentJson | ConvertFrom-Json -Depth 100 } catch { throw "AssessmentJson is invalid JSON: $($_.Exception.Message)" }
 
 if ($TargetType -eq 'DEFINITION_SURFACE' -and [string]::IsNullOrWhiteSpace($SurfaceId)) { throw 'DEFINITION_SURFACE target requires SurfaceId.' }
