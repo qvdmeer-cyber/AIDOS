@@ -33,6 +33,9 @@ $objects=@(Get-AidosDesktopChatGPTJsonObjectCandidates -Text ("prefix`n$template
 Assert-ActorResponse ($objects.Count-ge2) 'balanced JSON extraction finds template and response objects inside mixed conversation text'
 Assert-ActorResponse ($objects[-1]-eq$response1) 'balanced JSON extraction preserves the final resolved actor-response object exactly'
 
+$explicitBound=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($response1) -Assignment $bound
+Assert-ActorResponse ($explicitBound-eq$response1) 'explicit assignment wrapper accepts only the response carrying its exact hash'
+
 $mixed="You are the AIDOS Definition Thinker.`nRUNTIME_ACTOR_RESULT_TEMPLATE:`n$template`nAssistant response:`n$response1"
 $selected=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($mixed) -Assignment $assignmentOnly
 Assert-ActorResponse ($selected-eq$response1) 'live assignment-only reader derives the exact hash from the rendered unresolved template'
