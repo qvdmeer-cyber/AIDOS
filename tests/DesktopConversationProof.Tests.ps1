@@ -48,7 +48,7 @@ Assert-Proof (-not [object]::ReferenceEquals($shim,$base)) 'compatibility shim i
 $proofSource=Get-Content -LiteralPath $proofModulePath -Raw -Encoding UTF8
 $backendStart=$proofSource.IndexOf('function New-AidosDesktopChatGPTResilientConversationBackend',[StringComparison]::Ordinal)
 $backendText=$proofSource.Substring($backendStart)
-Assert-Proof ($backendText.IndexOf('Get-AidosDesktopChatGPTDocumentConversationProof',[StringComparison]::Ordinal) -ge 0) 'live resilient backend uses document-root conversation proof'
+Assert-Proof ($backendText.IndexOf('$documentConversationProof=Get-Command Get-AidosDesktopChatGPTDocumentConversationProof',[StringComparison]::Ordinal) -ge 0 -and $backendText.IndexOf('& $documentConversationProof',[StringComparison]::Ordinal) -ge 0) 'live resilient backend captures document-root conversation proof for callback execution'
 Assert-Proof ($backendText.IndexOf('.FindAll(',[StringComparison]::Ordinal) -lt 0) 'live resilient backend does not enumerate the full Chromium UIA subtree'
 
 Write-Output "PASS: $passed resilient conversation proof assertions"

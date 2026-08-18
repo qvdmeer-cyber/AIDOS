@@ -127,6 +127,9 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
     param([Parameter(Mandatory)]$Backend)
     $values=[ordered]@{}
     foreach($property in $Backend.PSObject.Properties){$values[[string]$property.Name]=$property.Value}
+    # LocateConversation runs later from a backend callback scope. Capture the
+    # exact proof command now instead of depending on ambient module exports.
+    $documentConversationProof=Get-Command Get-AidosDesktopChatGPTDocumentConversationProof -CommandType Function -ErrorAction Stop
     $values['LocateConversation']=({
         param($Context,[string]$ProofText,$Enrollment)
         if(-not$Context){throw 'ChatGPT process/window is not present.'}
@@ -136,7 +139,7 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
         if(-not$root){throw 'ChatGPT window is not accessible through UI Automation.'}
         $accountProof=''
         if($Enrollment -and $Enrollment.PSObject.Properties['account_proof_text']){$accountProof=[string]$Enrollment.account_proof_text}
-        Get-AidosDesktopChatGPTDocumentConversationProof -RootElement $root -Context $Context -ProofText $ProofText -AccountProofText $accountProof
+        & $documentConversationProof -RootElement $root -Context $Context -ProofText $ProofText -AccountProofText $accountProof
     }).GetNewClosure()
     [pscustomobject]$values
 }
