@@ -6,6 +6,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableName
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousIntegration.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosReviewBlocker.psm1') -DisableNameChecking
 
 function Get-AidosAutonomousExecutionPathFromState {
     [CmdletBinding()]
@@ -45,12 +46,19 @@ function Invoke-AidosBoundReviewConsumer {
     $response=Get-Content -LiteralPath $ResponsePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
     if([string]$response.review_id-ne$ReviewId){throw 'Review response identity differs from active review.'}
     if([string]$response.outcome-eq'PASS'){
-        # Persist an integration intent before the review consumer changes state to
-        # IDLE. If the process dies after acceptance, the project manager can still
-        # reconcile and integrate the exact PASS review on the next tick.
+        # Persist integration intent before the review consumer changes state to
+        # IDLE, making PASS integration crash-recoverable.
         New-AidosPassIntegrationIntent -ProjectRoot $root -ReviewId $ReviewId -ExecutionId ([string]$response.execution_id) -Revision ([int]$response.revision)|Out-Null
     }
-    if($ReviewConsumer){& $ReviewConsumer $root $ResponsePath}else{Invoke-AidosReviewConsumer -ProjectRoot $root -ResponsePath $ResponsePath -Actor BRIDGE}
+    $consumed=if($ReviewConsumer){& $ReviewConsumer $root $ResponsePath}else{Invoke-AidosReviewConsumer -ProjectRoot $root -ResponsePath $ResponsePath -Actor BRIDGE}
+    $humanInput=$null
+    if([string]$response.outcome-eq'BLOCKER'){
+        # The core review consumer intentionally owns the state decision. Only
+        # after the bound BLOCKER has been durably accepted do we publish the
+        # human authority request explaining how AIDOS may continue.
+        $humanInput=New-AidosReviewBlockerHumanInput -Project $Project -ReviewId $ReviewId
+    }
+    [pscustomobject][ordered]@{review_consumer=$consumed;human_input=$humanInput;outcome=[string]$response.outcome}
 }
 function Invoke-AidosAutonomousReviewTransportDispatch {
     [CmdletBinding()]
