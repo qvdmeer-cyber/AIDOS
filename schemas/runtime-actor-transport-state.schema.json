@@ -10,7 +10,7 @@
     "assignment_id":{"type":"string","minLength":1},
     "assignment_sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},
     "project_id":{"type":"string","minLength":1},
-    "status":{"type":"string","enum":["PENDING","WAITING_TRANSPORT","ACTIVATED","COMPLETED","FAILED","ABANDONED"]},
+    "status":{"type":"string","enum":["PENDING","WAITING_TRANSPORT","ACTIVATED","COMPLETED","CONSUMED","FAILED","ABANDONED"]},
     "transport_type":{"type":["string","null"]},
     "created_at":{"type":"string","format":"date-time"},
     "updated_at":{"type":"string","format":"date-time"},
