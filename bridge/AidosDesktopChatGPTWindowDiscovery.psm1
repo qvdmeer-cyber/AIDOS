@@ -1,13 +1,15 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
+$script:BaseDesktopChatGPTModule = Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking -PassThru
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTConversationProof.psm1') -DisableNameChecking
 
-# Capture the already-loaded base backend command once at module import time.
-# The resilient wrapper has a distinct command name, so import order can never
-# turn this capture into a self-reference.
-$script:BaseDesktopChatGPTWindowsBackendCommand = Get-Command New-AidosDesktopChatGPTWindowsBackend -Module AidosDesktopChatGPT -ErrorAction Stop
+# Capture the base factory from the exact imported module instance. This remains
+# stable even when the resilient compatibility shim exports the same public name.
+$script:BaseDesktopChatGPTWindowsBackendCommand = & $script:BaseDesktopChatGPTModule {
+    Get-Command New-AidosDesktopChatGPTWindowsBackend -CommandType Function -ErrorAction Stop
+}
+if($null-eq$script:BaseDesktopChatGPTWindowsBackendCommand){throw 'Base Desktop ChatGPT Windows backend factory is unavailable.'}
 
 function Initialize-AidosDesktopChatGPTWindowDiscovery {
     if(-not [OperatingSystem]::IsWindows()){throw 'Desktop ChatGPT window discovery is Windows-only.'}
@@ -123,4 +125,13 @@ function New-AidosDesktopChatGPTResilientWindowsBackend {
     New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
 }
 
-Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,New-AidosDesktopChatGPTResilientWindowsBackend
+# Compatibility shim for existing Thinker callers. It deliberately delegates to
+# the uniquely named wrapper; the base command above is bound to the exact base
+# module instance and therefore cannot resolve back to this shim.
+function New-AidosDesktopChatGPTWindowsBackend {
+    [CmdletBinding()]
+    param([string]$ProcessName='ChatGPT Classic')
+    New-AidosDesktopChatGPTResilientWindowsBackend -ProcessName $ProcessName
+}
+
+Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
