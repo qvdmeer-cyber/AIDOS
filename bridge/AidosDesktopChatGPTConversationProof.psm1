@@ -191,6 +191,18 @@ function Test-AidosDesktopChatGPTStoredConversationIdentity {
     [string]::Equals($ObservedDocumentValue,[string]$ExistingFingerprint.document_value,[StringComparison]::Ordinal)
 }
 
+function Test-AidosDesktopChatGPTLegacyDocumentFingerprintEquivalent {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$ExistingFingerprint,[Parameter(Mandatory)]$ObservedFingerprint)
+    if((Get-AidosDesktopChatGPTProofSurfaceName $ExistingFingerprint) -ne 'DOCUMENT_LEGACY'){return $false}
+    if((Get-AidosDesktopChatGPTProofSurfaceName $ObservedFingerprint) -ne 'DOCUMENT'){return $false}
+    foreach($name in @('process_name','session_id','window_title','window_class_name','document_automation_id','document_control_type','document_value','conversation_proof_text')){
+        if(-not$ExistingFingerprint.PSObject.Properties[$name] -or -not$ObservedFingerprint.PSObject.Properties[$name]){return $false}
+        if(-not[string]::Equals([string]$ExistingFingerprint.$name,[string]$ObservedFingerprint.$name,[StringComparison]::Ordinal)){return $false}
+    }
+    $true
+}
+
 function Select-AidosDesktopChatGPTStoredConversationDocumentCandidate {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Candidates)
@@ -258,6 +270,16 @@ function Get-AidosDesktopChatGPTResilientConversationProof {
         Get-AidosDesktopChatGPTElementConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
     }
 
+    if($ExistingFingerprint -and -not[string]::IsNullOrWhiteSpace($ExistingFingerprintSha256) -and (Test-AidosDesktopChatGPTLegacyDocumentFingerprintEquivalent -ExistingFingerprint $ExistingFingerprint -ObservedFingerprint $observed.conversation_fingerprint)){
+        return [pscustomobject][ordered]@{
+            conversation_fingerprint=$ExistingFingerprint
+            conversation_fingerprint_sha256=$ExistingFingerprintSha256
+            proof_schema_revalidated='DOCUMENT_LEGACY_TO_DOCUMENT'
+            observed_conversation_fingerprint=$observed.conversation_fingerprint
+            observed_conversation_fingerprint_sha256=$observed.conversation_fingerprint_sha256
+        }
+    }
+
     # An enrolled conversation can survive a Chromium accessibility-provider
     # representation change. Reuse its durable identity only when the current
     # observation has independently re-proven the same enrollment marker/account
@@ -310,4 +332,4 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
     [pscustomobject]$values
 }
 
-Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTProofSurfaceName,Test-AidosDesktopChatGPTStoredConversationIdentity,Select-AidosDesktopChatGPTStoredConversationDocumentCandidate,Find-AidosDesktopChatGPTStoredConversationDocument,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
+Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTProofSurfaceName,Test-AidosDesktopChatGPTStoredConversationIdentity,Test-AidosDesktopChatGPTLegacyDocumentFingerprintEquivalent,Select-AidosDesktopChatGPTStoredConversationDocumentCandidate,Find-AidosDesktopChatGPTStoredConversationDocument,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
