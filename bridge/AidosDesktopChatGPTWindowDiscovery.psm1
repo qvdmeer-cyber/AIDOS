@@ -169,18 +169,20 @@ function Add-AidosDesktopChatGPTFreshComposerProof {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Backend)
     $primarySend=$Backend.SendPrompt
+    $freshComposerObservation=Get-Command Get-AidosDesktopChatGPTFreshComposerObservation -CommandType Function -ErrorAction Stop
+    $freshComposerCleared=Get-Command Wait-AidosDesktopChatGPTFreshComposerCleared -CommandType Function -ErrorAction Stop
     $Backend.InspectComposer=({
         param($Context,$Enrollment)
-        Get-AidosDesktopChatGPTFreshComposerObservation -Context $Context
+        & $freshComposerObservation -Context $Context
     }).GetNewClosure()
     $Backend.SendPrompt=({
         param($Context,$Enrollment,[string]$PromptText,$Assignment)
-        $before=Get-AidosDesktopChatGPTFreshComposerObservation -Context $Context
+        $before=& $freshComposerObservation -Context $Context
         try{return & $primarySend $Context $Enrollment $PromptText $Assignment}catch{
             $message=$_.Exception.Message
             if($message -ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'){throw}
         }
-        $fresh=Wait-AidosDesktopChatGPTFreshComposerCleared -Context $Context -PromptText $PromptText
+        $fresh=& $freshComposerCleared -Context $Context -PromptText $PromptText
         [pscustomobject][ordered]@{
             schema_version='0.1'
             assignment_id=if($Assignment -and $Assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment_id}elseif($Assignment -and $Assignment.PSObject.Properties['assignment'] -and $Assignment.assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment.assignment_id}else{$null}
