@@ -27,6 +27,20 @@ function Invoke-Wsl([string[]]$Arguments){
     [pscustomobject]@{exit_code=$code;output=@($output|ForEach-Object {[string]$_})}
 }
 function Require-WslSuccess([string]$Step,$Result){if([int]$Result.exit_code-ne0){throw "$Step failed: $($Result.output -join [Environment]::NewLine)"};$Result}
+function Convert-WslPathToUnc([Parameter(Mandatory)][string]$Path){
+    $relative=$Path.TrimStart('/').Replace('/','\')
+    "\\wsl.localhost\$Distribution\$relative"
+}
+function Invoke-HostCoreValidation([Parameter(Mandatory)][string]$CandidateWslPath){
+    $candidateUnc=Convert-WslPathToUnc $CandidateWslPath
+    $validator=Join-Path $candidateUnc 'tools\Test-AidosCorePortable.ps1'
+    if(-not(Test-Path -LiteralPath $validator -PathType Leaf)){throw "Candidate Core validator is unavailable: $validator"}
+    $engine=Join-Path $PSHOME 'pwsh.exe'
+    if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'Windows PowerShell 7 engine is unavailable for candidate validation.'}
+    $output=@(& $engine -NoLogo -NoProfile -ExecutionPolicy Bypass -File $validator -RepoRoot $candidateUnc 2>&1)
+    $code=$LASTEXITCODE
+    [pscustomobject]@{exit_code=$code;output=@($output|ForEach-Object {[string]$_});candidate_root=$candidateUnc;engine=$engine}
+}
 
 $lock=$null
 try{$lock=[IO.FileStream]::new($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
@@ -54,12 +68,10 @@ try {
 
     $candidate="$WslReposRoot/.aidos-core-update/$remote"
     Invoke-Wsl @('git','-C',$repo,'worktree','remove','--force',$candidate)|Out-Null
-    $added=Require-WslSuccess 'create validation worktree' (Invoke-Wsl @('git','-C',$repo,'worktree','add','--detach',$candidate,$remote))
+    Require-WslSuccess 'create validation worktree' (Invoke-Wsl @('git','-C',$repo,'worktree','add','--detach',$candidate,$remote))|Out-Null
     try {
-        $hasPwsh=Invoke-Wsl @('bash','-lc','command -v pwsh >/dev/null 2>&1')
-        if([int]$hasPwsh.exit_code-ne0){Write-SelfUpdateStatus -Status 'VALIDATION_ENVIRONMENT_REQUIRED' -Detail @{remote=$remote;requirement='pwsh inside WSL is required for autonomous pre-update regression validation.'}|Out-Null;exit 1}
-        $validation=Invoke-Wsl @('pwsh','-NoLogo','-NoProfile','-File',"$candidate/tools/Test-AidosCorePortable.ps1",'-RepoRoot',$candidate)
-        if([int]$validation.exit_code-ne0){Write-SelfUpdateStatus -Status 'VALIDATION_FAILED' -Detail @{remote=$remote;output=@($validation.output)}|Out-Null;exit 1}
+        $validation=Invoke-HostCoreValidation -CandidateWslPath $candidate
+        if([int]$validation.exit_code-ne0){Write-SelfUpdateStatus -Status 'VALIDATION_FAILED' -Detail @{remote=$remote;candidate_root=[string]$validation.candidate_root;engine=[string]$validation.engine;output=@($validation.output)}|Out-Null;exit 1}
     } finally {Invoke-Wsl @('git','-C',$repo,'worktree','remove','--force',$candidate)|Out-Null}
 
     Require-WslSuccess 'fast-forward Core update' (Invoke-Wsl @('git','-C',$repo,'merge','--ff-only',$remote))|Out-Null
