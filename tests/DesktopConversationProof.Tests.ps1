@@ -39,9 +39,11 @@ $windowModule=@(Get-Module AidosDesktopChatGPTWindowDiscovery -All -ErrorAction 
 Assert-Proof ($null-ne$windowModule) 'exact window-discovery module instance is loaded from the expected path'
 $shim=$windowModule.ExportedCommands['New-AidosDesktopChatGPTWindowsBackend']
 $resilient=$windowModule.ExportedCommands['New-AidosDesktopChatGPTResilientWindowsBackend']
+$recovery=$windowModule.ExportedCommands['Add-AidosDesktopChatGPTConversationProofRecovery']
 $base=$windowModule.SessionState.PSVariable.GetValue('BaseDesktopChatGPTWindowsBackendCommand')
 Assert-Proof ($null-ne$shim) 'window-discovery module exports the compatibility shim used by existing Thinker callers'
 Assert-Proof ($null-ne$resilient) 'window-discovery module exports the uniquely named resilient backend factory'
+Assert-Proof ($null-ne$recovery) 'window-discovery module exports the document-proof recovery wrapper'
 Assert-Proof ($null-ne$base) 'window-discovery module retains an exact captured base backend command'
 Assert-Proof ($base.Source -eq 'AidosDesktopChatGPT') 'resilient wrapper captures base backend from the exact AidosDesktopChatGPT module instance'
 Assert-Proof ($base.Name -eq 'New-AidosDesktopChatGPTWindowsBackend') 'captured base command is the original Windows backend factory'
@@ -62,5 +64,12 @@ Assert-Proof ($proofSource.IndexOf("`$oldSurface -in @('DOCUMENT','DOCUMENT_LEGA
 Assert-Proof ($proofSource.IndexOf('conversation_fingerprint_sha256=$ExistingFingerprintSha256',[StringComparison]::Ordinal) -ge 0) 'known proof-surface migration retains the durable enrolled conversation identity after current proof succeeds'
 Assert-Proof ($proofSource.IndexOf('remains ambiguous after most-specific UIA selection',[StringComparison]::Ordinal) -ge 0) 'ambiguous fallback proof remains fail-closed'
 Assert-Proof ($proofSource.IndexOf('is ambiguous in the active ChatGPT document',[StringComparison]::Ordinal) -lt 0) 'one UIA-bound conversation document accepts repeated enrollment marker representations'
+
+$windowSource=Get-Content -LiteralPath $windowModulePath -Raw -Encoding UTF8
+Assert-Proof ($windowSource.IndexOf('function Add-AidosDesktopChatGPTConversationProofRecovery',[StringComparison]::Ordinal) -ge 0) 'Windows backend contains a final recovery layer for a non-conversation Document surface'
+Assert-Proof ($windowSource.IndexOf('try{return & $primaryLocate $Context $ProofText $Enrollment}catch{$primaryError=$_.Exception.Message}',[StringComparison]::Ordinal) -ge 0) 'recovery is attempted only after the primary conversation proof actually fails'
+Assert-Proof ($windowSource.IndexOf('Get-AidosDesktopChatGPTElementConversationProof',[StringComparison]::Ordinal) -ge 0) 'recovery re-proves the enrollment marker through the established most-specific UIA element proof'
+Assert-Proof ($windowSource.IndexOf('conversation_fingerprint_sha256=[string]$Enrollment.conversation_fingerprint_sha256',[StringComparison]::Ordinal) -ge 0) 'successful recovery retains the already-enrolled durable conversation identity'
+Assert-Proof ($windowSource.IndexOf('$backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend',[StringComparison]::Ordinal) -ge 0 -and $windowSource.IndexOf('Add-AidosDesktopChatGPTConversationProofRecovery -Backend $backend',[StringComparison]::Ordinal) -ge 0) 'Windows backend composes primary resilient proof before final recovery proof'
 
 Write-Output "PASS: $passed resilient conversation proof assertions"
