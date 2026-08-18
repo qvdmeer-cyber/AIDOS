@@ -87,13 +87,13 @@ function Get-AidosDesktopChatGPTFallbackProcessContexts {
 
 function Get-AidosDesktopChatGPTResilientProcessContext {
     [CmdletBinding()]
-    param([string]$ProcessName='ChatGPT Classic',[scriptblock]$PrimaryResolver)
+    param([string]$ProcessName='ChatGPT Classic',[scriptblock]$PrimaryResolver,[scriptblock]$FallbackResolver)
     if($PrimaryResolver){
         try{$primary=& $PrimaryResolver $ProcessName;if($primary){return $primary}}catch{$primaryError=$_.Exception.Message}
     }elseif(Get-Command Get-AidosDesktopChatGPTProcessContext -ErrorAction SilentlyContinue){
         try{$primary=Get-AidosDesktopChatGPTProcessContext -ProcessName $ProcessName;if($primary){return $primary}}catch{$primaryError=$_.Exception.Message}
     }
-    $fallback=@(Get-AidosDesktopChatGPTFallbackProcessContexts -ProcessName $ProcessName)
+    $fallback=if($FallbackResolver){@(& $FallbackResolver $ProcessName)}else{@(Get-AidosDesktopChatGPTFallbackProcessContexts -ProcessName $ProcessName)}
     if($fallback.Count-eq1){return $fallback[0]}
     if($fallback.Count-gt1){
         $details=($fallback|ForEach-Object{"pid=$($_.process_id);handle=$($_.window_handle);title=$($_.window_title)"})-join' | '
