@@ -4,7 +4,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $root 'bridge/AidosDesktopChatGPTConversationProof.psm1') -Force -DisableNameChecking
+$proofModulePath=Join-Path $root 'bridge/AidosDesktopChatGPTConversationProof.psm1'
+Import-Module $proofModulePath -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Force -DisableNameChecking
 $script:passed=0
 function Assert-Proof([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
@@ -32,5 +33,11 @@ Assert-Proof $threw 'truly equivalent proof candidates remain fail-closed'
 $thinkerModule=Get-Module AidosDesktopThinkerTransport -ErrorAction Stop
 $command=& $thinkerModule { Get-Command New-AidosDesktopChatGPTWindowsBackend -ErrorAction Stop }
 Assert-Proof ($command.Source -eq 'AidosDesktopChatGPTWindowDiscovery') 'Thinker module scope resolves the resilient backend wrapper after the base Desktop ChatGPT module'
+
+$proofSource=Get-Content -LiteralPath $proofModulePath -Raw -Encoding UTF8
+$backendStart=$proofSource.IndexOf('function New-AidosDesktopChatGPTResilientConversationBackend',[StringComparison]::Ordinal)
+$backendText=$proofSource.Substring($backendStart)
+Assert-Proof ($backendText.IndexOf('Get-AidosDesktopChatGPTDocumentConversationProof',[StringComparison]::Ordinal) -ge 0) 'live resilient backend uses document-root conversation proof'
+Assert-Proof ($backendText.IndexOf('.FindAll(',[StringComparison]::Ordinal) -lt 0) 'live resilient backend does not enumerate the full Chromium UIA subtree'
 
 Write-Output "PASS: $passed resilient conversation proof assertions"
