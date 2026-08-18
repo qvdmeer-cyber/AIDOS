@@ -400,6 +400,7 @@ function New-AidosDesktopChatGPTStubBackend {
     $state=[pscustomobject]@{
         send_count=0
         read_count=0
+        composer_text=$null
         last_prompt_text=$null
         last_prompt_sha256=$null
     }
@@ -495,6 +496,15 @@ function New-AidosDesktopChatGPTStubBackend {
                 } | ConvertTo-Json -Depth 100 -Compress)))).ToLowerInvariant()
             }
         }).GetNewClosure()
+        InspectComposer = ({
+            param($Context,$Enrollment)
+            [pscustomobject]@{
+                present=$true
+                composer_text=$state.composer_text
+                composer_text_sha256=if([string]::IsNullOrWhiteSpace([string]$state.composer_text)){$null}else{[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$state.composer_text))).ToLowerInvariant()}
+                composer_text_length=if([string]::IsNullOrWhiteSpace([string]$state.composer_text)){0}else{([string]$state.composer_text).Length}
+            }
+        }).GetNewClosure()
         FocusConversation = ({
             param($Context,$Enrollment)
             if(-not $ConversationMatches){ throw 'Expected enrolled ChatGPT conversation is not active.' }
@@ -503,12 +513,27 @@ function New-AidosDesktopChatGPTStubBackend {
             $Context
         }).GetNewClosure()
         SendPrompt = ({
-            param($Context,$Enrollment,[string]$PromptText)
+            param($Context,$Enrollment,[string]$PromptText,$Assignment)
             if(-not $ConversationMatches){ throw 'Expected enrolled ChatGPT conversation is not active.' }
+            $before=[string]$state.composer_text
+            $mutationOccurred=([string]::IsNullOrWhiteSpace($before) -or $before -ne [string]$PromptText)
             $state.send_count++
             $state.last_prompt_text=$PromptText
             $state.last_prompt_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($PromptText))).ToLowerInvariant()
-            $null
+            if([string]$state.composer_text -ne [string]$PromptText){ $state.composer_text=$PromptText }
+            [pscustomobject]@{
+                schema_version='0.1'
+                assignment_id=if($Assignment -and $Assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment_id}elseif($Assignment -and $Assignment.PSObject.Properties['assignment'] -and $Assignment.assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment.assignment_id}else{$null}
+                assignment_sha256=if($Assignment -and $Assignment.PSObject.Properties['assignment_sha256']){[string]$Assignment.assignment_sha256}elseif($Assignment -and $Assignment.PSObject.Properties['sha256']){[string]$Assignment.sha256}else{$null}
+                conversation_fingerprint_sha256=if($Enrollment -and $Enrollment.PSObject.Properties['conversation_fingerprint_sha256']){[string]$Enrollment.conversation_fingerprint_sha256}else{$null}
+                composer_state='COMMITTED'
+                composer_result='MATCHING_EXACT'
+                mutation_occurred=$mutationOccurred
+                send_invocation_state='INVOKED'
+                committed_message_proof_state='PROVEN'
+                failure_reason=$null
+                committed=$true
+            }
         }).GetNewClosure()
         ReadLatestResponseText = ({
             param($Context,$Enrollment,[int]$Attempt,$Assignment)
@@ -535,6 +560,21 @@ function New-AidosDesktopChatGPTWindowsBackend {
             $context=Get-AidosDesktopChatGPTProcessContext $ExpectedProcessName
             if(-not $context){ return $null }
             $context
+        }
+        InspectComposer = {
+            param($Context,$Enrollment)
+            if(-not $Context){ throw 'ChatGPT process/window is not present.' }
+            if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){ throw 'ChatGPT window is not present.' }
+            $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+            if(-not $root){ throw 'ChatGPT window is not accessible through UI Automation.' }
+            $composer=Get-AidosDesktopChatGPTComposerElement $root
+            $text=Get-AidosDesktopChatGPTElementText $composer
+            [pscustomobject]@{
+                present=$true
+                composer_text=$text
+                composer_text_sha256=if([string]::IsNullOrWhiteSpace([string]$text)){$null}else{Get-AidosDesktopChatGPTTextSha256 $text}
+                composer_text_length=if([string]::IsNullOrWhiteSpace([string]$text)){0}else{([string]$text).Length}
+            }
         }
         LocateConversation = {
             param($Context,[string]$ProofText,$Enrollment)
@@ -585,27 +625,31 @@ function New-AidosDesktopChatGPTWindowsBackend {
             $Context
         }
         SendPrompt = {
-            param($Context,$Enrollment,[string]$PromptText)
+            param($Context,$Enrollment,[string]$PromptText,$Assignment)
             Initialize-AidosDesktopChatGPTWindowsAutomation
             if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){ throw 'ChatGPT window is not present.' }
             $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
             if(-not $root){ throw 'ChatGPT window is not accessible through UI Automation.' }
             $composer=Get-AidosDesktopChatGPTComposerElement $root
+            $before=Get-AidosDesktopChatGPTElementText $composer
+            $mutationOccurred=([string]$before -ne [string]$PromptText)
             $composer.SetFocus()
             Start-Sleep -Milliseconds 100
             $Context | Add-Member -NotePropertyName window_uia_focus_proven -NotePropertyValue ([bool]$composer.Current.HasKeyboardFocus) -Force
             if(-not (Test-AidosDesktopChatGPTWindowFocusProof $Context)){ throw 'ChatGPT composer focus proof is required before send.' }
-            try {
-                $valuePattern=$composer.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-                if($valuePattern){
-                    $valuePattern.SetValue($PromptText)
-                } else {
-                    throw 'ValuePattern not available.'
+            if($mutationOccurred){
+                try {
+                    $valuePattern=$composer.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+                    if($valuePattern){
+                        $valuePattern.SetValue($PromptText)
+                    } else {
+                        throw 'ValuePattern not available.'
+                    }
+                } catch {
+                    Set-Clipboard -Value $PromptText
+                    $composer.SetFocus()
+                    [System.Windows.Forms.SendKeys]::SendWait('^v')
                 }
-            } catch {
-                Set-Clipboard -Value $PromptText
-                $composer.SetFocus()
-                [System.Windows.Forms.SendKeys]::SendWait('^v')
             }
             $submit=$null
             for($attempt=0;$attempt -lt 20;$attempt++){
@@ -623,6 +667,22 @@ function New-AidosDesktopChatGPTWindowsBackend {
                 $invoke=$submit.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
                 $invoke.Invoke()
             } catch { throw "ChatGPT composer submit control cannot be invoked through UI Automation: $($_.Exception.Message)" }
+            Start-Sleep -Milliseconds 250
+            $remaining=Get-AidosDesktopChatGPTElementText $composer
+            if(-not[string]::IsNullOrWhiteSpace([string]$remaining) -and [string]$remaining.IndexOf($PromptText,[StringComparison]::Ordinal)-ge0){throw 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'}
+            [pscustomobject]@{
+                schema_version='0.1'
+                assignment_id=if($Assignment -and $Assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment_id}elseif($Assignment -and $Assignment.PSObject.Properties['assignment'] -and $Assignment.assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment.assignment_id}else{$null}
+                assignment_sha256=if($Assignment -and $Assignment.PSObject.Properties['assignment_sha256']){[string]$Assignment.assignment_sha256}elseif($Assignment -and $Assignment.PSObject.Properties['sha256']){[string]$Assignment.sha256}else{$null}
+                conversation_fingerprint_sha256=if($Enrollment -and $Enrollment.PSObject.Properties['conversation_fingerprint_sha256']){[string]$Enrollment.conversation_fingerprint_sha256}else{$null}
+                composer_state='COMMITTED'
+                composer_result=if([string]::IsNullOrWhiteSpace([string]$before)){'EMPTY'}elseif([string]$before -eq [string]$PromptText){'MATCHING_EXACT'}elseif(([string]$before).IndexOf([string]$PromptText,[StringComparison]::Ordinal) -ge 0){'DUPLICATE'}else{'MISMATCH'}
+                mutation_occurred=$mutationOccurred
+                send_invocation_state='INVOKED'
+                committed_message_proof_state='PROVEN'
+                failure_reason=$null
+                committed=$true
+            }
         }
         ReadLatestResponseText = {
             param($Context,$Enrollment,[int]$Attempt,$Assignment)

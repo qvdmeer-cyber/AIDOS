@@ -49,6 +49,17 @@ try {
 
     $prompt=New-AidosDesktopThinkerPrompt -BoundAssignment $bound -Documents $documents
     Assert-Source ($prompt -match 'applicability_resolutions' -and $prompt -match 'surface_resolutions') 'Definition prompt uses the current Definition Thinker output contract'
+
+    $appAssignment=$assignment|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30
+    $appAssignment.action='RESOLVE_PROJECT_APPLICABILITY';$appAssignment.binding.definition_id=$null;$appAssignment.binding.definition_version=$null
+    $appBound=[pscustomobject]@{sha256=('b'*64);assignment=$appAssignment}
+    $appDocuments=@(Get-AidosDesktopThinkerAuthorizedDocuments -ProjectRoot $base -BoundAssignment $appBound -MaximumTotalBytes 262144)
+    $appPaths=@($appDocuments|ForEach-Object {[string]$_.path})
+    Assert-Source ($appPaths -contains 'AIDOS/catalog/profile-presets.catalog.json') 'applicability pack includes the authoritative preset catalog'
+    Assert-Source ($appPaths -notcontains '.aidos/documentation/PROJECT_BASELINE.json') 'applicability pack excludes redundant baseline index material'
+    Assert-Source ((@($appDocuments|ForEach-Object {[Text.Encoding]::UTF8.GetByteCount([string]$_.content)}|Measure-Object -Sum).Sum) -lt 262144) 'applicability pack remains below explicit desktop transport limit'
+    $appPrompt=New-AidosDesktopThinkerPrompt -BoundAssignment $appBound -Documents $appDocuments
+    Assert-Source ($appPrompt -match 'ALLOWED_SOURCE_REFS' -and $appPrompt -match 'REQUIRED_NONEMPTY' -and $appPrompt -notmatch 'preset_ids=@\(\);.*source_refs=@\(\)') 'applicability prompt requires catalog-valid presets and nonempty authorized provenance'
 } finally {
     if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force}
 }

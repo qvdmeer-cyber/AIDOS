@@ -11,6 +11,9 @@ Import-Module (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Forc
 $script:passed=0
 function Assert-Thinker([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
 
+$thinkerSource=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Raw -Encoding UTF8
+Assert-Thinker ($thinkerSource -match 'MaximumDocumentBytes=262144' -and $thinkerSource -match 'MaximumTotalBytes=786432') 'Thinker source pack admits a complete accepted Project Baseline within bounded transport limits'
+
 function New-ThinkerProject {
     param([string]$ProjectRoot)
     New-Item -ItemType Directory -Path (Join-Path $ProjectRoot '.aidos/documentation') -Force|Out-Null
@@ -40,16 +43,52 @@ try {
     $selection=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
     $created=New-AidosRuntimeActorAssignment -Project $project -Selection $selection
     $a=$created.assignment
-    $result=[ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$a.assignment_id;assignment_sha256=[string]$created.assignment_sha256;project_id=[string]$a.project_id;actor_role=[string]$a.actor_role;actor_identity=[string]$a.actor_identity;action=[string]$a.action;binding=$a.binding;outcome='COMPLETED';result=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='test';proposed_artifacts=@();human_input_request=$null};responded_at='2026-08-18T00:00:01Z'}
+    $result=[ordered]@{
+        schema_version='0.1'
+        envelope_type='RUNTIME_ACTOR_RESULT'
+        assignment_id=[string]$a.assignment_id
+        assignment_sha256=[string]$created.assignment_sha256
+        project_id=[string]$a.project_id
+        actor_role=[string]$a.actor_role
+        actor_identity=[string]$a.actor_identity
+        action=[string]$a.action
+        binding=$a.binding
+        outcome='COMPLETED'
+        result=[ordered]@{
+            result_type='DEFINITION_THINKER_OUTPUT'
+            summary='Applicability resolved from bounded authorized evidence.'
+            proposed_artifacts=@([ordered]@{
+                artifact_type='PROJECT_APPLICABILITY_PROPOSAL'
+                authority_classification='REPO_VERIFIABLE'
+                preset_ids=@('WEB_APPLICATION')
+                selection_source='BASELINE_DERIVED'
+                overrides=@()
+                source_refs=@('.aidos/PROJECT.json','docs/PRODUCT.md','AGENTS.md')
+            })
+            human_input_request=$null
+        }
+        responded_at='2026-08-18T00:00:01Z'
+    }
     $backend=New-AidosDesktopThinkerStubBackend -ResponseText ($result|ConvertTo-Json -Depth 100 -Compress)
     $handoff=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id) -StateRoot $stateRoot -Backend $backend -ResponseTimeoutSeconds 1
-    Assert-Thinker ($handoff.status -eq 'HANDOFF_COMPLETE') 'desktop Thinker handoff completes with exact-bound result'
+    $handoffTransportSummary=if($handoff.PSObject.Properties.Name -contains 'transport' -and $null -ne $handoff.transport){$handoff.transport | ConvertTo-Json -Depth 20 -Compress}else{'<no transport payload on completed handoff>'}
+    Assert-Thinker ($handoff.status -eq 'HANDOFF_COMPLETE') ("desktop Thinker handoff completes with exact-bound result; actual status: {0}; details: {1}" -f [string]$handoff.status, $handoffTransportSummary)
     $enrollment=Read-AidosDesktopThinkerEnrollment -StateRoot $stateRoot
     Assert-Thinker ($enrollment.transport_type -eq 'DESKTOP_CHATGPT_THINKER' -and $enrollment.status -eq 'ENROLLED') 'Thinker conversation is auto-enrolled durably'
     Assert-Thinker ($backend.State.send_count -eq 2) 'enrollment marker and actor assignment are each sent exactly once'
     Assert-Thinker ($backend.State.last_prompt -match 'AUTHORIZED_SOURCE_DOCUMENTS' -and $backend.State.last_prompt -match 'docs/PRODUCT.md') 'actor prompt carries authorized project source pack'
     $transport=Read-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id)
     Assert-Thinker ($transport.status -eq 'COMPLETED') 'Thinker result closes transport state'
+    $composer=Read-AidosDesktopThinkerComposerState -StateRoot $stateRoot -AssignmentId ([string]$a.assignment_id)
+    Assert-Thinker ($composer.assignment_sha256 -eq $created.assignment_sha256 -and $composer.composer_state -eq 'COMMITTED' -and $composer.committed_message_proof_state -eq 'PROVEN') 'composer state records exact assignment-bound committed-message proof before activation'
+
+    $staged=[pscustomobject][ordered]@{schema_version='0.1';assignment_id='restart-assignment';assignment_sha256=('c'*64);conversation_fingerprint_sha256=('d'*64);prompt_sha256=('e'*64);composer_state='STAGED';mutation_occurred=$false;send_invocation_state='NOT_INVOKED';committed_message_proof_state='NOT_PROVEN';failure_reason=$null;updated_at='2026-08-18T00:00:00Z'}
+    Write-AidosDesktopThinkerComposerState -StateRoot $stateRoot -State $staged|Out-Null
+    $stagedRead=Read-AidosDesktopThinkerComposerState -StateRoot $stateRoot -AssignmentId 'restart-assignment'
+    Assert-Thinker ($stagedRead.composer_state -eq 'STAGED' -and -not$stagedRead.mutation_occurred -and $stagedRead.send_invocation_state -eq 'NOT_INVOKED') 'staged composer state survives restart inspection without implying a send'
+    $stagedRead.send_invocation_state='INVOKED';$stagedRead.updated_at='2026-08-18T00:00:01Z';Write-AidosDesktopThinkerComposerState -StateRoot $stateRoot -State $stagedRead|Out-Null
+    $restarted=Read-AidosDesktopThinkerComposerState -StateRoot $stateRoot -AssignmentId 'restart-assignment'
+    Assert-Thinker ($restarted.send_invocation_state -eq 'INVOKED' -and $restarted.committed_message_proof_state -eq 'NOT_PROVEN') 'restart preserves unresolved send invocation for reconciliation instead of duplicate send'
 
     $replay=Invoke-AidosDesktopThinkerAssignment -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id) -StateRoot $stateRoot -Backend $backend -ResponseTimeoutSeconds 1
     Assert-Thinker ($replay.status -eq 'HANDOFF_COMPLETE' -and $replay.idempotent) 'completed Thinker handoff replays idempotently'

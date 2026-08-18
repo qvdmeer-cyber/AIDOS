@@ -16,6 +16,86 @@ function Get-AidosDesktopThinkerEnrollmentPath {
     param([Parameter(Mandatory)][string]$StateRoot)
     Join-Path (Get-AidosDesktopThinkerRoot -StateRoot $StateRoot) 'ENROLLMENT.json'
 }
+function Get-AidosDesktopThinkerComposerStatePath {
+    param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)][string]$AssignmentId)
+    Join-Path (Join-Path (Get-AidosDesktopThinkerRoot -StateRoot $StateRoot) 'composer') ($AssignmentId+'.json')
+}
+function Get-AidosDesktopThinkerPromptHash { param([Parameter(Mandatory)][string]$Prompt) [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Prompt))).ToLowerInvariant() }
+function Read-AidosDesktopThinkerComposerState {
+    param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)][string]$AssignmentId)
+    $path=Get-AidosDesktopThinkerComposerStatePath -StateRoot $StateRoot -AssignmentId $AssignmentId
+    if(Test-Path -LiteralPath $path -PathType Leaf){Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50}else{$null}
+}
+function Write-AidosDesktopThinkerComposerState {
+    param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)]$State)
+    $path=Get-AidosDesktopThinkerComposerStatePath -StateRoot $StateRoot -AssignmentId ([string]$State.assignment_id)
+    $dir=Split-Path -Parent $path;if(-not(Test-Path -LiteralPath $dir)){New-Item -ItemType Directory -Path $dir -Force|Out-Null}
+    Write-AidosJsonAtomic $path $State;$State
+}
+function Get-AidosDesktopThinkerComposerObservation {
+    param(
+        [Parameter(Mandatory)]$Backend,
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)]$Enrollment,
+        [Parameter(Mandatory)][string]$ExpectedPrompt
+    )
+    if($Backend.PSObject.Properties['InspectComposer']){
+        $inspection=& $Backend.InspectComposer $Context $Enrollment
+    } else {
+        if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){ throw 'ChatGPT window is not present.' }
+        $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+        if(-not $root){ throw 'ChatGPT window is not accessible through UI Automation.' }
+        $composer=Get-AidosDesktopChatGPTComposerElement $root
+        $text=Get-AidosDesktopChatGPTElementText $composer
+        $inspection=[pscustomobject]@{present=$true;composer_text=$text;composer_text_sha256=if([string]::IsNullOrWhiteSpace([string]$text)){$null}else{Get-AidosDesktopChatGPTTextSha256 $text};composer_text_length=if([string]::IsNullOrWhiteSpace([string]$text)){0}else{([string]$text).Length}}
+    }
+    $text=[string]$inspection.composer_text
+    $textSha=if([string]::IsNullOrWhiteSpace($text)){$null}else{if($inspection.PSObject.Properties['composer_text_sha256']){[string]$inspection.composer_text_sha256}else{Get-AidosDesktopThinkerPromptHash -Prompt $text}}
+    $textLength=if($inspection.PSObject.Properties['composer_text_length']){[int]$inspection.composer_text_length}else{if([string]::IsNullOrWhiteSpace($text)){0}else{$text.Length}}
+    $promptMatches=if([string]::IsNullOrWhiteSpace($ExpectedPrompt)){0}else{[regex]::Matches($text,[regex]::Escape($ExpectedPrompt)).Count}
+    $result=if([string]::IsNullOrWhiteSpace($text)){'EMPTY'}elseif($text -eq $ExpectedPrompt){'MATCHING_EXACT'}elseif($promptMatches -gt 1){'DUPLICATE'}else{'MISMATCH'}
+    [pscustomobject]@{
+        schema_version='0.1'
+        present=[bool]$inspection.present
+        composer_text_sha256=$textSha
+        composer_text_length=$textLength
+        composer_result=$result
+        exact_bound_composer=($result -eq 'MATCHING_EXACT')
+        duplicate_payload=($result -eq 'DUPLICATE')
+        mutation_occurred=$false
+        send_invocation_state='NOT_INVOKED'
+        committed_message_proof_state='NOT_PROVEN'
+        failure_reason=$null
+    }
+}
+function Test-AidosDesktopThinkerSendResultContract {
+    param([Parameter(Mandatory)]$Result)
+    foreach($name in @('schema_version','assignment_id','assignment_sha256','conversation_fingerprint_sha256','composer_state','composer_result','mutation_occurred','send_invocation_state','committed_message_proof_state','failure_reason','committed')){
+        if(-not $Result.PSObject.Properties[$name]){throw "Thinker send result contract is missing '$name'."}
+    }
+    if([string]$Result.schema_version -ne '0.1'){throw 'Thinker send result contract schema_version mismatch.'}
+    if([string]::IsNullOrWhiteSpace([string]$Result.send_invocation_state)){throw 'Thinker send result contract requires a send_invocation_state.'}
+    if([string]::IsNullOrWhiteSpace([string]$Result.committed_message_proof_state)){throw 'Thinker send result contract requires a committed_message_proof_state.'}
+    if([string]::IsNullOrWhiteSpace([string]$Result.composer_state)){throw 'Thinker send result contract requires a composer_state.'}
+    if([string]::IsNullOrWhiteSpace([string]$Result.composer_result)){throw 'Thinker send result contract requires a composer_result.'}
+    if([string]::IsNullOrWhiteSpace([string]$Result.assignment_id)){throw 'Thinker send result contract requires assignment_id.'}
+    if([string]::IsNullOrWhiteSpace([string]$Result.assignment_sha256)){throw 'Thinker send result contract requires assignment_sha256.'}
+    if([string]::IsNullOrWhiteSpace([string]$Result.conversation_fingerprint_sha256)){throw 'Thinker send result contract requires conversation_fingerprint_sha256.'}
+    if($Result.committed -isnot [bool]){throw 'Thinker send result contract requires a boolean committed flag.'}
+    [pscustomobject]@{
+        schema_version=[string]$Result.schema_version
+        assignment_id=[string]$Result.assignment_id
+        assignment_sha256=[string]$Result.assignment_sha256
+        conversation_fingerprint_sha256=[string]$Result.conversation_fingerprint_sha256
+        composer_state=[string]$Result.composer_state
+        composer_result=[string]$Result.composer_result
+        mutation_occurred=[bool]$Result.mutation_occurred
+        send_invocation_state=[string]$Result.send_invocation_state
+        committed_message_proof_state=[string]$Result.committed_message_proof_state
+        failure_reason=if($null -eq $Result.failure_reason){$null}else{[string]$Result.failure_reason}
+        committed=[bool]$Result.committed
+    }
+}
 function Read-AidosDesktopThinkerEnrollment {
     param([Parameter(Mandatory)][string]$StateRoot)
     $path=Get-AidosDesktopThinkerEnrollmentPath -StateRoot $StateRoot
@@ -46,13 +126,14 @@ function Get-AidosDesktopThinkerResponseText {
 }
 function New-AidosDesktopThinkerStubBackend {
     param([string]$ResponseText,[bool]$InteractiveSession=$true,[bool]$ConversationProofAvailable=$true)
-    $state=[pscustomobject]@{send_count=0;last_prompt=$null;proof_text=$null}
+    $state=[pscustomobject]@{send_count=0;last_prompt=$null;proof_text=$null;composer_text=$null;successful_commit_count=0}
     [pscustomobject]@{
         State=$state
         AssertInteractiveSession=({param();if(-not$InteractiveSession){throw 'Windows session unavailable.'};$true}).GetNewClosure()
         GetProcessContext=({param([string]$ProcessName);[pscustomobject]@{present=$true;process_id=42;process_name=$ProcessName;session_id=1;main_window_handle='99';window_handle='99';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1';window_is_minimized=$false;window_is_foreground=$true;window_is_visible=$true;window_source='stub'}}).GetNewClosure()
         FocusConversation=({param($Context,$Enrollment);$Context.window_is_foreground=$true;$Context}).GetNewClosure()
-        SendPrompt=({param($Context,$Enrollment,[string]$PromptText);$state.send_count++;$state.last_prompt=$PromptText;if($PromptText -match 'AIDOS_THINKER_TRANSPORT_ENROLLMENT::(?<id>[0-9a-f-]+)'){$state.proof_text='AIDOS_THINKER_TRANSPORT_ENROLLMENT::'+$Matches.id}}).GetNewClosure()
+        InspectComposer=({param($Context,$Enrollment);[pscustomobject]@{present=$true;composer_text=$state.composer_text;composer_text_sha256=if([string]::IsNullOrWhiteSpace([string]$state.composer_text)){$null}else{[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$state.composer_text))).ToLowerInvariant()};composer_text_length=if([string]::IsNullOrWhiteSpace([string]$state.composer_text)){0}else{([string]$state.composer_text).Length}}}).GetNewClosure()
+        SendPrompt=({param($Context,$Enrollment,[string]$PromptText,$Assignment);$state.send_count++;$isEnrollmentMarker=([string]$PromptText).IndexOf('AIDOS_THINKER_TRANSPORT_ENROLLMENT::',[StringComparison]::OrdinalIgnoreCase) -ge 0;$before=[string]$state.composer_text;$mutationOccurred=(-not $isEnrollmentMarker -and ([string]::IsNullOrWhiteSpace($before) -or $before -ne [string]$PromptText));if($mutationOccurred){$state.composer_text=$PromptText};$state.last_prompt=$PromptText;if($isEnrollmentMarker -and $PromptText -match 'AIDOS_THINKER_TRANSPORT_ENROLLMENT::(?<id>[0-9a-f-]+)'){$state.proof_text='AIDOS_THINKER_TRANSPORT_ENROLLMENT::'+$Matches.id};$state.successful_commit_count++;[pscustomobject]@{schema_version='0.1';assignment_id=if($Assignment -and $Assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment_id}elseif($Assignment -and $Assignment.PSObject.Properties['assignment'] -and $Assignment.assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment.assignment_id}else{$null};assignment_sha256=if($Assignment -and $Assignment.PSObject.Properties['assignment_sha256']){[string]$Assignment.assignment_sha256}elseif($Assignment -and $Assignment.PSObject.Properties['sha256']){[string]$Assignment.sha256}else{$null};conversation_fingerprint_sha256=if($Enrollment){[string]$Enrollment.conversation_fingerprint_sha256}else{$null};composer_state='COMMITTED';composer_result=if($isEnrollmentMarker){'EMPTY'}elseif([string]::IsNullOrWhiteSpace($before)){'EMPTY'}elseif($before -eq [string]$PromptText){'MATCHING_EXACT'}elseif(($before).IndexOf($PromptText,[StringComparison]::Ordinal) -ge 0){'DUPLICATE'}else{'MISMATCH'};mutation_occurred=$mutationOccurred;send_invocation_state='INVOKED';committed_message_proof_state='PROVEN';failure_reason=$null;committed=$true}}).GetNewClosure()
         LocateConversation=({
             param($Context,[string]$ProofText,$Enrollment)
             if(-not$ConversationProofAvailable){throw 'Stub Thinker conversation proof is unavailable.'}
@@ -62,7 +143,7 @@ function New-AidosDesktopThinkerStubBackend {
             $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($json))).ToLowerInvariant()
             [pscustomobject]@{conversation_fingerprint=$fingerprint;conversation_fingerprint_sha256=$hash}
         }).GetNewClosure()
-        ReadActorResponseText=({param($Context,$Enrollment,[int]$Attempt,$Assignment);if($state.send_count-lt1){return $null};$ResponseText}).GetNewClosure()
+        ReadActorResponseText=({param($Context,$Enrollment,[int]$Attempt,$Assignment);if($state.successful_commit_count-lt1){return $null};$ResponseText}).GetNewClosure()
     }
 }
 function New-AidosDesktopThinkerWindowsBackend {
@@ -113,7 +194,9 @@ function Initialize-AidosDesktopThinkerEnrollment {
     $pending=[pscustomobject][ordered]@{schema_version='0.2';transport_type='DESKTOP_CHATGPT_THINKER';status='PENDING_ENROLLMENT';process_name=[string]$context.process_name;session_id=[string]$context.session_id;window_title=[string]$context.window_title;window_class_name=[string]$context.window_class_name;conversation_proof_text=$marker;conversation_fingerprint_sha256=$null;conversation_fingerprint=$null;created_at=$now;enrolled_at=$null;updated_at=$now}
     Write-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $pending|Out-Null
     $prompt=$marker+"`nThis is a transport enrollment marker for the AIDOS dedicated Thinker shell. Reply with exactly: AIDOS_THINKER_ENROLLMENT_ACK"
-    & $Backend.SendPrompt $context $pending $prompt
+    # Enrollment has its own completion proof below. Never leak the composer
+    # send-result contract into this function's enrollment-result contract.
+    $null=& $Backend.SendPrompt $context $pending $prompt
     $loc=$null
     for($attempt=0;$attempt-lt20;$attempt++){
         try{$loc=& $Backend.LocateConversation $context $marker $pending}catch{$loc=$null}
@@ -126,17 +209,26 @@ function Initialize-AidosDesktopThinkerEnrollment {
 
 function Get-AidosDesktopThinkerAuthorizedDocuments {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$BoundAssignment,[int]$MaximumDocumentBytes=131072,[int]$MaximumTotalBytes=786432)
+    # Accepted Project Baselines are authoritative Thinker inputs and can exceed
+    # 128 KiB. Keep the bounded source pack while allowing one full baseline.
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$BoundAssignment,[int]$MaximumDocumentBytes=262144,[int]$MaximumTotalBytes=786432)
     $root=Resolve-AidosFileSystemPath $ProjectRoot
     $assignment=$BoundAssignment.assignment
     if($null-eq$assignment){throw 'Thinker source pack requires a bound runtime actor assignment.'}
     $paths=[System.Collections.Generic.List[string]]::new()
-    foreach($relative in @('.aidos/PROJECT.json','.aidos/documentation/PROJECT_BASELINE.json','.aidos/documentation/PROJECT_ACCESS.json','.aidos/evidence/EVIDENCE_INVENTORY.json','AGENTS.md')){
+    $isApplicability=[string]$assignment.action -eq 'RESOLVE_PROJECT_APPLICABILITY'
+    # Applicability is derived from canonical product evidence. The accepted
+    # baseline is an index of that evidence, not a desktop-chat payload.
+    foreach($relative in @('.aidos/PROJECT.json','.aidos/documentation/PROJECT_ACCESS.json','.aidos/evidence/EVIDENCE_INVENTORY.json','AGENTS.md')){
         if(Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf){$paths.Add($relative)}
     }
     $docsRoot=Join-Path $root 'docs'
     if(Test-Path -LiteralPath $docsRoot -PathType Container){foreach($file in @(Get-ChildItem -LiteralPath $docsRoot -Filter '*.md' -File|Sort-Object Name)){$paths.Add([IO.Path]::GetRelativePath($root,$file.FullName).Replace('\','/'))}}
 
+    if($isApplicability){
+        $catalogPath=Join-Path (Split-Path $PSScriptRoot -Parent) 'catalog/profile-presets.catalog.json'
+        if(-not(Test-Path -LiteralPath $catalogPath -PathType Leaf)){throw 'Authoritative profile preset catalog is unavailable.'}
+    }
     $definitionId=[string]$assignment.binding.definition_id
     $definitionVersion=if($null-eq$assignment.binding.definition_version){$null}else{[int]$assignment.binding.definition_version}
     if(-not[string]::IsNullOrWhiteSpace($definitionId) -and $null-ne$definitionVersion){
@@ -168,6 +260,11 @@ function Get-AidosDesktopThinkerAuthorizedDocuments {
         if($text-match'(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*\S+'){throw "Thinker source is not secret-free: $relative"}
         $documents.Add([ordered]@{path=$relative;sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant();content=$text})
     }
+    if($isApplicability){
+        $catalogPath=Join-Path (Split-Path $PSScriptRoot -Parent) 'catalog/profile-presets.catalog.json'
+        $bytes=[IO.File]::ReadAllBytes($catalogPath);if($bytes.Length-gt$MaximumDocumentBytes){throw 'Profile preset catalog exceeds per-document transport limit.'};$total+=$bytes.Length;if($total-gt$MaximumTotalBytes){throw 'Thinker source pack exceeds total transport limit.'}
+        $documents.Add([ordered]@{path='AIDOS/catalog/profile-presets.catalog.json';sha256=(Get-FileHash -LiteralPath $catalogPath -Algorithm SHA256).Hash.ToLowerInvariant();content=[Text.Encoding]::UTF8.GetString($bytes)})
+    }
     if(Test-Path -LiteralPath $agentPath -PathType Leaf){$text=Get-Content -LiteralPath $agentPath -Raw -Encoding UTF8;$documents.Insert(0,[ordered]@{path='AIDOS/agents/DEFINITION_AGENT.md';sha256=(Get-FileHash -LiteralPath $agentPath -Algorithm SHA256).Hash.ToLowerInvariant();content=$text})}
     @($documents)
 }
@@ -175,17 +272,19 @@ function Get-AidosDesktopThinkerAuthorizedDocuments {
 function New-AidosDesktopThinkerPrompt {
     param([Parameter(Mandatory)]$BoundAssignment,[Parameter(Mandatory)][object[]]$Documents)
     $assignment=$BoundAssignment.assignment
+    $allowedRefs=@()
     if([string]$assignment.action -eq 'RESOLVE_PROJECT_APPLICABILITY'){
-        $payload=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='';proposed_artifacts=@([ordered]@{artifact_type='PROJECT_APPLICABILITY_PROPOSAL';authority_classification='REPO_VERIFIABLE';preset_ids=@();selection_source='BASELINE_DERIVED';overrides=@();source_refs=@()});human_input_request=$null}
+        $allowedRefs=@($Documents|ForEach-Object {[string]$_.path}|Where-Object {$_ -notlike 'AIDOS/*' -and ($_ -eq '.aidos/documentation/PROJECT_ACCESS.json' -or $_ -eq '.aidos/evidence/EVIDENCE_INVENTORY.json' -or $_ -eq 'AGENTS.md' -or $_.StartsWith('docs/'))})
+        $payload=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='REQUIRED: concise evidence-based applicability rationale';proposed_artifacts=@([ordered]@{artifact_type='PROJECT_APPLICABILITY_PROPOSAL';authority_classification='REPO_VERIFIABLE';preset_ids='REQUIRED_NONEMPTY: exact preset_id values from AIDOS/catalog/profile-presets.catalog.json';selection_source='BASELINE_DERIVED';overrides=@();source_refs='REQUIRED_NONEMPTY: only paths from ALLOWED_SOURCE_REFS'});human_input_request=$null}
     }else{
         $payload=[ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='';applicability_resolutions=@();surface_resolutions=@();human_input_request=$null}
     }
-    $template=[ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$assignment.assignment_id;assignment_sha256=[string]$BoundAssignment.sha256;project_id=[string]$assignment.project_id;actor_role=[string]$assignment.actor_role;actor_identity=[string]$assignment.actor_identity;action=[string]$assignment.action;binding=$assignment.binding;outcome='COMPLETED';result=$payload;responded_at=[DateTimeOffset]::UtcNow.ToString('o')}
+    $template=[ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$assignment.assignment_id;assignment_sha256=[string]$BoundAssignment.sha256;project_id=[string]$assignment.project_id;actor_role=[string]$assignment.actor_role;actor_identity=[string]$assignment.actor_identity;action=[string]$assignment.action;binding=$assignment.binding;outcome='COMPLETED';result=$payload;responded_at='REQUIRED: ISO-8601 completion timestamp'}
     @"
 You are the AIDOS Definition Thinker operating under the attached DEFINITION_AGENT instructions.
 Use only the immutable runtime actor assignment and authorized source documents below. Do not rely on chat history, hidden filesystem access, or unbound sources.
 Do not claim to have written project files. Propose only output permitted by the response template; AIDOS Core will validate authority, persist canonical artifacts, and create Human Input when required.
-For START_DEFINITION or RESUME_DEFINITION, return applicability_resolutions and surface_resolutions using the Definition Thinker Output contract. For RESOLVE_PROJECT_APPLICABILITY, return exactly one PROJECT_APPLICABILITY_PROPOSAL inside proposed_artifacts.
+For START_DEFINITION or RESUME_DEFINITION, return applicability_resolutions and surface_resolutions using the Definition Thinker Output contract. For RESOLVE_PROJECT_APPLICABILITY, return exactly one PROJECT_APPLICABILITY_PROPOSAL inside proposed_artifacts. Replace every REQUIRED_* template value with a schema-correct resolved value; never return an empty preset_ids or source_refs array. Choose preset_ids only from the authoritative attached profile catalog and source_refs only from ALLOWED_SOURCE_REFS.
 Return exactly one raw JSON RUNTIME_ACTOR_RESULT object with no markdown or commentary.
 Copy assignment_id, assignment_sha256, project_id, actor_role, actor_identity, action, and binding exactly from the response template.
 
@@ -194,6 +293,9 @@ $($assignment|ConvertTo-Json -Depth 100 -Compress)
 
 AUTHORIZED_SOURCE_DOCUMENTS:
 $($Documents|ConvertTo-Json -Depth 100 -Compress)
+
+ALLOWED_SOURCE_REFS:
+$($allowedRefs|ConvertTo-Json -Compress)
 
 RUNTIME_ACTOR_RESULT_TEMPLATE:
 $($template|ConvertTo-Json -Depth 100 -Compress)
@@ -226,7 +328,109 @@ function Invoke-AidosDesktopThinkerAssignment {
     if([string]$transport.status -notin @('ACTIVATED')){
         $documents=Get-AidosDesktopThinkerAuthorizedDocuments -ProjectRoot $root -BoundAssignment $bound
         $prompt=New-AidosDesktopThinkerPrompt -BoundAssignment $bound -Documents $documents
-        & $Backend.SendPrompt $context $enrollment $prompt
+        $promptHash=Get-AidosDesktopThinkerPromptHash -Prompt $prompt
+        $composer=Read-AidosDesktopThinkerComposerState -StateRoot $StateRoot -AssignmentId $AssignmentId
+        $observation=Get-AidosDesktopThinkerComposerObservation -Backend $Backend -Context $context -Enrollment $enrollment -ExpectedPrompt $prompt
+        if($composer -and [string]$composer.assignment_sha256 -ne [string]$bound.sha256){throw 'Composer assignment binding mismatch.'}
+        if($composer -and [string]$composer.conversation_fingerprint_sha256 -ne [string]$enrollment.conversation_fingerprint_sha256){throw 'Composer conversation binding mismatch.'}
+        if($composer -and [string]$composer.prompt_sha256 -ne $promptHash){
+            $composer.composer_state='FAILED'
+            $composer.composer_result=$observation.composer_result
+            $composer.observed_composer_text_sha256=$observation.composer_text_sha256
+            $composer.observed_composer_text_length=$observation.composer_text_length
+            $composer.failure_reason='Exact bound composer contains a different staged payload; refusing mutation.'
+            $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+            $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError $composer.failure_reason
+            return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state}
+        }
+        if(-not $composer){
+            $composer=[pscustomobject][ordered]@{
+                schema_version='0.1'
+                assignment_id=$AssignmentId
+                assignment_sha256=[string]$bound.sha256
+                conversation_fingerprint_sha256=[string]$enrollment.conversation_fingerprint_sha256
+                binding_project_state=[string]$bound.assignment.binding.project_state
+                binding_definition_id=if([string]::IsNullOrWhiteSpace([string]$bound.assignment.binding.definition_id)){$null}else{[string]$bound.assignment.binding.definition_id}
+                binding_definition_version=if($null -eq $bound.assignment.binding.definition_version){$null}else{[int]$bound.assignment.binding.definition_version}
+                prompt_sha256=$promptHash
+                observed_composer_text_sha256=$observation.composer_text_sha256
+                observed_composer_text_length=$observation.composer_text_length
+                composer_result=$observation.composer_result
+                composer_state=if($observation.composer_result -eq 'EMPTY'){'STAGED'}elseif($observation.composer_result -eq 'MATCHING_EXACT'){'STAGED'}else{'FAILED'}
+                mutation_occurred=($observation.composer_result -eq 'EMPTY')
+                send_invocation_state='NOT_INVOKED'
+                committed_message_proof_state='NOT_PROVEN'
+                failure_reason=$null
+                updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            }
+            Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+        } else {
+            $composer.observed_composer_text_sha256=$observation.composer_text_sha256
+            $composer.observed_composer_text_length=$observation.composer_text_length
+            $composer.composer_result=$observation.composer_result
+            $composer.mutation_occurred=([bool]$composer.mutation_occurred -or $observation.composer_result -eq 'EMPTY')
+            $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+        }
+        if($observation.composer_result -in @('MISMATCH','DUPLICATE')){
+            $composer.composer_state='FAILED'
+            $composer.committed_message_proof_state='NOT_PROVEN'
+            $composer.failure_reason='Bound composer contents are stale, malformed, or duplicated; recovery requires an exact staged payload.'
+            $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+            $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError $composer.failure_reason
+            return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state}
+        }
+        if([string]$composer.send_invocation_state -eq 'FAILED' -and $observation.composer_result -eq 'EMPTY'){
+            $composer.composer_state='FAILED'
+            $composer.failure_reason='Composer payload is no longer present after a failed send; bounded recovery requires the exact staged payload.'
+            $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+            $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError $composer.failure_reason
+            return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state}
+        }
+        $composer.send_invocation_state='INVOKED'
+        $composer.committed_message_proof_state='NOT_PROVEN'
+        $composer.failure_reason=$null
+        $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+        try {
+            $outbound=& $Backend.SendPrompt $context $enrollment $prompt $bound
+        } catch {
+            $composer.composer_state='FAILED'
+            $composer.send_invocation_state='FAILED'
+            $composer.committed_message_proof_state='NOT_PROVEN'
+            $composer.failure_reason=$_.Exception.Message
+            $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+            $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError $composer.failure_reason
+            return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state}
+        }
+        $sendResult=Test-AidosDesktopThinkerSendResultContract -Result $outbound
+        $composer.assignment_id=[string]$sendResult.assignment_id
+        $composer.assignment_sha256=[string]$sendResult.assignment_sha256
+        $composer.conversation_fingerprint_sha256=[string]$sendResult.conversation_fingerprint_sha256
+        $composer.composer_state=[string]$sendResult.composer_state
+        $composer.composer_result=[string]$sendResult.composer_result
+        $composer.mutation_occurred=([bool]$composer.mutation_occurred -or [bool]$sendResult.mutation_occurred)
+        $composer.send_invocation_state=[string]$sendResult.send_invocation_state
+        $composer.committed_message_proof_state=[string]$sendResult.committed_message_proof_state
+        $composer.failure_reason=$sendResult.failure_reason
+        $composer.observed_composer_text_sha256=$observation.composer_text_sha256
+        $composer.observed_composer_text_length=$observation.composer_text_length
+        $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+        if(-not [bool]$sendResult.committed -or [string]$sendResult.committed_message_proof_state -ne 'PROVEN'){
+            $composer.composer_state='FAILED'
+            $composer.send_invocation_state='FAILED'
+            $composer.committed_message_proof_state='NOT_PROVEN'
+            $composer.failure_reason=if([string]::IsNullOrWhiteSpace([string]$sendResult.failure_reason)){'Desktop Thinker outbound message has no committed-send proof.'}else{[string]$sendResult.failure_reason}
+            $composer.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+            Write-AidosDesktopThinkerComposerState -StateRoot $StateRoot -State $composer|Out-Null
+            $state=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status WAITING_TRANSPORT -TransportType DESKTOP_CHATGPT_THINKER -LastError $composer.failure_reason
+            return [pscustomobject][ordered]@{status='WAITING_TRANSPORT';assignment_id=$AssignmentId;composer=$composer;transport=$state}
+        }
         $transport=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status ACTIVATED -TransportType DESKTOP_CHATGPT_THINKER
     }
     $responseText=$null
@@ -241,4 +445,4 @@ function Invoke-AidosDesktopThinkerAssignment {
     [pscustomobject][ordered]@{status='HANDOFF_COMPLETE';idempotent=$false;assignment_id=$AssignmentId;saved=$saved;result=$result}
 }
 
-Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,New-AidosDesktopThinkerStubBackend,New-AidosDesktopThinkerWindowsBackend,Complete-AidosDesktopThinkerEnrollment,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
+Export-ModuleMember -Function Get-AidosDesktopThinkerRoot,Get-AidosDesktopThinkerEnrollmentPath,Get-AidosDesktopThinkerComposerStatePath,Get-AidosDesktopThinkerPromptHash,Read-AidosDesktopThinkerComposerState,Write-AidosDesktopThinkerComposerState,Read-AidosDesktopThinkerEnrollment,Write-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerResponseText,New-AidosDesktopThinkerStubBackend,New-AidosDesktopThinkerWindowsBackend,Complete-AidosDesktopThinkerEnrollment,Initialize-AidosDesktopThinkerEnrollment,Get-AidosDesktopThinkerAuthorizedDocuments,New-AidosDesktopThinkerPrompt,Invoke-AidosDesktopThinkerAssignment
