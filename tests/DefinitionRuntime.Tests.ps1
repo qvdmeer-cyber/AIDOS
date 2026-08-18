@@ -13,8 +13,14 @@ $base=Join-Path ([IO.Path]::GetTempPath()) ('aidos-definition-runtime-'+[guid]::
 $projectRoot=Join-Path $base 'project'
 try {
     New-Item -ItemType Directory -Path (Join-Path $projectRoot '.aidos') -Force|Out-Null
+    & git -C $projectRoot init -q
+    & git -C $projectRoot config user.email 'aidos-tests@example.invalid'
+    & git -C $projectRoot config user.name 'AIDOS Tests'
+    & git -C $projectRoot remote add origin 'https://example.invalid/def-runtime.git'
     [ordered]@{schema_version='0.1';project_id='DEF-RUNTIME';project_mode='NEW_PROJECT';repository='https://example.invalid/def-runtime.git';official_root=$projectRoot;runner_policy='UNATTENDED_ALLOWED';git_runtime=[ordered]@{kind='NATIVE';project_root=$projectRoot;git_path='git'}}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/PROJECT.json') -Encoding utf8NoBOM
     [ordered]@{schema_version='0.1';project_id='DEF-RUNTIME';state='IDLE';definition_id=$null;definition_version=$null;execution_id=$null;revision=$null;codex_session_id=$null;review_id=$null;lease_id=$null;terminal_result=$null;git_head=$null;validation_result=$null;updated_at='2026-08-18T00:00:00Z'}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
+    & git -C $projectRoot add .
+    & git -C $projectRoot commit -q -m init
 
     $resolve=Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1'
     & $resolve -ProjectRoot $projectRoot -ProjectId 'DEF-RUNTIME' -PresetIds @('WEB_APPLICATION') -SelectionSource 'BASELINE_DERIVED' -OverridesJson '[]' -AidosRoot $root|Out-Null
