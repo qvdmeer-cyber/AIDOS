@@ -89,6 +89,7 @@ function Invoke-AidosHostAgentTick {
         [string]$ContractsRoot,
         [switch]$PreparationPush,
         [scriptblock]$PreparationDispatcher,
+        [scriptblock]$RuntimeActorTransportDispatcher,
         [scriptblock]$SnapshotProvider,
         [scriptblock]$ShellHealthProvider,
         [scriptblock]$ReviewReconciler,
@@ -99,13 +100,29 @@ function Invoke-AidosHostAgentTick {
     if($PreparationDispatcher){
         try{$preparation=& $PreparationDispatcher}catch{$preparation=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}
     }elseif(-not[string]::IsNullOrWhiteSpace($PreparationRegistryRoot)){
-        try{$preparation=Invoke-AidosPreparationDispatcherTick -RegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -Push:$PreparationPush}catch{$preparation=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}
+        try{$preparation=Invoke-AidosPreparationDispatcherTick -RegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -Push:$PreparationPush -DeferActorTransport}catch{$preparation=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}
     }
     $snapshot=if($SnapshotProvider){& $SnapshotProvider}else{Get-AidosInteractiveSessionSnapshot}
     $auth=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $AuthorizedUser
     $shell=if($auth.allowed){if($ShellHealthProvider){& $ShellHealthProvider $ProcessName ([int]$snapshot.session_id)}else{Get-AidosHostAgentShellHealth -ProcessName $ProcessName -ExpectedSessionId ([int]$snapshot.session_id)}}else{[pscustomobject]@{status='NOT_CHECKED';reason=$auth.reason}}
-    $result=[ordered]@{status='IDLE';authorized=$auth.allowed;reason=$auth.reason;snapshot=$snapshot;shell=$shell;control=$null;preparation_result=$preparation;project_result=$null}
+    $result=[ordered]@{status='IDLE';authorized=$auth.allowed;reason=$auth.reason;snapshot=$snapshot;shell=$shell;control=$null;preparation_result=$preparation;runtime_actor_transport_result=$null;project_result=$null}
     if(-not $auth.allowed){$result.status='WAITING_INFRASTRUCTURE';return [pscustomobject]$result}
+
+    if(-not[string]::IsNullOrWhiteSpace($PreparationRegistryRoot)){
+        if([string]$shell.status -eq 'HEALTHY'){
+            try{
+                $runtimeTransport=if($RuntimeActorTransportDispatcher){& $RuntimeActorTransportDispatcher $PreparationRegistryRoot $StateRoot $ProcessName $PreparationPush}else{Invoke-AidosRuntimeActorTransportDispatch -RegistryRoot $PreparationRegistryRoot -StateRoot $StateRoot -ProcessName $ProcessName -MaxItems 1 -Push:$PreparationPush}
+                $result.runtime_actor_transport_result=$runtimeTransport
+                if([string]$runtimeTransport.status -eq 'ERROR'){$result.status='RUNTIME_TRANSPORT_ERROR';$result.reason='RUNTIME_ACTOR_TRANSPORT';return [pscustomobject]$result}
+            }catch{
+                $result.runtime_actor_transport_result=[pscustomobject]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}
+                $result.status='RUNTIME_TRANSPORT_ERROR';$result.reason='RUNTIME_ACTOR_TRANSPORT';return [pscustomobject]$result
+            }
+        }else{
+            $result.runtime_actor_transport_result=[pscustomobject]@{status='DEFERRED_SHELL_UNAVAILABLE';processed=0;results=@()}
+        }
+    }
+
     $control=Get-AidosOperatorControlState -ProjectRoot $ProjectRoot
     $result.control=$control
     if([string]$control.mode -eq 'PAUSED'){$result.status='PAUSED';$result.reason='OPERATOR_CONTROL';return [pscustomobject]$result}
@@ -169,7 +186,7 @@ function Start-AidosPersistentLocalDesktopAgent {
             catch {$tick=[pscustomobject]@{status='ERROR';reason=$_.Exception.Message};$failureCount=1+[int]$failureCount}
             $status=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;preparation_registry_root=$PreparationRegistryRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='RUNNING';last_tick=$tick;failure_count=$failureCount}
             Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $status
-            Add-AidosHostAgentEvent $StateRoot 'TICK' @{status=(Get-AidosHostAgentProperty $tick 'status' 'UNKNOWN');reason=(Get-AidosHostAgentProperty $tick 'reason' $null);preparation_status=(Get-AidosHostAgentProperty (Get-AidosHostAgentProperty $tick 'preparation_result' $null) 'status' $null)}
+            Add-AidosHostAgentEvent $StateRoot 'TICK' @{status=(Get-AidosHostAgentProperty $tick 'status' 'UNKNOWN');reason=(Get-AidosHostAgentProperty $tick 'reason' $null);preparation_status=(Get-AidosHostAgentProperty (Get-AidosHostAgentProperty $tick 'preparation_result' $null) 'status' $null);runtime_actor_transport_status=(Get-AidosHostAgentProperty (Get-AidosHostAgentProperty $tick 'runtime_actor_transport_result' $null) 'status' $null)}
             if($Once -or (Test-Path -LiteralPath (Get-AidosHostAgentPath $StateRoot stop))){break};Start-Sleep -Seconds ([Math]::Min(60,[Math]::Max(1,$PollSeconds)*[Math]::Min(8,[Math]::Max(1,$failureCount+1))) )
         } while($true)
     } finally { Add-AidosHostAgentEvent $StateRoot 'AGENT_STOPPED' @{owner_id=$owner};Release-AidosHostAgentLease -StateRoot $StateRoot -OwnerId $owner }
