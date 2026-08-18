@@ -73,3 +73,6 @@ jobs:
       - name: Runtime Actor Assignment regression tests
         shell: pwsh
         run: ./tests/RuntimeActorAssignments.Tests.ps1
+      - name: Runtime Actor Transport regression tests
+        shell: pwsh
+        run: ./tests/RuntimeActorTransport.Tests.ps1
