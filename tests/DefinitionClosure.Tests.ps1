@@ -66,7 +66,7 @@ try {
 
     $appPath=Join-Path $projectRoot ('.aidos/definitions/{0}/v1/APPLICABILITY.json' -f $definitionId)
     $app=Get-Content -LiteralPath $appPath -Raw|ConvertFrom-Json -Depth 100
-    foreach($surface in @($app.surfaces|Where-Object {[string]$_.definition_state-eq'DECISION_REQUIRED'})){
+    foreach($surface in @($app.development_surfaces|Where-Object {[string]$_.definition_state-eq'DECISION_REQUIRED'})){
         & (Join-Path $root 'tools/Set-AidosDefinitionApplicabilitySurface.ps1') -ProjectRoot $projectRoot -DefinitionId $definitionId -DefinitionVersion 1 -SurfaceId ([string]$surface.surface_id) -DefinitionState AFFECTED -Reason 'Test Definition affects the project surface.' -SourceRefs @('.aidos/documentation/PROJECT_BASELINE.json')|Out-Null
     }
     $catalog=Get-Content -LiteralPath (Join-Path $root 'catalog/definition-surfaces.catalog.json') -Raw|ConvertFrom-Json -Depth 50
