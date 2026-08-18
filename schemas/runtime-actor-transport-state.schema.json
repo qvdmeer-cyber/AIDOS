@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/runtime-actor-transport-state.schema.json",
+  "title": "AIDOS Runtime Actor Transport State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","assignment_id","assignment_sha256","project_id","status","transport_type","created_at","updated_at","activated_at","completed_at","last_error","result_ref"],
+  "properties": {
+    "schema_version":{"type":"string","const":"0.1"},
+    "assignment_id":{"type":"string","minLength":1},
+    "assignment_sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},
+    "project_id":{"type":"string","minLength":1},
+    "status":{"type":"string","enum":["PENDING","WAITING_TRANSPORT","ACTIVATED","COMPLETED","FAILED","ABANDONED"]},
+    "transport_type":{"type":["string","null"]},
+    "created_at":{"type":"string","format":"date-time"},
+    "updated_at":{"type":"string","format":"date-time"},
+    "activated_at":{"type":["string","null"],"format":"date-time"},
+    "completed_at":{"type":["string","null"],"format":"date-time"},
+    "last_error":{"type":["string","null"]},
+    "result_ref":{"type":["string","null"]}
+  }
+}
