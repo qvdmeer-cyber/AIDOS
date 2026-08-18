@@ -101,7 +101,7 @@ function Resolve-AidosAutonomousCodexRuntime {
 function Get-AidosAutonomousCodexArguments {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Runtime,[Parameter(Mandatory)]$Execution,[Parameter(Mandatory)][string]$PromptText)
-    $args=[Collections.Generic.List[string]]::new();$args.Add('exec');$args.Add('--json');$args.Add('--sandbox');$args.Add('workspace-write');$args.Add('--config');$args.Add('approval_policy="never"'.Replace('\',''))
+    $args=[Collections.Generic.List[string]]::new();$args.Add('exec');$args.Add('--json');$args.Add('--sandbox');$args.Add('workspace-write');$args.Add('--config');$args.Add(('approval_policy={0}never{0}' -f [char]34))
     if([bool]$Execution.authority.network){$args.Add('--config');$args.Add('sandbox_workspace_write.network_access=true')}
     $args.Add('--cd');$args.Add([string]$Runtime.project_root);$args.Add($PromptText);@($args)
 }
