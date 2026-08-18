@@ -52,13 +52,14 @@ if (-not [string]::IsNullOrWhiteSpace($DecisionRef) -and @($surface[0].decision_
 if (-not [string]::IsNullOrWhiteSpace($SourceRef) -and @($surface[0].source_refs) -notcontains $SourceRef) { $surface[0].source_refs += $SourceRef }
 
 # A bound Auto Decision ref is authoritative lineage evidence. Infer its id/time
-# when callers supply the ref but omit duplicate metadata, while failing closed
-# if the referenced record targets another Definition or surface.
+# when callers supply the ref but omit duplicate metadata. Other durable refs,
+# such as Human Input Requests, are valid decision refs and are not Auto Decisions.
 if (-not [string]::IsNullOrWhiteSpace($DecisionRef) -and [string]::IsNullOrWhiteSpace($AutoDecisionId)) {
     $decisionPath = if ([System.IO.Path]::IsPathRooted($DecisionRef)) { $DecisionRef } else { Join-Path $root ($DecisionRef -replace '/', [System.IO.Path]::DirectorySeparatorChar) }
     if (Test-Path -LiteralPath $decisionPath -PathType Leaf) {
         try { $referencedDecision = Get-Content -LiteralPath $decisionPath -Raw | ConvertFrom-Json -Depth 100 } catch { throw "DecisionRef is not valid JSON: $DecisionRef" }
-        if ([string]$referencedDecision.decision_type -eq 'AUTO_DECISION') {
+        $decisionTypeProperty = $referencedDecision.PSObject.Properties['decision_type']
+        if ($null -ne $decisionTypeProperty -and [string]$decisionTypeProperty.Value -eq 'AUTO_DECISION') {
             if ([string]$referencedDecision.project_id -ne [string]$progress.project_id -or [string]$referencedDecision.binding.definition_id -ne $DefinitionId -or [int]$referencedDecision.binding.definition_version -ne $DefinitionVersion -or [string]$referencedDecision.target.surface_id -ne $SurfaceId) { throw 'DecisionRef Auto Decision binding mismatch.' }
             $AutoDecisionId = [string]$referencedDecision.decision_id
             $AutoDecisionAt = [string]$referencedDecision.decided_at
