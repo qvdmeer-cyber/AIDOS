@@ -28,11 +28,11 @@ $response1=@"
 $response1=$response1.Trim()
 $response2=$response1.Replace('Resolved object with escaped quote: \"browser\" and literal brace text {ok}.','Resolved corrected response.').Replace('2026-08-18T22:20:00Z','2026-08-18T22:21:00Z')
 
-$objects=@(Get-AidosDesktopChatGPTJsonObjectCandidates -Text ("prefix`n$template`nassistant`n```json`n$response1`n```"))
+$objects=@(Get-AidosDesktopChatGPTJsonObjectCandidates -Text ("prefix`n$template`nassistant`n$response1"))
 Assert-ActorResponse ($objects.Count-ge2) 'balanced JSON extraction finds template and response objects inside mixed conversation text'
 Assert-ActorResponse ($objects[-1]-eq$response1) 'balanced JSON extraction preserves the final resolved actor-response object exactly'
 
-$mixed="You are the AIDOS Definition Thinker.`nRUNTIME_ACTOR_RESULT_TEMPLATE:`n$template`nAssistant response:`n```json`n$response1`n```"
+$mixed="You are the AIDOS Definition Thinker.`nRUNTIME_ACTOR_RESULT_TEMPLATE:`n$template`nAssistant response:`n$response1"
 $selected=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($mixed) -Assignment $bound
 Assert-ActorResponse ($selected-eq$response1) 'resolved response selector rejects the unresolved prompt template and returns the actor response'
 
