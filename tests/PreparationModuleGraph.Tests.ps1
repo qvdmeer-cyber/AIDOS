@@ -9,7 +9,12 @@ $modules=@(
  'bridge/AidosPreparationRuntime.psm1',
  'bridge/AidosPreparationOnboarding.psm1',
  'bridge/AidosPreparationDispatcher.psm1',
- 'bridge/AidosPersistentLocalDesktopAgent.psm1'
+ 'bridge/AidosPersistentLocalDesktopAgent.psm1',
+ 'bridge/AidosRuntimeProjectManager.psm1',
+ 'bridge/AidosRuntimeActorAssignments.psm1',
+ 'bridge/AidosRuntimeActorTransport.psm1',
+ 'bridge/AidosRuntimeActorResultConsumer.psm1',
+ 'bridge/AidosDesktopThinkerTransport.psm1'
 )
 $passed=0
 foreach($relative in $modules){
@@ -21,11 +26,30 @@ foreach($relative in $modules){
     $passed++
 }
 
-Import-Module (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $root 'bridge/AidosPreparationRuntime.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -Force -DisableNameChecking
-foreach($name in @('Invoke-AidosPreparationDispatcherTick','Invoke-AidosPreparationResume','Invoke-AidosPreparationRuntimeOnboarding','Get-AidosRegisteredProject','Submit-AidosHumanInputResponse')){
-    if(-not(Get-Command $name -ErrorAction SilentlyContinue)){throw "ASSERTION FAILED: command unavailable after module graph reload: $name"}
+$expected=@{
+ 'AidosPreparationDispatcher'='Invoke-AidosPreparationDispatcherTick'
+ 'AidosPreparationRuntime'='Invoke-AidosPreparationResume'
+ 'AidosPreparationOnboarding'='Invoke-AidosPreparationRuntimeOnboarding'
+ 'AidosProjectRegistry'='Get-AidosRegisteredProject'
+ 'AidosHumanInput'='Submit-AidosHumanInputResponse'
+ 'AidosRuntimeProjectManager'='Invoke-AidosRuntimeProjectManagerTick'
+ 'AidosRuntimeActorAssignments'='New-AidosRuntimeActorAssignment'
+ 'AidosRuntimeActorTransport'='Save-AidosRuntimeActorResult'
+ 'AidosRuntimeActorResultConsumer'='Invoke-AidosRuntimeActorResultConsumerTick'
+ 'AidosDesktopThinkerTransport'='Invoke-AidosDesktopThinkerAssignment'
+}
+foreach($moduleName in $expected.Keys){
+    $path=Join-Path $root ('bridge/'+$moduleName+'.psm1')
+    $module=Import-Module $path -Force -DisableNameChecking -PassThru
+    $command=Get-Command -Name $expected[$moduleName] -Module $module.Name -ErrorAction SilentlyContinue
+    if(-not$command){throw "ASSERTION FAILED: $($expected[$moduleName]) is not exported by owning module $moduleName"}
     $passed++
 }
-Write-Output "PASS: $passed preparation/host module graph assertions"
+
+# Repeated dispatcher reload itself must remain callable; nested dependencies need not leak globally.
+Import-Module (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosPreparationRuntime.psm1') -Force -DisableNameChecking
+$dispatcher=Import-Module (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -Force -DisableNameChecking -PassThru
+if(-not(Get-Command 'Invoke-AidosPreparationDispatcherTick' -Module $dispatcher.Name -ErrorAction SilentlyContinue)){throw 'ASSERTION FAILED: dispatcher unavailable after reload sequence'}
+$passed++
+Write-Output "PASS: $passed preparation/host/runtime module graph assertions"
