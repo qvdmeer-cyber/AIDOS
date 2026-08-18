@@ -69,6 +69,59 @@ function Find-AidosDesktopChatGPTMostSpecificConversationElement {
     $best.element
 }
 
+function Get-AidosDesktopChatGPTConversationDocumentElement {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$RootElement)
+    if($RootElement.Current.ControlType -eq [System.Windows.Automation.ControlType]::Document){return $RootElement}
+    $condition=New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ControlTypeProperty),([System.Windows.Automation.ControlType]::Document)
+    $document=$RootElement.FindFirst([System.Windows.Automation.TreeScope]::Subtree,$condition)
+    if(-not$document){throw 'ChatGPT conversation document/RootWebArea was not found through UI Automation.'}
+    $document
+}
+
+function Get-AidosDesktopChatGPTDocumentConversationProof {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$RootElement,
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)][string]$ProofText,
+        [AllowEmptyString()][string]$AccountProofText=''
+    )
+    $document=Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement
+    try{$textPattern=$document.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)}catch{$textPattern=$null}
+    if(-not$textPattern){throw 'ChatGPT conversation document does not expose TextPattern.'}
+    $documentText=[string]$textPattern.DocumentRange.GetText(-1)
+    if([string]::IsNullOrWhiteSpace($documentText)){throw 'ChatGPT conversation document text is unavailable.'}
+
+    $first=$documentText.IndexOf($ProofText,[StringComparison]::OrdinalIgnoreCase)
+    if($first-lt0){throw "Conversation proof text '$ProofText' was not found in the active ChatGPT document."}
+    $second=$documentText.IndexOf($ProofText,$first+$ProofText.Length,[StringComparison]::OrdinalIgnoreCase)
+    if($second-ge0){throw "Conversation proof text '$ProofText' is ambiguous in the active ChatGPT document."}
+    if(-not[string]::IsNullOrWhiteSpace($AccountProofText) -and $documentText.IndexOf($AccountProofText,[StringComparison]::OrdinalIgnoreCase)-lt0){throw 'ChatGPT account proof text is stale or mismatched.'}
+
+    $documentValue=''
+    try{
+        $valuePattern=$document.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if($valuePattern){$documentValue=[string]$valuePattern.Current.Value}
+    }catch{}
+    $fingerprint=[ordered]@{
+        process_name=[string]$Context.process_name
+        session_id=[string]$Context.session_id
+        window_title=[string]$Context.window_title
+        window_class_name=[string]$Context.window_class_name
+        document_name=[string]$document.Current.Name
+        document_automation_id=[string]$document.Current.AutomationId
+        document_class_name=[string]$document.Current.ClassName
+        document_control_type=[string]$document.Current.ControlType.ProgrammaticName
+        document_value=$documentValue
+        conversation_proof_text=$ProofText
+    }
+    [pscustomobject][ordered]@{
+        conversation_fingerprint=$fingerprint
+        conversation_fingerprint_sha256=(Get-AidosDesktopChatGPTFingerprintHash $fingerprint)
+    }
+}
+
 function New-AidosDesktopChatGPTResilientConversationBackend {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Backend)
@@ -81,21 +134,11 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
         if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
         $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
         if(-not$root){throw 'ChatGPT window is not accessible through UI Automation.'}
-        if(-not[string]::IsNullOrWhiteSpace([string]$Enrollment.account_proof_text)){
-            $seen=$false
-            foreach($element in @($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
-                foreach($value in @(Get-AidosDesktopChatGPTProofSearchValues $element)){
-                    if((-not[string]::IsNullOrWhiteSpace([string]$value)) -and ([string]$value).IndexOf([string]$Enrollment.account_proof_text,[StringComparison]::OrdinalIgnoreCase)-ge0){$seen=$true;break}
-                }
-                if($seen){break}
-            }
-            if(-not$seen){throw 'ChatGPT account proof text is stale or mismatched.'}
-        }
-        $element=Find-AidosDesktopChatGPTMostSpecificConversationElement -RootElement $root -ProofText $ProofText
-        $fingerprint=Get-AidosDesktopChatGPTElementFingerprint $element
-        [pscustomobject][ordered]@{conversation_fingerprint=$fingerprint;conversation_fingerprint_sha256=(Get-AidosDesktopChatGPTFingerprintHash $fingerprint)}
+        $accountProof=''
+        if($Enrollment -and $Enrollment.PSObject.Properties['account_proof_text']){$accountProof=[string]$Enrollment.account_proof_text}
+        Get-AidosDesktopChatGPTDocumentConversationProof -RootElement $root -Context $Context -ProofText $ProofText -AccountProofText $accountProof
     }).GetNewClosure()
     [pscustomobject]$values
 }
 
-Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,New-AidosDesktopChatGPTResilientConversationBackend
+Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
