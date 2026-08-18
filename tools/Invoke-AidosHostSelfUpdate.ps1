@@ -35,8 +35,11 @@ function Invoke-HostCoreValidation([Parameter(Mandatory)][string]$CandidateWslPa
     $candidateUnc=Convert-WslPathToUnc $CandidateWslPath
     $validator=Join-Path $candidateUnc 'tools\Test-AidosCorePortable.ps1'
     if(-not(Test-Path -LiteralPath $validator -PathType Leaf)){throw "Candidate Core validator is unavailable: $validator"}
-    $output=@(& $validator -RepoRoot $candidateUnc 2>&1)
-    [pscustomobject]@{exit_code=$LASTEXITCODE;output=@($output|ForEach-Object {[string]$_});candidate_root=$candidateUnc}
+    $engine=Join-Path $PSHOME 'pwsh.exe'
+    if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'Windows PowerShell 7 engine is unavailable for candidate validation.'}
+    $output=@(& $engine -NoLogo -NoProfile -ExecutionPolicy Bypass -File $validator -RepoRoot $candidateUnc 2>&1)
+    $code=$LASTEXITCODE
+    [pscustomobject]@{exit_code=$code;output=@($output|ForEach-Object {[string]$_});candidate_root=$candidateUnc;engine=$engine}
 }
 
 $lock=$null
@@ -68,7 +71,7 @@ try {
     Require-WslSuccess 'create validation worktree' (Invoke-Wsl @('git','-C',$repo,'worktree','add','--detach',$candidate,$remote))|Out-Null
     try {
         $validation=Invoke-HostCoreValidation -CandidateWslPath $candidate
-        if([int]$validation.exit_code-ne0){Write-SelfUpdateStatus -Status 'VALIDATION_FAILED' -Detail @{remote=$remote;candidate_root=[string]$validation.candidate_root;output=@($validation.output)}|Out-Null;exit 1}
+        if([int]$validation.exit_code-ne0){Write-SelfUpdateStatus -Status 'VALIDATION_FAILED' -Detail @{remote=$remote;candidate_root=[string]$validation.candidate_root;engine=[string]$validation.engine;output=@($validation.output)}|Out-Null;exit 1}
     } finally {Invoke-Wsl @('git','-C',$repo,'worktree','remove','--force',$candidate)|Out-Null}
 
     Require-WslSuccess 'fast-forward Core update' (Invoke-Wsl @('git','-C',$repo,'merge','--ff-only',$remote))|Out-Null
