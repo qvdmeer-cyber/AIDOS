@@ -4,6 +4,12 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTConversationProof.psm1') -DisableNameChecking
 
+# Capture the already-loaded base backend command once at module import time.
+# Do not use module-qualified invocation later: the persistent host imports this
+# dependency by path, so AidosDesktopChatGPT is not guaranteed to be resolvable
+# again through PSModulePath during a runtime tick.
+$script:BaseDesktopChatGPTWindowsBackendCommand = Get-Command New-AidosDesktopChatGPTWindowsBackend -Module AidosDesktopChatGPT -ErrorAction Stop
+
 function Initialize-AidosDesktopChatGPTWindowDiscovery {
     if(-not [OperatingSystem]::IsWindows()){throw 'Desktop ChatGPT window discovery is Windows-only.'}
     if(-not ('AidosWindowDiscoveryV1' -as [type])){
@@ -109,7 +115,7 @@ function Get-AidosDesktopChatGPTResilientProcessContext {
 function New-AidosDesktopChatGPTWindowsBackend {
     [CmdletBinding()]
     param([string]$ProcessName='ChatGPT Classic')
-    $backend=AidosDesktopChatGPT\New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName
+    $backend=& $script:BaseDesktopChatGPTWindowsBackendCommand -ProcessName $ProcessName
     $primaryResolver=$backend.GetProcessContext
     $backend.GetProcessContext=({
         param([string]$RequestedProcessName)
