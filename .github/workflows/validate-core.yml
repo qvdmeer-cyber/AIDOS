@@ -109,6 +109,9 @@ jobs:
       - name: Autonomous Execution regression tests
         shell: pwsh
         run: ./tests/AutonomousExecution.Tests.ps1
+      - name: Autonomous Worker Scheduling regression tests
+        shell: pwsh
+        run: ./tests/AutonomousWorkerScheduling.Tests.ps1
       - name: Desktop ChatGPT Window Discovery regression tests
         shell: pwsh
         run: ./tests/DesktopChatGPTWindowDiscovery.Tests.ps1
