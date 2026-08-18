@@ -51,7 +51,15 @@ function Acquire-AidosHostAgentLease {
         [pscustomobject]$lease
     } catch [IO.IOException] {
         if($AfterStaleReclaim){ throw 'Persistent Local Desktop Agent lease already exists; another agent owns this desktop.' }
-        try {$existing=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json -Depth 20;$process=Get-Process -Id ([int]$existing.pid) -ErrorAction SilentlyContinue;$alive=$process -and [string]$existing.process_started_at -eq $process.StartTime.ToUniversalTime().ToString('o')}catch{$alive=$true}
+        try {
+            $existing=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json -Depth 20
+            $existingPid=[int]$existing.pid
+            if($existingPid -eq $PID){$alive=$true}
+            else {
+                $process=Get-Process -Id $existingPid -ErrorAction SilentlyContinue
+                $alive=$process -and [string]$existing.process_started_at -eq $process.StartTime.ToUniversalTime().ToString('o')
+            }
+        } catch {$alive=$true}
         if($alive){throw 'Persistent Local Desktop Agent lease already exists; another agent owns this desktop.'}
         Remove-Item -LiteralPath $path -Force -ErrorAction Stop
         return Acquire-AidosHostAgentLease -StateRoot $StateRoot -OwnerId $OwnerId -AfterStaleReclaim
