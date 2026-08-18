@@ -8,6 +8,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosPreparationDispatcher.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopSessionGate.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking
 
@@ -68,7 +69,7 @@ function Stop-AidosHostAgent { param([string]$StateRoot=(Get-AidosHostAgentDefau
 function Get-AidosHostAgentShellHealth {
     param([string]$ProcessName='ChatGPT Classic',[int]$ExpectedSessionId=-1)
     try {
-        $context=Get-AidosDesktopChatGPTProcessContext -ProcessName $ProcessName
+        $context=Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $ProcessName
         if($ExpectedSessionId -ge 0 -and [int]$context.session_id -ne $ExpectedSessionId){throw 'ChatGPT shell session differs from authorized session.'}
         [pscustomobject]@{status='HEALTHY';process_id=$context.process_id;session_id=$context.session_id;window_handle=$context.window_handle;detail=$context}
     } catch {[pscustomobject]@{status='UNAVAILABLE';reason=$_.Exception.Message}}
