@@ -12,6 +12,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousExecution.psm1') -Disable
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousReview.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousRepair.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousIntegration.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosReviewBlocker.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
     [CmdletBinding()]
@@ -48,32 +49,35 @@ function Get-AidosRuntimeNextActor {
 }
 
 function New-AidosRuntimeManagerErrorResult {
-    param([string]$RegistryRoot,$Integration,$Consume,$FinalResume,$HumanResume,$Closure)
-    [pscustomobject][ordered]@{schema_version='0.9';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;integration_result=$Integration;consumer_result=$Consume;final_acceptance_resume_result=$FinalResume;human_input_resume_result=$HumanResume;definition_closure_result=$Closure;results=@();status='ERROR'}
+    param([string]$RegistryRoot,$Integration,$BlockerResume,$Consume,$FinalResume,$HumanResume,$Closure)
+    [pscustomobject][ordered]@{schema_version='0.10';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;integration_result=$Integration;review_blocker_resume_result=$BlockerResume;consumer_result=$Consume;final_acceptance_resume_result=$FinalResume;human_input_resume_result=$HumanResume;definition_closure_result=$Closure;results=@();status='ERROR'}
 }
 
 function Invoke-AidosRuntimeProjectManagerTick {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RegistryRoot,[int]$MaxProjects=1,[switch]$Push,[string]$ContractsRoot,[string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),
-        [scriptblock]$ActorActivator,[scriptblock]$ResultConsumer,[scriptblock]$HumanInputResumer,[scriptblock]$FinalAcceptanceResumer,[scriptblock]$DefinitionCloser,[scriptblock]$WorkerInvoker,[scriptblock]$ReviewPublisher,[scriptblock]$RepairPlanner,[scriptblock]$IntegrationProcessor
+        [scriptblock]$ActorActivator,[scriptblock]$ResultConsumer,[scriptblock]$HumanInputResumer,[scriptblock]$FinalAcceptanceResumer,[scriptblock]$DefinitionCloser,[scriptblock]$WorkerInvoker,[scriptblock]$ReviewPublisher,[scriptblock]$RepairPlanner,[scriptblock]$IntegrationProcessor,[scriptblock]$ReviewBlockerResumer
     )
     if($MaxProjects-lt1){throw 'MaxProjects must be at least 1.'}
 
-    # PASS review integration is reconciled before any new actor selection. A
-    # review consumer may already have moved the projection to IDLE; the durable
-    # integration intent prevents that crash window from losing the Worker delta.
     $integration=try{if($IntegrationProcessor){& $IntegrationProcessor $RegistryRoot $MaxProjects $Push}else{Invoke-AidosReviewIntegrationTick -RegistryRoot $RegistryRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
-    if([string]$integration.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $null $null $null $null}
+    if([string]$integration.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $null $null $null $null $null}
+
+    # REVIEW-phase human resumes are separate from Definition Human Input. They
+    # must run before generic actor selection so an explicit authority decision
+    # can safely reopen Definition, stop, or schedule repair revision+1.
+    $blockerResume=try{if($ReviewBlockerResumer){& $ReviewBlockerResumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosReviewBlockerResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+    if([string]$blockerResume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $null $null $null $null}
 
     $consume=try{if($ResultConsumer){& $ResultConsumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ContractsRoot $ContractsRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
-    if([string]$consume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $consume $null $null $null}
+    if([string]$consume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $consume $null $null $null}
     $finalAcceptanceResume=try{if($FinalAcceptanceResumer){& $FinalAcceptanceResumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosDefinitionFinalAcceptanceResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
-    if([string]$finalAcceptanceResume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $consume $finalAcceptanceResume $null $null}
+    if([string]$finalAcceptanceResume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $consume $finalAcceptanceResume $null $null}
     $humanResume=try{if($HumanInputResumer){& $HumanInputResumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosRuntimeHumanInputResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
-    if([string]$humanResume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $consume $finalAcceptanceResume $humanResume $null}
+    if([string]$humanResume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $consume $finalAcceptanceResume $humanResume $null}
     $definitionClosure=if([string]::IsNullOrWhiteSpace($ContractsRoot)-and-not$DefinitionCloser){[pscustomobject][ordered]@{status='SKIPPED_NO_CONTRACTS';processed=0;results=@()}}else{try{if($DefinitionCloser){& $DefinitionCloser $RegistryRoot $ContractsRoot $MaxProjects $Push}else{Invoke-AidosDefinitionClosureTick -RegistryRoot $RegistryRoot -ContractsRoot $ContractsRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}}
-    if([string]$definitionClosure.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $consume $finalAcceptanceResume $humanResume $definitionClosure}
+    if([string]$definitionClosure.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $consume $finalAcceptanceResume $humanResume $definitionClosure}
 
     $projects=@(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot);$candidates=[Collections.Generic.List[object]]::new()
     foreach($project in $projects){try{$null=Test-AidosRegistryProjectBinding $project;$selection=Get-AidosRuntimeNextActor -ProjectRoot ([string]$project.local_root);$candidates.Add([pscustomobject][ordered]@{project=$project;selection=$selection})}catch{$candidates.Add([pscustomobject][ordered]@{project=$project;selection=[pscustomobject][ordered]@{project_root=[string]$project.local_root;project_state='UNKNOWN';control_mode='UNKNOWN';actor_role=$null;actor_identity=$null;action='BINDING_ERROR';priority=1000;activatable=$false;error=$_.Exception.Message}})}}
@@ -94,9 +98,9 @@ function Invoke-AidosRuntimeProjectManagerTick {
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
     [pscustomobject][ordered]@{
-        schema_version='0.9';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;
-        integration_result=$integration;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$definitionClosure;results=@($results);
-        status=if(@($results|Where-Object {$_.status-eq'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed-gt0-or[int]$integration.processed-gt0-or[int]$consume.processed-gt0-or[int]$finalAcceptanceResume.processed-gt0-or[int]$humanResume.processed-gt0-or[int]$definitionClosure.processed-gt0){'ACTIONABLE'}elseif($projects.Count-gt0){'IDLE'}else{'EMPTY'}
+        schema_version='0.10';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;
+        integration_result=$integration;review_blocker_resume_result=$blockerResume;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$definitionClosure;results=@($results);
+        status=if(@($results|Where-Object {$_.status-eq'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed-gt0-or[int]$integration.processed-gt0-or[int]$blockerResume.processed-gt0-or[int]$consume.processed-gt0-or[int]$finalAcceptanceResume.processed-gt0-or[int]$humanResume.processed-gt0-or[int]$definitionClosure.processed-gt0){'ACTIONABLE'}elseif($projects.Count-gt0){'IDLE'}else{'EMPTY'}
     }
 }
 
