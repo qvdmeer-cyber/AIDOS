@@ -5,6 +5,7 @@ $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
 $proofModulePath=Join-Path $root 'bridge/AidosDesktopChatGPTConversationProof.psm1'
+$windowModulePath=[IO.Path]::GetFullPath((Join-Path $root 'bridge/AidosDesktopChatGPTWindowDiscovery.psm1'))
 Import-Module $proofModulePath -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Force -DisableNameChecking
 $script:passed=0
@@ -30,7 +31,8 @@ $threw=$false
 try{Select-AidosDesktopChatGPTMostSpecificProofCandidate -Candidates @([pscustomobject]@{id='a';exact=$true;text_length=10;depth=4},[pscustomobject]@{id='b';exact=$true;text_length=10;depth=4}) -ProofText 'marker'|Out-Null}catch{$threw=$true}
 Assert-Proof $threw 'truly equivalent proof candidates remain fail-closed'
 
-$windowModule=Get-Module AidosDesktopChatGPTWindowDiscovery -ErrorAction Stop
+$windowModule=@(Get-Module AidosDesktopChatGPTWindowDiscovery -All -ErrorAction Stop|Where-Object {[IO.Path]::GetFullPath([string]$_.Path) -eq $windowModulePath}|Select-Object -Last 1)[0]
+Assert-Proof ($null-ne$windowModule) 'exact window-discovery module instance is loaded from the expected path'
 $shim=$windowModule.ExportedCommands['New-AidosDesktopChatGPTWindowsBackend']
 $resilient=$windowModule.ExportedCommands['New-AidosDesktopChatGPTResilientWindowsBackend']
 $base=$windowModule.SessionState.PSVariable.GetValue('BaseDesktopChatGPTWindowsBackendCommand')
