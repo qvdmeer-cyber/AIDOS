@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
     [CmdletBinding()]
@@ -95,7 +96,11 @@ function Invoke-AidosRuntimeProjectManagerTick {
         if([bool]$selection.activatable){
             if($ActorActivator){
                 try{$activation=& $ActorActivator $candidate.project $selection;$status='ACTIVATED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
-            }else{$status='ACTOR_ADAPTER_REQUIRED'}
+            }elseif([string]$selection.actor_identity -eq 'DEFINITION_AGENT' -and [string]$selection.action -in @('START_DEFINITION','RESUME_DEFINITION')){
+                try{$activation=New-AidosRuntimeActorAssignment -Project $candidate.project -Selection $selection;$status='ASSIGNED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
+            }else{
+                $status='ACTOR_ADAPTER_REQUIRED'
+            }
             $processed++
         }
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation})
