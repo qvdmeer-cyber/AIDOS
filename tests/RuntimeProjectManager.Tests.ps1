@@ -61,8 +61,18 @@ try {
     Assert-RuntimeManager ($tick.status -eq 'ACTIONABLE' -and $tick.processed -eq 1) 'manager activates at most configured projects'
     Assert-RuntimeManager ($global:AidosActivatedProject -eq 'RUNTIME-IDLE') 'manager selects actionable new IDLE project over non-activatable projects'
 
-    $noAdapter=Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $registry -MaxProjects 1
-    Assert-RuntimeManager (@($noAdapter.results|Where-Object {$_.status -eq 'ACTOR_ADAPTER_REQUIRED'}).Count -eq 1) 'missing actor adapter is explicit and fail-closed'
+    $scheduled=Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $registry -MaxProjects 1
+    $scheduledResult=@($scheduled.results|Where-Object {$_.project_id -eq 'RUNTIME-IDLE'})[0]
+    Assert-RuntimeManager ($scheduledResult.status -eq 'ASSIGNED') 'default Definition scheduling creates a durable actor assignment'
+    Assert-RuntimeManager (-not[string]::IsNullOrWhiteSpace([string]$scheduledResult.activation.assignment_sha256)) 'scheduled assignment exposes immutable assignment hash'
+    Assert-RuntimeManager ($scheduledResult.persistence.status -eq 'PERSISTED') 'runtime scheduling state and assignment are committed'
+    $state=Get-Content -LiteralPath (Join-Path $idleRoot '.aidos/STATE.json') -Raw|ConvertFrom-Json -Depth 20
+    Assert-RuntimeManager ($state.state -eq 'WAITING_DEFINITION' -and -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)) 'Definition scheduling binds project to WAITING_DEFINITION'
+
+    $replay=Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $registry -MaxProjects 1
+    $replayResult=@($replay.results|Where-Object {$_.project_id -eq 'RUNTIME-IDLE'})[0]
+    Assert-RuntimeManager ($replayResult.status -eq 'ASSIGNED' -and $replayResult.activation.status -eq 'ALREADY_PENDING') 'scheduler replay reuses the pending Definition assignment'
+    Assert-RuntimeManager ($replayResult.persistence.status -eq 'NO_CHANGES') 'scheduler replay is Git-idempotent'
 } finally {
     Remove-Variable -Name AidosActivatedProject -Scope Global -ErrorAction SilentlyContinue
     if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force}
