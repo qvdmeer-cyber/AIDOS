@@ -173,6 +173,24 @@ function Get-AidosDesktopChatGPTProofSurfaceName {
     $null
 }
 
+function Test-AidosDesktopChatGPTStoredConversationIdentity {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)]$ExistingFingerprint,
+        [AllowEmptyString()][string]$ObservedDocumentValue=''
+    )
+    foreach($name in @('process_name','session_id','window_title','window_class_name','document_value')){
+        if(-not$ExistingFingerprint.PSObject.Properties[$name] -or [string]::IsNullOrWhiteSpace([string]$ExistingFingerprint.$name)){return $false}
+    }
+    if([string]::IsNullOrWhiteSpace($ObservedDocumentValue)){return $false}
+    if(-not[string]::Equals([string]$Context.process_name,[string]$ExistingFingerprint.process_name,[StringComparison]::Ordinal)){return $false}
+    if(-not[string]::Equals([string]$Context.session_id,[string]$ExistingFingerprint.session_id,[StringComparison]::Ordinal)){return $false}
+    if(-not[string]::Equals([string]$Context.window_title,[string]$ExistingFingerprint.window_title,[StringComparison]::Ordinal)){return $false}
+    if(-not[string]::Equals([string]$Context.window_class_name,[string]$ExistingFingerprint.window_class_name,[StringComparison]::Ordinal)){return $false}
+    [string]::Equals($ObservedDocumentValue,[string]$ExistingFingerprint.document_value,[StringComparison]::Ordinal)
+}
+
 function Get-AidosDesktopChatGPTResilientConversationProof {
     [CmdletBinding()]
     param(
@@ -184,6 +202,27 @@ function Get-AidosDesktopChatGPTResilientConversationProof {
         [AllowEmptyString()][string]$ExistingFingerprintSha256=''
     )
     $document=Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing
+
+    # Enrollment uses the marker to prove the initial conversation. After enrollment,
+    # the exact ChatGPT conversation URL captured from the Document ValuePattern is a
+    # more durable identity than historic message text that Chromium may virtualize
+    # out of the active accessibility tree.
+    if($document -and $ExistingFingerprint -and -not[string]::IsNullOrWhiteSpace($ExistingFingerprintSha256)){
+        $documentValue=''
+        try {
+            $valuePattern=$document.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            if($valuePattern){$documentValue=[string]$valuePattern.Current.Value}
+        }catch{}
+        if(Test-AidosDesktopChatGPTStoredConversationIdentity -Context $Context -ExistingFingerprint $ExistingFingerprint -ObservedDocumentValue $documentValue){
+            return [pscustomobject][ordered]@{
+                conversation_fingerprint=$ExistingFingerprint
+                conversation_fingerprint_sha256=$ExistingFingerprintSha256
+                proof_surface_revalidated='STORED_CONVERSATION_URL'
+                observed_document_value=$documentValue
+            }
+        }
+    }
+
     $observed=if($document){
         # Preserve the established Document proof path whenever ChatGPT exposes it.
         Get-AidosDesktopChatGPTDocumentConversationProof -RootElement $RootElement -Context $Context -ProofText $ProofText -AccountProofText $AccountProofText
@@ -243,4 +282,4 @@ function New-AidosDesktopChatGPTResilientConversationBackend {
     [pscustomobject]$values
 }
 
-Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTProofSurfaceName,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
+Export-ModuleMember -Function Get-AidosDesktopChatGPTProofSearchValues,Get-AidosDesktopChatGPTProofElementDepth,Select-AidosDesktopChatGPTMostSpecificProofCandidate,Find-AidosDesktopChatGPTMostSpecificConversationElement,Get-AidosDesktopChatGPTConversationDocumentElement,Get-AidosDesktopChatGPTDocumentConversationProof,Get-AidosDesktopChatGPTElementConversationProof,Get-AidosDesktopChatGPTProofSurfaceName,Test-AidosDesktopChatGPTStoredConversationIdentity,Get-AidosDesktopChatGPTResilientConversationProof,New-AidosDesktopChatGPTResilientConversationBackend
