@@ -7,6 +7,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -DisableNameCheckin
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorResultConsumer.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeHumanInputResume.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosDefinitionClosure.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
     [CmdletBinding()]
@@ -72,7 +73,9 @@ function Invoke-AidosRuntimeProjectManagerTick {
         [string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),
         [scriptblock]$ActorActivator,
         [scriptblock]$ResultConsumer,
-        [scriptblock]$HumanInputResumer
+        [scriptblock]$HumanInputResumer,
+        [scriptblock]$FinalAcceptanceResumer,
+        [scriptblock]$DefinitionCloser
     )
     if($MaxProjects -lt 1){throw 'MaxProjects must be at least 1.'}
     $consume=try{
@@ -80,14 +83,35 @@ function Invoke-AidosRuntimeProjectManagerTick {
         else{Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ContractsRoot $ContractsRoot -MaxItems $MaxProjects -Push:$Push}
     }catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
     if([string]$consume.status -eq 'ERROR'){
-        return [pscustomobject][ordered]@{schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;human_input_resume_result=$null;results=@();status='ERROR'}
+        return [pscustomobject][ordered]@{schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;final_acceptance_resume_result=$null;human_input_resume_result=$null;definition_closure_result=$null;results=@();status='ERROR'}
     }
+
+    $finalAcceptanceResume=try{
+        if($FinalAcceptanceResumer){& $FinalAcceptanceResumer $RegistryRoot $MaxProjects $Push}
+        else{Invoke-AidosDefinitionFinalAcceptanceResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}
+    }catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+    if([string]$finalAcceptanceResume.status -eq 'ERROR'){
+        return [pscustomobject][ordered]@{schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$null;definition_closure_result=$null;results=@();status='ERROR'}
+    }
+
     $humanResume=try{
         if($HumanInputResumer){& $HumanInputResumer $RegistryRoot $MaxProjects $Push}
         else{Invoke-AidosRuntimeHumanInputResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}
     }catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
     if([string]$humanResume.status -eq 'ERROR'){
-        return [pscustomobject][ordered]@{schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;human_input_resume_result=$humanResume;results=@();status='ERROR'}
+        return [pscustomobject][ordered]@{schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$null;results=@();status='ERROR'}
+    }
+
+    $definitionClosure=if([string]::IsNullOrWhiteSpace($ContractsRoot) -and -not$DefinitionCloser){
+        [pscustomobject][ordered]@{status='SKIPPED_NO_CONTRACTS';processed=0;results=@()}
+    }else{
+        try{
+            if($DefinitionCloser){& $DefinitionCloser $RegistryRoot $ContractsRoot $MaxProjects $Push}
+            else{Invoke-AidosDefinitionClosureTick -RegistryRoot $RegistryRoot -ContractsRoot $ContractsRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}
+        }catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+    }
+    if([string]$definitionClosure.status -eq 'ERROR'){
+        return [pscustomobject][ordered]@{schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$definitionClosure;results=@();status='ERROR'}
     }
 
     $projects=@(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot)
@@ -112,8 +136,8 @@ function Invoke-AidosRuntimeProjectManagerTick {
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
     [pscustomobject][ordered]@{
-        schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;consumer_result=$consume;human_input_resume_result=$humanResume;results=@($results);
-        status=if(@($results|Where-Object {$_.status -eq 'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed -gt 0 -or [int]$consume.processed -gt0 -or [int]$humanResume.processed -gt0){'ACTIONABLE'}elseif($projects.Count -gt 0){'IDLE'}else{'EMPTY'}
+        schema_version='0.5';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$definitionClosure;results=@($results);
+        status=if(@($results|Where-Object {$_.status -eq 'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed -gt 0 -or [int]$consume.processed -gt0 -or [int]$finalAcceptanceResume.processed -gt0 -or [int]$humanResume.processed -gt0 -or [int]$definitionClosure.processed -gt0){'ACTIONABLE'}elseif($projects.Count -gt 0){'IDLE'}else{'EMPTY'}
     }
 }
 
