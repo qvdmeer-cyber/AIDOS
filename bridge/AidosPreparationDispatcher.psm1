@@ -147,6 +147,7 @@ function Invoke-AidosPreparationDispatcherTick {
         [string]$ContractsRoot,
         [int]$MaxItems=1,
         [switch]$Push,
+        [switch]$DeferActorTransport,
         [scriptblock]$ResumeProcessor,
         [scriptblock]$SyncProcessor,
         [scriptblock]$OnboardingProcessor,
@@ -208,15 +209,19 @@ function Invoke-AidosPreparationDispatcherTick {
     catch{$runtime=[pscustomobject][ordered]@{schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;results=@();status='ERROR';error=$_.Exception.Message}}
 
     $actorTransport=$null
-    try{$actorTransport=Invoke-AidosRuntimeActorTransportDispatch -RegistryRoot $RegistryRoot -StateRoot $ActorTransportStateRoot -ProcessName $ActorProcessName -MaxItems $MaxItems -Push:$Push -ActorTransportDispatcher $ActorTransportDispatcher}
-    catch{$actorTransport=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+    if($DeferActorTransport){
+        $actorTransport=[pscustomobject][ordered]@{status='DEFERRED_INTERACTIVE_GATE';processed=0;results=@()}
+    }else{
+        try{$actorTransport=Invoke-AidosRuntimeActorTransportDispatch -RegistryRoot $RegistryRoot -StateRoot $ActorTransportStateRoot -ProcessName $ActorProcessName -MaxItems $MaxItems -Push:$Push -ActorTransportDispatcher $ActorTransportDispatcher}
+        catch{$actorTransport=[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+    }
 
     $preparationError=@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count -gt 0
     $runtimeError=$runtime -and [string]$runtime.status -eq 'ERROR'
     $transportError=$actorTransport -and [string]$actorTransport.status -eq 'ERROR'
     $didWork=($processed -gt 0 -or ($runtime -and [int]$runtime.processed -gt 0) -or ($actorTransport -and [int]$actorTransport.processed -gt 0))
     [pscustomobject][ordered]@{
-        schema_version='0.3';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;actor_transport_result=$actorTransport;
+        schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;actor_transport_result=$actorTransport;
         status=if($preparationError-or$runtimeError-or$transportError){'ERROR'}elseif($didWork){'PROCESSED'}else{'IDLE'}
     }
 }
