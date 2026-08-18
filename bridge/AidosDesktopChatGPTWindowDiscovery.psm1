@@ -111,6 +111,13 @@ function Get-AidosDesktopChatGPTResilientProcessContext {
     throw "ChatGPT shell discovery failed. Primary: $primaryError Fallback: no exact PID/session/UIA-bound visible shell candidate."
 }
 
+function ConvertTo-AidosDesktopChatGPTComposerSemanticText {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$Text='')
+    if([string]::Equals($Text,'Vraag het aan ChatGPT',[StringComparison]::Ordinal)){return ''}
+    $Text
+}
+
 function Get-AidosDesktopChatGPTFreshComposerObservation {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context)
@@ -136,6 +143,7 @@ function Get-AidosDesktopChatGPTFreshComposerObservation {
             if($textPattern){$text=[string]$textPattern.DocumentRange.GetText(-1)}
         } catch {}
     }
+    $text=ConvertTo-AidosDesktopChatGPTComposerSemanticText -Text $text
     $hash=if([string]::IsNullOrWhiteSpace($text)){$null}else{[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()}
     [pscustomobject][ordered]@{
         present=$true
