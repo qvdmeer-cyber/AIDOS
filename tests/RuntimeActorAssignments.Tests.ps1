@@ -9,6 +9,7 @@ Import-Module (Join-Path $root 'bridge/AidosRuntimeActorAssignments.psm1') -Forc
 Import-Module (Join-Path $root 'bridge/AidosRuntimeActorTransport.psm1') -Force -DisableNameChecking
 $script:passed=0
 function Assert-Actor([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
+function Read-TestState([string]$ProjectRoot){Get-Content -LiteralPath (Join-Path $ProjectRoot '.aidos/STATE.json') -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50}
 
 $base=Join-Path ([IO.Path]::GetTempPath()) ('aidos-actor-assignment-'+[guid]::NewGuid().ToString('N'))
 $projectRoot=Join-Path $base 'project'
@@ -28,7 +29,7 @@ try {
     Assert-Actor ($applicability.action -eq 'RESOLVE_PROJECT_APPLICABILITY') 'new project selects applicability before Definition'
     $appAssignment=New-AidosRuntimeActorAssignment -Project $project -Selection $applicability
     Assert-Actor ($appAssignment.status -eq 'PENDING' -and $null -eq $appAssignment.assignment.binding.definition_id) 'applicability assignment does not create Definition lineage'
-    $state=Get-AidosState $projectRoot
+    $state=Read-TestState $projectRoot
     Assert-Actor ($state.state -eq 'IDLE' -and $null -eq $state.definition_id) 'applicability assignment leaves project IDLE'
     $appReplay=New-AidosRuntimeActorAssignment -Project $project -Selection $applicability
     Assert-Actor ($appReplay.status -eq 'ALREADY_PENDING') 'applicability assignment replay is idempotent'
@@ -42,7 +43,7 @@ try {
     $created=New-AidosRuntimeActorAssignment -Project $project -Selection $start
     Assert-Actor ($created.status -eq 'PENDING') 'Definition start creates pending assignment'
     Assert-Actor (-not[string]::IsNullOrWhiteSpace([string]$created.assignment.binding.definition_id) -and [int]$created.assignment.binding.definition_version -eq 1) 'Definition assignment owns exact Definition binding'
-    $state=Get-AidosState $projectRoot
+    $state=Read-TestState $projectRoot
     Assert-Actor ($state.state -eq 'WAITING_DEFINITION' -and [string]$state.definition_id -eq [string]$created.assignment.binding.definition_id) 'state transitions to WAITING_DEFINITION with same binding'
     Assert-Actor (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 1) 'only Definition assignment remains pending after applicability closes'
 
