@@ -13,6 +13,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousReview.psm1') -DisableNam
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousRepair.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousIntegration.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosReviewBlocker.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosWorkerDispatchGuard.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
     [CmdletBinding()]
@@ -50,7 +51,7 @@ function Get-AidosRuntimeNextActor {
 
 function New-AidosRuntimeManagerErrorResult {
     param([string]$RegistryRoot,$Integration,$BlockerResume,$Consume,$FinalResume,$HumanResume,$Closure)
-    [pscustomobject][ordered]@{schema_version='0.10';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;integration_result=$Integration;review_blocker_resume_result=$BlockerResume;consumer_result=$Consume;final_acceptance_resume_result=$FinalResume;human_input_resume_result=$HumanResume;definition_closure_result=$Closure;results=@();status='ERROR'}
+    [pscustomobject][ordered]@{schema_version='0.11';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;integration_result=$Integration;review_blocker_resume_result=$BlockerResume;consumer_result=$Consume;final_acceptance_resume_result=$FinalResume;human_input_resume_result=$HumanResume;definition_closure_result=$Closure;results=@();status='ERROR'}
 }
 
 function Invoke-AidosRuntimeProjectManagerTick {
@@ -60,16 +61,10 @@ function Invoke-AidosRuntimeProjectManagerTick {
         [scriptblock]$ActorActivator,[scriptblock]$ResultConsumer,[scriptblock]$HumanInputResumer,[scriptblock]$FinalAcceptanceResumer,[scriptblock]$DefinitionCloser,[scriptblock]$WorkerInvoker,[scriptblock]$ReviewPublisher,[scriptblock]$RepairPlanner,[scriptblock]$IntegrationProcessor,[scriptblock]$ReviewBlockerResumer
     )
     if($MaxProjects-lt1){throw 'MaxProjects must be at least 1.'}
-
     $integration=try{if($IntegrationProcessor){& $IntegrationProcessor $RegistryRoot $MaxProjects $Push}else{Invoke-AidosReviewIntegrationTick -RegistryRoot $RegistryRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
     if([string]$integration.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $null $null $null $null $null}
-
-    # REVIEW-phase human resumes are separate from Definition Human Input. They
-    # must run before generic actor selection so an explicit authority decision
-    # can safely reopen Definition, stop, or schedule repair revision+1.
     $blockerResume=try{if($ReviewBlockerResumer){& $ReviewBlockerResumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosReviewBlockerResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
     if([string]$blockerResume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $null $null $null $null}
-
     $consume=try{if($ResultConsumer){& $ResultConsumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ContractsRoot $ContractsRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
     if([string]$consume.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $consume $null $null $null}
     $finalAcceptanceResume=try{if($FinalAcceptanceResumer){& $FinalAcceptanceResumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosDefinitionFinalAcceptanceResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}}catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
@@ -88,7 +83,14 @@ function Invoke-AidosRuntimeProjectManagerTick {
             if($ActorActivator){try{$activation=& $ActorActivator $candidate.project $selection;$status='ACTIVATED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
             elseif([string]$selection.actor_identity-eq'DEFINITION_AGENT' -and [string]$selection.action-in@('RESOLVE_PROJECT_APPLICABILITY','START_DEFINITION','RESUME_DEFINITION')){try{$activation=New-AidosRuntimeActorAssignment -Project $candidate.project -Selection $selection;$assignmentId=[string]$activation.assignment.assignment_id;$persistence=Invoke-AidosPreparationGitPersistence -Project $candidate.project -CommitMessage ("AIDOS schedule runtime actor $assignmentId") -Push:$Push;$status='ASSIGNED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
             elseif([string]$selection.actor_identity-eq'EXECUTION_AGENT' -and [string]$selection.action-eq'DISPATCH_EXECUTION'){
-                try{$repair=Ensure-AidosReviewRepairRevision -Project $candidate.project;$activation=Invoke-AidosAutonomousWorkerDispatch -Project $candidate.project -Push:$Push -WorkerInvoker $WorkerInvoker;$activation|Add-Member -NotePropertyName repair_preflight -NotePropertyValue $repair -Force;$status=if([string]$activation.status-eq'PROFILE_ADAPTER_REQUIRED'){'ACTOR_ADAPTER_REQUIRED'}else{'WORKER_DISPATCHED'}}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
+                try{
+                    $repair=Ensure-AidosReviewRepairRevision -Project $candidate.project
+                    $guard=New-AidosWorkerDispatchGuard -ProjectRoot ([string]$candidate.project.local_root)
+                    $activation=Invoke-AidosAutonomousWorkerDispatch -Project $candidate.project -Push:$Push -WorkerInvoker $WorkerInvoker
+                    $guardCheck=Test-AidosWorkerDispatchGuard -ProjectRoot ([string]$candidate.project.local_root) -ExecutionId ([string]$guard.execution_id) -Revision ([int]$guard.revision)
+                    $activation|Add-Member -NotePropertyName repair_preflight -NotePropertyValue $repair -Force;$activation|Add-Member -NotePropertyName dispatch_guard -NotePropertyValue $guardCheck -Force
+                    $status=if([string]$guardCheck.status-ne'PASS'){'WORKER_AUTHORITY_VIOLATION'}elseif([string]$activation.status-eq'PROFILE_ADAPTER_REQUIRED'){'ACTOR_ADAPTER_REQUIRED'}else{'WORKER_DISPATCHED'}
+                }catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
             }
             elseif([string]$selection.actor_identity-eq'WORKER_AGENT' -and [string]$selection.action-eq'REVIEW' -and [string]$selection.project_state-eq'REVIEW_READY'){try{$activation=if($ReviewPublisher){& $ReviewPublisher $candidate.project}else{Publish-AidosAutonomousReview -Project $candidate.project};$status='REVIEW_PUBLISHED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
             elseif([string]$selection.actor_identity-eq'WORKER_AGENT' -and [string]$selection.action-eq'PLAN_REPAIR'){try{$activation=if($RepairPlanner){& $RepairPlanner $candidate.project}else{Invoke-AidosAutonomousValidationRepairPlan -Project $candidate.project -Push:$Push};$status='REPAIR_PLANNED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
@@ -98,7 +100,7 @@ function Invoke-AidosRuntimeProjectManagerTick {
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
     [pscustomobject][ordered]@{
-        schema_version='0.10';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;
+        schema_version='0.11';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;
         integration_result=$integration;review_blocker_resume_result=$blockerResume;consumer_result=$consume;final_acceptance_resume_result=$finalAcceptanceResume;human_input_resume_result=$humanResume;definition_closure_result=$definitionClosure;results=@($results);
         status=if(@($results|Where-Object {$_.status-eq'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed-gt0-or[int]$integration.processed-gt0-or[int]$blockerResume.processed-gt0-or[int]$consume.processed-gt0-or[int]$finalAcceptanceResume.processed-gt0-or[int]$humanResume.processed-gt0-or[int]$definitionClosure.processed-gt0){'ACTIONABLE'}elseif($projects.Count-gt0){'IDLE'}else{'EMPTY'}
     }
