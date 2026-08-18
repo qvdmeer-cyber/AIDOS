@@ -91,7 +91,14 @@ function Test-AidosRuntimeActorResultBinding {
 function ConvertTo-AidosCanonicalActorValue {
     param($Value)
     if($null -eq $Value){return $null}
-    if($Value -is [string] -or $Value -is [char] -or $Value -is [bool] -or $Value -is [ValueType]){return $Value}
+    if($Value -is [DateTimeOffset]){return $Value.ToUniversalTime().ToString('o')}
+    if($Value -is [DateTime]){return ([DateTimeOffset]$Value).ToUniversalTime().ToString('o')}
+    if($Value -is [string]){
+        $parsed=[DateTimeOffset]::MinValue
+        if([DateTimeOffset]::TryParseExact($Value,'o',[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::RoundtripKind,[ref]$parsed)){return $parsed.ToUniversalTime().ToString('o')}
+        return $Value
+    }
+    if($Value -is [char] -or $Value -is [bool] -or $Value -is [ValueType]){return $Value}
     if($Value -is [System.Collections.IDictionary]){
         $ordered=[ordered]@{}
         foreach($key in @($Value.Keys|ForEach-Object {[string]$_}|Sort-Object -CaseSensitive)){$ordered[$key]=ConvertTo-AidosCanonicalActorValue $Value[$key]}
