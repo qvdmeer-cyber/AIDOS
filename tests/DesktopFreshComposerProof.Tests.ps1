@@ -24,6 +24,11 @@ Assert-Fresh ($source.IndexOf('& $freshComposerObservation -Context $Context',[S
 Assert-Fresh ($source.IndexOf('& $freshComposerCleared -Context $Context -PromptText $PromptText',[StringComparison]::Ordinal) -ge 0) 'post-submit callback invokes the captured bounded wait command explicitly'
 Assert-Fresh ($source.IndexOf("if(`$message -ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'){throw}",[StringComparison]::Ordinal) -ge 0) 'send recovery is limited to the known stale post-submit failure'
 Assert-Fresh ($source.IndexOf("committed_message_proof_source='FRESH_EMPTY_COMPOSER'",[StringComparison]::Ordinal) -ge 0) 'alternate commit proof records its source explicitly'
+Assert-Fresh ($source.IndexOf('function Get-AidosDesktopChatGPTResolvedActorResponseText',[StringComparison]::Ordinal) -ge 0) 'resolved actor response reader exists'
+Assert-Fresh ($source.IndexOf("IndexOf('REQUIRED:'",[StringComparison]::Ordinal) -ge 0) 'unresolved REQUIRED template text is rejected as an actor response'
+Assert-Fresh ($source.IndexOf("IndexOf('REQUIRED_NONEMPTY:'",[StringComparison]::Ordinal) -ge 0) 'unresolved REQUIRED_NONEMPTY template text is rejected as an actor response'
+Assert-Fresh ($source.IndexOf('Add-AidosDesktopChatGPTResolvedActorResponseReader -Backend $backend',[StringComparison]::Ordinal) -ge 0) 'resolved actor response reader is composed into the live backend'
+Assert-Fresh ($source.IndexOf('& $resolvedReader -Context $Context -Assignment $Assignment',[StringComparison]::Ordinal) -ge 0) 'deferred actor response callback invokes the captured reader command'
 Assert-Fresh ($source.IndexOf('Add-AidosDesktopChatGPTFreshComposerProof -Backend $backend',[StringComparison]::Ordinal) -ge 0) 'fresh composer proof is composed into the live resilient Windows backend'
 
 Write-Output "PASS: $passed fresh composer proof assertions"
