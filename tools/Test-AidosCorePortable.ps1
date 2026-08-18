@@ -19,12 +19,29 @@ Get-ChildItem -LiteralPath $root -Recurse -Filter '*.json' -File | ForEach-Objec
 
 $tests=@(Get-ChildItem -LiteralPath (Join-Path $root 'tests') -Filter '*.Tests.ps1' -File|Sort-Object Name)
 if($tests.Count-eq0){throw 'No AIDOS Core regression tests were found.'}
+
+# Some cross-platform execution fixtures mark generated shell stubs executable
+# with chmod. Windows has no executable permission bit, so when validation runs
+# under the host PowerShell engine provide a temporary no-op compatibility shim.
+# This preserves the fixture semantics without requiring Unix tooling on Windows.
+$createdChmodShim=$false
+if($IsWindows -and -not(Get-Command chmod -ErrorAction SilentlyContinue)){
+    Set-Item -Path Function:\global:chmod -Value {
+        param([Parameter(ValueFromRemainingArguments=$true)][object[]]$Arguments)
+    }
+    $createdChmodShim=$true
+}
+
 $executed=[Collections.Generic.List[string]]::new()
-foreach($test in $tests){
-    # Tests are invoked in-process with ErrorActionPreference=Stop. A stale
-    # LASTEXITCODE from a native command inside an otherwise successful test is
-    # not the test result; only a thrown assertion/command failure fails here.
-    & $test.FullName
-    $executed.Add($test.Name)
+try {
+    foreach($test in $tests){
+        # Tests are invoked in-process with ErrorActionPreference=Stop. A stale
+        # LASTEXITCODE from a native command inside an otherwise successful test is
+        # not the test result; only a thrown assertion/command failure fails here.
+        & $test.FullName
+        $executed.Add($test.Name)
+    }
+} finally {
+    if($createdChmodShim){Remove-Item -Path Function:\global:chmod -ErrorAction SilentlyContinue}
 }
 [pscustomobject][ordered]@{status='PASS';repo_root=$root;tests=@($executed);test_count=$executed.Count;validated_at=[DateTimeOffset]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 20
