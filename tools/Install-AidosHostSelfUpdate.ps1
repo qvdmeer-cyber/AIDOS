@@ -29,15 +29,26 @@ $principal=New-ScheduledTaskPrincipal -UserId $AuthorizedUser -LogonType Interac
 $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) -RepetitionDuration (New-TimeSpan -Days 3650)
 $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 $existing=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+$startTask=$true
 if($existing){
     $existingUser=[string]$existing.Principal.UserId
     $leaf=($AuthorizedUser-split'\\')[-1]
     if(-not([string]::Equals($existingUser,$AuthorizedUser,[StringComparison]::OrdinalIgnoreCase) -or [string]::Equals($existingUser,$leaf,[StringComparison]::OrdinalIgnoreCase))){throw 'Existing self-update task belongs to a different user.'}
-    Set-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal|Out-Null
-    $provisioning='UPDATED'
+    if([string]$existing.State -eq 'Running'){
+        # A self-update reload re-enters normal bootstrap while this exact limited-user
+        # watchdog task is still running. Re-registering the currently executing task
+        # requires Task Scheduler mutation rights the watchdog intentionally does not
+        # have. Its action path is stable, so preserve the task and let its existing
+        # repetition schedule invoke the updated script on the next run.
+        $provisioning='REUSED_RUNNING'
+        $startTask=$false
+    }else{
+        Set-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal|Out-Null
+        $provisioning='UPDATED'
+    }
 }else{
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'AIDOS fail-closed Core update validator and lease-safe host reload watchdog.'|Out-Null
     $provisioning='CREATED'
 }
-Start-ScheduledTask -TaskName $taskName
+if($startTask){Start-ScheduledTask -TaskName $taskName}
 [pscustomobject][ordered]@{status='INSTALLED';task_name=$taskName;task_provisioning=$provisioning;interval_minutes=$IntervalMinutes;script_path=$scriptPath;state_root=$StateRoot;authorized_user=$AuthorizedUser}
