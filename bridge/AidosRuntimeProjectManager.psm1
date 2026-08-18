@@ -6,6 +6,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableName
 Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorResultConsumer.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeHumanInputResume.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
     [CmdletBinding()]
@@ -31,24 +32,16 @@ function Get-AidosRuntimeNextActor {
     $control=Get-AidosOperatorControlState -ProjectRoot $root
 
     if([string]$control.mode -in @('PAUSED','SAFE_STOPPED')){
-        return [pscustomobject][ordered]@{
-            project_root=$root;project_state=[string]$state.state;control_mode=[string]$control.mode;
-            actor_role=$null;actor_identity=$null;action='CONTROL_BLOCKED';priority=0;activatable=$false
-        }
+        return [pscustomobject][ordered]@{project_root=$root;project_state=[string]$state.state;control_mode=[string]$control.mode;actor_role=$null;actor_identity=$null;action='CONTROL_BLOCKED';priority=0;activatable=$false}
     }
 
     $selection=switch([string]$state.state){
         'IDLE' {
             if([string]::IsNullOrWhiteSpace([string]$state.definition_id)){
                 $applicabilityPath=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
-                if(-not(Test-Path -LiteralPath $applicabilityPath -PathType Leaf)){
-                    [ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='RESOLVE_PROJECT_APPLICABILITY';priority=110;activatable=$true}
-                }else{
-                    [ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';priority=100;activatable=$true}
-                }
-            }else{
-                [ordered]@{actor_role='HUMAN';actor_identity='HUMAN';action='WAIT_NEW_GOAL';priority=10;activatable=$false}
-            }
+                if(-not(Test-Path -LiteralPath $applicabilityPath -PathType Leaf)){[ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='RESOLVE_PROJECT_APPLICABILITY';priority=110;activatable=$true}}
+                else{[ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';priority=100;activatable=$true}}
+            }else{[ordered]@{actor_role='HUMAN';actor_identity='HUMAN';action='WAIT_NEW_GOAL';priority=10;activatable=$false}}
         }
         'WAITING_DEFINITION' {[ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='RESUME_DEFINITION';priority=100;activatable=$true}}
         'WAITING_USER' {[ordered]@{actor_role='HUMAN';actor_identity='HUMAN';action='WAIT_HUMAN_INPUT';priority=10;activatable=$false}}
@@ -66,11 +59,7 @@ function Get-AidosRuntimeNextActor {
         'RELEASE_READY' {[ordered]@{actor_role=$null;actor_identity=$null;action='RELEASE_READY';priority=5;activatable=$false}}
         default {[ordered]@{actor_role=$null;actor_identity=$null;action='UNSUPPORTED_STATE';priority=0;activatable=$false}}
     }
-    [pscustomobject][ordered]@{
-        project_root=$root;project_state=[string]$state.state;control_mode=[string]$control.mode;
-        actor_role=$selection.actor_role;actor_identity=$selection.actor_identity;action=$selection.action;
-        priority=[int]$selection.priority;activatable=[bool]$selection.activatable
-    }
+    [pscustomobject][ordered]@{project_root=$root;project_state=[string]$state.state;control_mode=[string]$control.mode;actor_role=$selection.actor_role;actor_identity=$selection.actor_identity;action=$selection.action;priority=[int]$selection.priority;activatable=[bool]$selection.activatable}
 }
 
 function Invoke-AidosRuntimeProjectManagerTick {
@@ -79,58 +68,52 @@ function Invoke-AidosRuntimeProjectManagerTick {
         [Parameter(Mandatory)][string]$RegistryRoot,
         [int]$MaxProjects=1,
         [switch]$Push,
+        [string]$ContractsRoot,
+        [string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),
         [scriptblock]$ActorActivator,
-        [scriptblock]$ResultConsumer
+        [scriptblock]$ResultConsumer,
+        [scriptblock]$HumanInputResumer
     )
     if($MaxProjects -lt 1){throw 'MaxProjects must be at least 1.'}
     $consume=try{
-        if($ResultConsumer){& $ResultConsumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $RegistryRoot -MaxItems $MaxProjects -Push:$Push}
+        if($ResultConsumer){& $ResultConsumer $RegistryRoot $MaxProjects $Push}
+        else{Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ContractsRoot $ContractsRoot -MaxItems $MaxProjects -Push:$Push}
     }catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
     if([string]$consume.status -eq 'ERROR'){
-        return [pscustomobject][ordered]@{schema_version='0.3';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;results=@();status='ERROR'}
+        return [pscustomobject][ordered]@{schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;human_input_resume_result=$null;results=@();status='ERROR'}
     }
+    $humanResume=try{
+        if($HumanInputResumer){& $HumanInputResumer $RegistryRoot $MaxProjects $Push}
+        else{Invoke-AidosRuntimeHumanInputResumeTick -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -MaxItems $MaxProjects -Push:$Push}
+    }catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+    if([string]$humanResume.status -eq 'ERROR'){
+        return [pscustomobject][ordered]@{schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;human_input_resume_result=$humanResume;results=@();status='ERROR'}
+    }
+
     $projects=@(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot)
     $candidates=[System.Collections.Generic.List[object]]::new()
     foreach($project in $projects){
-        try {
-            $null=Test-AidosRegistryProjectBinding $project
-            $selection=Get-AidosRuntimeNextActor -ProjectRoot ([string]$project.local_root)
-            $candidates.Add([pscustomobject][ordered]@{project=$project;selection=$selection})
-        } catch {
-            $candidates.Add([pscustomobject][ordered]@{project=$project;selection=[pscustomobject][ordered]@{project_root=[string]$project.local_root;project_state='UNKNOWN';control_mode='UNKNOWN';actor_role=$null;actor_identity=$null;action='BINDING_ERROR';priority=1000;activatable=$false;error=$_.Exception.Message}})
-        }
+        try{$null=Test-AidosRegistryProjectBinding $project;$selection=Get-AidosRuntimeNextActor -ProjectRoot ([string]$project.local_root);$candidates.Add([pscustomobject][ordered]@{project=$project;selection=$selection})}
+        catch{$candidates.Add([pscustomobject][ordered]@{project=$project;selection=[pscustomobject][ordered]@{project_root=[string]$project.local_root;project_state='UNKNOWN';control_mode='UNKNOWN';actor_role=$null;actor_identity=$null;action='BINDING_ERROR';priority=1000;activatable=$false;error=$_.Exception.Message}})}
     }
     $ordered=@($candidates|Sort-Object @{Expression={[int]$_.selection.priority};Descending=$true}, @{Expression={[string]$_.project.project_id};Descending=$false})
     $results=[System.Collections.Generic.List[object]]::new();$processed=0
     foreach($candidate in $ordered){
         if($processed -ge $MaxProjects){break}
-        $selection=$candidate.selection
-        $activation=$null
-        $persistence=$null
-        $status='OBSERVED'
+        $selection=$candidate.selection;$activation=$null;$persistence=$null;$status='OBSERVED'
         if([bool]$selection.activatable){
-            if($ActorActivator){
-                try{$activation=& $ActorActivator $candidate.project $selection;$status='ACTIVATED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
-            }elseif([string]$selection.actor_identity -eq 'DEFINITION_AGENT' -and [string]$selection.action -in @('RESOLVE_PROJECT_APPLICABILITY','START_DEFINITION','RESUME_DEFINITION')){
-                try{
-                    $activation=New-AidosRuntimeActorAssignment -Project $candidate.project -Selection $selection
-                    $assignmentId=[string]$activation.assignment.assignment_id
-                    $persistence=Invoke-AidosPreparationGitPersistence -Project $candidate.project -CommitMessage ("AIDOS schedule runtime actor $assignmentId") -Push:$Push
-                    $status='ASSIGNED'
-                }catch{
-                    $status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}
-                }
-            }else{
-                $status='ACTOR_ADAPTER_REQUIRED'
-            }
+            if($ActorActivator){try{$activation=& $ActorActivator $candidate.project $selection;$status='ACTIVATED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
+            elseif([string]$selection.actor_identity -eq 'DEFINITION_AGENT' -and [string]$selection.action -in @('RESOLVE_PROJECT_APPLICABILITY','START_DEFINITION','RESUME_DEFINITION')){
+                try{$activation=New-AidosRuntimeActorAssignment -Project $candidate.project -Selection $selection;$assignmentId=[string]$activation.assignment.assignment_id;$persistence=Invoke-AidosPreparationGitPersistence -Project $candidate.project -CommitMessage ("AIDOS schedule runtime actor $assignmentId") -Push:$Push;$status='ASSIGNED'}
+                catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
+            }else{$status='ACTOR_ADAPTER_REQUIRED'}
             $processed++
         }
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
     [pscustomobject][ordered]@{
-        schema_version='0.3';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');
-        runtime_project_count=$projects.Count;processed=$processed;consumer_result=$consume;results=@($results);
-        status=if(@($results|Where-Object {$_.status -eq 'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed -gt 0 -or [int]$consume.processed -gt0){'ACTIONABLE'}elseif($projects.Count -gt 0){'IDLE'}else{'EMPTY'}
+        schema_version='0.4';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=$projects.Count;processed=$processed;consumer_result=$consume;human_input_resume_result=$humanResume;results=@($results);
+        status=if(@($results|Where-Object {$_.status -eq 'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed -gt 0 -or [int]$consume.processed -gt0 -or [int]$humanResume.processed -gt0){'ACTIONABLE'}elseif($projects.Count -gt 0){'IDLE'}else{'EMPTY'}
     }
 }
 
