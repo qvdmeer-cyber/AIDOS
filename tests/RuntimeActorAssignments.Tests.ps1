@@ -35,8 +35,8 @@ try {
     Assert-Actor ($appReplay.status -eq 'ALREADY_PENDING') 'applicability assignment replay is idempotent'
 
     Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$appAssignment.assignment.assignment_id) -Status ABANDONED|Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $projectRoot '.aidos/profile') -Force|Out-Null
-    [ordered]@{schema_version='0.1';project_id='RUNTIME-ACTOR';selected_presets=@([ordered]@{preset_id='WEB_APPLICATION';version=1;category='PRODUCT_ARCHETYPE';selection_source='BASELINE_DERIVED'});resolved_surfaces=@();conflicts=@();updated_at='2026-08-18T00:00:01Z'}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/profile/PROJECT_APPLICABILITY.json') -Encoding utf8NoBOM
+    $resolve=Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1'
+    & $resolve -ProjectRoot $projectRoot -ProjectId 'RUNTIME-ACTOR' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson '[]' -AidosRoot $root|Out-Null
 
     $start=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
     Assert-Actor ($start.action -eq 'START_DEFINITION') 'resolved Project Applicability unlocks Definition assignment'
@@ -45,6 +45,9 @@ try {
     Assert-Actor (-not[string]::IsNullOrWhiteSpace([string]$created.assignment.binding.definition_id) -and [int]$created.assignment.binding.definition_version -eq 1) 'Definition assignment owns exact Definition binding'
     $state=Read-TestState $projectRoot
     Assert-Actor ($state.state -eq 'WAITING_DEFINITION' -and [string]$state.definition_id -eq [string]$created.assignment.binding.definition_id) 'state transitions to WAITING_DEFINITION with same binding'
+    $definitionRoot=Join-Path $projectRoot ('.aidos/definitions/{0}/v{1}' -f $created.assignment.binding.definition_id,$created.assignment.binding.definition_version)
+    Assert-Actor (Test-Path -LiteralPath (Join-Path $definitionRoot 'APPLICABILITY.json') -PathType Leaf) 'Definition Applicability exists before actor assignment returns'
+    Assert-Actor (Test-Path -LiteralPath (Join-Path $definitionRoot 'PROGRESS.json') -PathType Leaf) 'Definition Progress exists before actor assignment returns'
     Assert-Actor (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 1) 'only Definition assignment remains pending after applicability closes'
 
     $resume=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
