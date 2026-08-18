@@ -31,6 +31,10 @@ $threw=$false
 try{Select-AidosDesktopChatGPTMostSpecificProofCandidate -Candidates @([pscustomobject]@{id='a';exact=$true;text_length=10;depth=4},[pscustomobject]@{id='b';exact=$true;text_length=10;depth=4}) -ProofText 'marker'|Out-Null}catch{$threw=$true}
 Assert-Proof $threw 'truly equivalent proof candidates remain fail-closed'
 
+Assert-Proof ((Get-AidosDesktopChatGPTProofSurfaceName ([pscustomobject]@{proof_surface='DOCUMENT'})) -eq 'DOCUMENT') 'explicit Document proof surface is recognized'
+Assert-Proof ((Get-AidosDesktopChatGPTProofSurfaceName ([pscustomobject]@{document_control_type='ControlType.Document'})) -eq 'DOCUMENT_LEGACY') 'legacy Document fingerprint is recognized for representation migration'
+Assert-Proof ((Get-AidosDesktopChatGPTProofSurfaceName ([pscustomobject]@{proof_surface='MOST_SPECIFIC_UIA_ELEMENT'})) -eq 'MOST_SPECIFIC_UIA_ELEMENT') 'element fallback proof surface is recognized'
+
 $windowModule=@(Get-Module AidosDesktopChatGPTWindowDiscovery -All -ErrorAction Stop|Where-Object {[IO.Path]::GetFullPath([string]$_.Path) -eq $windowModulePath}|Select-Object -Last 1)[0]
 Assert-Proof ($null-ne$windowModule) 'exact window-discovery module instance is loaded from the expected path'
 $shim=$windowModule.ExportedCommands['New-AidosDesktopChatGPTWindowsBackend']
@@ -48,8 +52,15 @@ Assert-Proof (-not [object]::ReferenceEquals($shim,$base)) 'compatibility shim i
 $proofSource=Get-Content -LiteralPath $proofModulePath -Raw -Encoding UTF8
 $backendStart=$proofSource.IndexOf('function New-AidosDesktopChatGPTResilientConversationBackend',[StringComparison]::Ordinal)
 $backendText=$proofSource.Substring($backendStart)
-Assert-Proof ($backendText.IndexOf('$documentConversationProof=Get-Command Get-AidosDesktopChatGPTDocumentConversationProof',[StringComparison]::Ordinal) -ge 0 -and $backendText.IndexOf('& $documentConversationProof',[StringComparison]::Ordinal) -ge 0) 'live resilient backend captures document-root conversation proof for callback execution'
-Assert-Proof ($backendText.IndexOf('.FindAll(',[StringComparison]::Ordinal) -lt 0) 'live resilient backend does not enumerate the full Chromium UIA subtree'
+Assert-Proof ($backendText.IndexOf('$resilientConversationProof=Get-Command Get-AidosDesktopChatGPTResilientConversationProof',[StringComparison]::Ordinal) -ge 0 -and $backendText.IndexOf('& $resilientConversationProof',[StringComparison]::Ordinal) -ge 0) 'live resilient backend captures the layered conversation-proof resolver for callback execution'
+Assert-Proof ($backendText.IndexOf('.FindAll(',[StringComparison]::Ordinal) -lt 0) 'live backend callback delegates UIA enumeration to the bounded proof resolver rather than embedding discovery logic'
+Assert-Proof ($proofSource.IndexOf('Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing',[StringComparison]::Ordinal) -ge 0) 'resilient proof first probes the established Document/RootWebArea path without treating absence as fatal'
+Assert-Proof ($proofSource.IndexOf('Get-AidosDesktopChatGPTElementConversationProof -RootElement $RootElement',[StringComparison]::Ordinal) -ge 0) 'missing Document/RootWebArea falls back to unique most-specific enrollment-marker proof'
+Assert-Proof ($proofSource.IndexOf("proof_surface='MOST_SPECIFIC_UIA_ELEMENT'",[StringComparison]::Ordinal) -ge 0) 'fallback fingerprint records the non-Document proof surface explicitly'
+Assert-Proof ($proofSource.IndexOf('Find-AidosDesktopChatGPTMostSpecificConversationElement -RootElement $RootElement -ProofText $AccountProofText',[StringComparison]::Ordinal) -ge 0) 'fallback independently verifies bound account proof'
+Assert-Proof ($proofSource.IndexOf("`$oldSurface -in @('DOCUMENT','DOCUMENT_LEGACY','MOST_SPECIFIC_UIA_ELEMENT')",[StringComparison]::Ordinal) -ge 0) 'existing enrollment identity can be retained only across explicitly known proof-surface classes'
+Assert-Proof ($proofSource.IndexOf('conversation_fingerprint_sha256=$ExistingFingerprintSha256',[StringComparison]::Ordinal) -ge 0) 'known proof-surface migration retains the durable enrolled conversation identity after current proof succeeds'
+Assert-Proof ($proofSource.IndexOf('remains ambiguous after most-specific UIA selection',[StringComparison]::Ordinal) -ge 0) 'ambiguous fallback proof remains fail-closed'
 Assert-Proof ($proofSource.IndexOf('is ambiguous in the active ChatGPT document',[StringComparison]::Ordinal) -lt 0) 'one UIA-bound conversation document accepts repeated enrollment marker representations'
 
 Write-Output "PASS: $passed resilient conversation proof assertions"
