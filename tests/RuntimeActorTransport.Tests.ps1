@@ -43,8 +43,9 @@ try {
     }
     $saved=Save-AidosRuntimeActorResult -ProjectRoot $projectRoot -Result $result
     Assert-Transport ($saved.status -eq 'SAVED') 'exact-bound actor result is saved'
-    $terminal=Read-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id)
-    Assert-Transport ($terminal.status -eq 'COMPLETED' -and -not[string]::IsNullOrWhiteSpace([string]$terminal.result_ref)) 'saved result closes transport lifecycle'
+    $completed=Read-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id)
+    Assert-Transport ($completed.status -eq 'COMPLETED' -and -not[string]::IsNullOrWhiteSpace([string]$completed.result_ref)) 'saved result reaches completed transport state'
+    Assert-Transport (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 1) 'COMPLETED result remains pending until Core consumption'
     $again=Save-AidosRuntimeActorResult -ProjectRoot $projectRoot -Result $result
     Assert-Transport ($again.status -eq 'ALREADY_SAVED') 'identical actor result replay is idempotent'
 
@@ -59,6 +60,10 @@ try {
     $threw=$false
     try{Test-AidosRuntimeActorResultBinding -ProjectRoot $projectRoot -Result $badBinding|Out-Null}catch{$threw=$true}
     Assert-Transport $threw 'Definition binding mismatch fails closed'
+
+    $consumed=Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id) -Status CONSUMED
+    Assert-Transport ($consumed.status -eq 'CONSUMED') 'Core may explicitly close completed result as consumed'
+    Assert-Transport (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 0) 'CONSUMED removes assignment from pending scheduler set'
 } finally {
     if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force}
 }
