@@ -39,7 +39,12 @@ function Get-AidosRuntimeNextActor {
     $selection=switch([string]$state.state){
         'IDLE' {
             if([string]::IsNullOrWhiteSpace([string]$state.definition_id)){
-                [ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';priority=100;activatable=$true}
+                $applicabilityPath=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
+                if(-not(Test-Path -LiteralPath $applicabilityPath -PathType Leaf)){
+                    [ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='RESOLVE_PROJECT_APPLICABILITY';priority=110;activatable=$true}
+                }else{
+                    [ordered]@{actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';priority=100;activatable=$true}
+                }
             }else{
                 [ordered]@{actor_role='HUMAN';actor_identity='HUMAN';action='WAIT_NEW_GOAL';priority=10;activatable=$false}
             }
@@ -98,7 +103,7 @@ function Invoke-AidosRuntimeProjectManagerTick {
         if([bool]$selection.activatable){
             if($ActorActivator){
                 try{$activation=& $ActorActivator $candidate.project $selection;$status='ACTIVATED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
-            }elseif([string]$selection.actor_identity -eq 'DEFINITION_AGENT' -and [string]$selection.action -in @('START_DEFINITION','RESUME_DEFINITION')){
+            }elseif([string]$selection.actor_identity -eq 'DEFINITION_AGENT' -and [string]$selection.action -in @('RESOLVE_PROJECT_APPLICABILITY','START_DEFINITION','RESUME_DEFINITION')){
                 try{
                     $activation=New-AidosRuntimeActorAssignment -Project $candidate.project -Selection $selection
                     $assignmentId=[string]$activation.assignment.assignment_id
@@ -115,7 +120,7 @@ function Invoke-AidosRuntimeProjectManagerTick {
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
     [pscustomobject][ordered]@{
-        schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');
+        schema_version='0.2';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');
         runtime_project_count=$projects.Count;processed=$processed;results=@($results);
         status=if(@($results|Where-Object {$_.status -eq 'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed -gt 0){'ACTIONABLE'}elseif($projects.Count -gt 0){'IDLE'}else{'EMPTY'}
     }
