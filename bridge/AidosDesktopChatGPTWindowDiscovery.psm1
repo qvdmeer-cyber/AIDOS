@@ -209,27 +209,156 @@ function Add-AidosDesktopChatGPTFreshComposerProof {
     $Backend
 }
 
+function Get-AidosDesktopChatGPTElementSearchTexts {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Element)
+    $values=[Collections.Generic.List[string]]::new()
+    try {
+        $textPattern=$Element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+        if($textPattern){
+            $text=[string]$textPattern.DocumentRange.GetText(-1)
+            if(-not[string]::IsNullOrWhiteSpace($text)){$values.Add($text)}
+        }
+    } catch {}
+    try {
+        $valuePattern=$Element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if($valuePattern){
+            $text=[string]$valuePattern.Current.Value
+            if(-not[string]::IsNullOrWhiteSpace($text)){$values.Add($text)}
+        }
+    } catch {}
+    foreach($propertyName in @('Name','HelpText','AutomationId','ClassName')){
+        try {
+            $text=[string]$Element.Current.$propertyName
+            if(-not[string]::IsNullOrWhiteSpace($text)){$values.Add($text)}
+        } catch {}
+    }
+    @($values|Select-Object -Unique)
+}
+
+function Get-AidosDesktopChatGPTJsonObjectCandidates {
+    [CmdletBinding()]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if([string]::IsNullOrWhiteSpace($Text)){return @()}
+    $objects=[Collections.Generic.List[string]]::new()
+    $start=-1
+    $depth=0
+    $inString=$false
+    $escaped=$false
+    for($index=0;$index-lt$Text.Length;$index++){
+        $character=$Text[$index]
+        if($start-lt0){
+            if($character-eq'{'){
+                $start=$index
+                $depth=1
+                $inString=$false
+                $escaped=$false
+            }
+            continue
+        }
+        if($inString){
+            if($escaped){$escaped=$false;continue}
+            if($character-eq'\'){$escaped=$true;continue}
+            if($character-eq'"'){$inString=$false}
+            continue
+        }
+        if($character-eq'"'){$inString=$true;continue}
+        if($character-eq'{'){$depth++;continue}
+        if($character-ne'}'){continue}
+        $depth--
+        if($depth-ne0){continue}
+        $candidate=$Text.Substring($start,$index-$start+1)
+        try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{$parsed=$null}
+        if($null-ne$parsed){$objects.Add($candidate)}
+        $start=-1
+        $depth=0
+        $inString=$false
+        $escaped=$false
+    }
+    @($objects)
+}
+
+function Select-AidosDesktopChatGPTResolvedActorResponseText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string[]]$Texts,[Parameter(Mandatory)]$Assignment)
+    if(-not$Assignment){return $null}
+    $assignmentObject=if($Assignment.PSObject.Properties['assignment']){$Assignment.assignment}else{$Assignment}
+    if(-not$assignmentObject -or [string]::IsNullOrWhiteSpace([string]$assignmentObject.assignment_id)){return $null}
+    $assignmentId=[string]$assignmentObject.assignment_id
+    $expectedAssignmentHashes=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    if($Assignment.PSObject.Properties['sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.sha256)}
+    elseif($Assignment.PSObject.Properties['assignment_sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.assignment_sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.assignment_sha256)}
+    $surfaces=[Collections.Generic.List[string]]::new()
+    $seenSurfaces=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($text in @($Texts)){
+        if([string]::IsNullOrWhiteSpace([string]$text)){continue}
+        $value=[string]$text
+        if($seenSurfaces.Add($value)){$surfaces.Add($value)}
+    }
+    $orderedSurfaces=@($surfaces)
+    if($orderedSurfaces.Count-gt1){
+        $compact=[string]::Concat($orderedSurfaces)
+        if($seenSurfaces.Add($compact)){$surfaces.Add($compact)}
+        $aggregate=[string]::Join("`n",$orderedSurfaces)
+        if($seenSurfaces.Add($aggregate)){$surfaces.Add($aggregate)}
+    }
+    if($expectedAssignmentHashes.Count-eq0){
+        foreach($surface in @($surfaces)){
+            if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
+                if($candidate.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-lt0 -and $candidate.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+                try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
+                if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
+                if([string]$parsed.assignment_id-ne$assignmentId){continue}
+                $templateHash=[string]$parsed.assignment_sha256
+                if($templateHash-match'^[0-9a-fA-F]{64}$'){[void]$expectedAssignmentHashes.Add($templateHash)}
+            }
+        }
+    }
+    $responses=[Collections.Generic.List[string]]::new()
+    $seenResponses=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($surface in @($surfaces)){
+        if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
+            if($candidate.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+            if($candidate.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+            try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
+            if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
+            if([string]$parsed.assignment_id-ne$assignmentId){continue}
+            $candidateHash=[string]$parsed.assignment_sha256
+            if($candidateHash-notmatch'^[0-9a-fA-F]{64}$'){continue}
+            if($expectedAssignmentHashes.Count-gt0 -and -not$expectedAssignmentHashes.Contains($candidateHash)){continue}
+            if($seenResponses.Add($candidate)){$responses.Add($candidate)}
+        }
+    }
+    if($responses.Count-eq0){return $null}
+    $responses[$responses.Count-1]
+}
+
 function Get-AidosDesktopChatGPTResolvedActorResponseText {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context,[Parameter(Mandatory)]$Assignment)
-    if(-not$Assignment -or [string]::IsNullOrWhiteSpace([string]$Assignment.assignment_id)){return $null}
+    if(-not$Assignment){return $null}
+    $assignmentObject=if($Assignment.PSObject.Properties['assignment']){$Assignment.assignment}else{$Assignment}
+    if(-not$assignmentObject -or [string]::IsNullOrWhiteSpace([string]$assignmentObject.assignment_id)){return $null}
     if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){return $null}
     Initialize-AidosDesktopChatGPTWindowDiscovery
     $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
     if(-not$root){return $null}
-    $assignmentId=[string]$Assignment.assignment_id
-    $candidates=[System.Collections.Generic.List[string]]::new()
+    $rootTexts=@(Get-AidosDesktopChatGPTElementSearchTexts -Element $root)
+    $rootResponse=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts $rootTexts -Assignment $Assignment
+    if(-not[string]::IsNullOrWhiteSpace([string]$rootResponse)){return $rootResponse}
+    $texts=[Collections.Generic.List[string]]::new()
+    foreach($text in $rootTexts){if(-not[string]::IsNullOrWhiteSpace([string]$text)){$texts.Add([string]$text)}}
     foreach($element in @($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
-        $text=Get-AidosDesktopChatGPTElementText $element
-        if([string]::IsNullOrWhiteSpace([string]$text)){continue}
-        if(([string]$text).IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
-        if(([string]$text).IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
-        if(([string]$text).IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
-        if(([string]$text).IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
-        $candidates.Add([string]$text)
+        try{if([string]$element.Current.AutomationId-eq'prompt-textarea'){continue}}catch{}
+        foreach($text in @(Get-AidosDesktopChatGPTElementSearchTexts -Element $element)){
+            if(-not[string]::IsNullOrWhiteSpace([string]$text)){$texts.Add([string]$text)}
+        }
     }
-    if($candidates.Count-eq0){return $null}
-    $candidates[$candidates.Count-1]
+    Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($texts) -Assignment $Assignment
 }
 
 function Add-AidosDesktopChatGPTResolvedActorResponseReader {
@@ -298,4 +427,4 @@ function New-AidosDesktopChatGPTWindowsBackend {
     New-AidosDesktopChatGPTResilientWindowsBackend -ProcessName $ProcessName
 }
 
-Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosWindowDiscoveryText,Get-AidosWindowDiscoveryClass,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,Get-AidosDesktopChatGPTFreshComposerObservation,Wait-AidosDesktopChatGPTFreshComposerCleared,Add-AidosDesktopChatGPTFreshComposerProof,Get-AidosDesktopChatGPTResolvedActorResponseText,Add-AidosDesktopChatGPTResolvedActorResponseReader,Add-AidosDesktopChatGPTConversationProofRecovery,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
+Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosWindowDiscoveryText,Get-AidosWindowDiscoveryClass,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,Get-AidosDesktopChatGPTFreshComposerObservation,Wait-AidosDesktopChatGPTFreshComposerCleared,Add-AidosDesktopChatGPTFreshComposerProof,Get-AidosDesktopChatGPTElementSearchTexts,Get-AidosDesktopChatGPTJsonObjectCandidates,Select-AidosDesktopChatGPTResolvedActorResponseText,Get-AidosDesktopChatGPTResolvedActorResponseText,Add-AidosDesktopChatGPTResolvedActorResponseReader,Add-AidosDesktopChatGPTConversationProofRecovery,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
