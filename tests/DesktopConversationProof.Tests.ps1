@@ -46,6 +46,13 @@ Assert-Proof (-not(Test-AidosDesktopChatGPTStoredConversationIdentity -Context $
 Assert-Proof (-not(Test-AidosDesktopChatGPTStoredConversationIdentity -Context ([pscustomobject]@{process_name='ChatGPT Classic';session_id='2';window_title='ChatGPT Classic';window_class_name='Chrome_WidgetWin_1'}) -ExistingFingerprint $storedFingerprint -ObservedDocumentValue 'https://chatgpt.com/c/example-conversation')) 'different Windows session fails stored conversation revalidation'
 Assert-Proof (-not(Test-AidosDesktopChatGPTStoredConversationIdentity -Context ([pscustomobject]@{process_name='ChatGPT Classic';session_id='1';window_title='Other';window_class_name='Chrome_WidgetWin_1'}) -ExistingFingerprint $storedFingerprint -ObservedDocumentValue 'https://chatgpt.com/c/example-conversation')) 'different shell title fails stored conversation revalidation'
 
+$storedSelected=Select-AidosDesktopChatGPTStoredConversationDocumentCandidate -Candidates @([pscustomobject]@{id='outer';depth=3},[pscustomobject]@{id='conversation';depth=9})
+Assert-Proof ($storedSelected.id -eq 'conversation') 'deepest exact URL-matching Document wins over broader Document containers'
+Assert-Proof ($null-eq(Select-AidosDesktopChatGPTStoredConversationDocumentCandidate -Candidates @())) 'no exact stored URL Document returns no revalidation candidate'
+$storedAmbiguous=$false
+try{Select-AidosDesktopChatGPTStoredConversationDocumentCandidate -Candidates @([pscustomobject]@{id='a';depth=9},[pscustomobject]@{id='b';depth=9})|Out-Null}catch{$storedAmbiguous=$true}
+Assert-Proof $storedAmbiguous 'equally specific stored URL Documents remain fail-closed'
+
 $windowModule=@(Get-Module AidosDesktopChatGPTWindowDiscovery -All -ErrorAction Stop|Where-Object {[IO.Path]::GetFullPath([string]$_.Path) -eq $windowModulePath}|Select-Object -Last 1)[0]
 Assert-Proof ($null-ne$windowModule) 'exact window-discovery module instance is loaded from the expected path'
 $shim=$windowModule.ExportedCommands['New-AidosDesktopChatGPTWindowsBackend']
@@ -67,8 +74,9 @@ $backendStart=$proofSource.IndexOf('function New-AidosDesktopChatGPTResilientCon
 $backendText=$proofSource.Substring($backendStart)
 Assert-Proof ($backendText.IndexOf('$resilientConversationProof=Get-Command Get-AidosDesktopChatGPTResilientConversationProof',[StringComparison]::Ordinal) -ge 0 -and $backendText.IndexOf('& $resilientConversationProof',[StringComparison]::Ordinal) -ge 0) 'live resilient backend captures the layered conversation-proof resolver for callback execution'
 Assert-Proof ($backendText.IndexOf('.FindAll(',[StringComparison]::Ordinal) -lt 0) 'live backend callback delegates UIA enumeration to the bounded proof resolver rather than embedding discovery logic'
-Assert-Proof ($proofSource.IndexOf('Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing',[StringComparison]::Ordinal) -ge 0) 'resilient proof first probes the established Document/RootWebArea path without treating absence as fatal'
-Assert-Proof ($proofSource.IndexOf('Test-AidosDesktopChatGPTStoredConversationIdentity -Context $Context -ExistingFingerprint $ExistingFingerprint -ObservedDocumentValue $documentValue',[StringComparison]::Ordinal) -ge 0) 'enrolled Thinker revalidation prefers exact stored conversation URL plus shell binding before historic marker text'
+Assert-Proof ($proofSource.IndexOf('Find-AidosDesktopChatGPTStoredConversationDocument -RootElement $RootElement -Context $Context -ExistingFingerprint $ExistingFingerprint',[StringComparison]::Ordinal) -ge 0) 'enrolled Thinker searches all Document elements for its exact stored conversation URL before generic Document proof'
+Assert-Proof ($proofSource.IndexOf('$RootElement.FindAll([System.Windows.Automation.TreeScope]::Subtree,$condition)',[StringComparison]::Ordinal) -ge 0) 'stored conversation lookup enumerates the complete Document subtree rather than accepting the first Document'
+Assert-Proof ($proofSource.IndexOf('Get-AidosDesktopChatGPTConversationDocumentElement -RootElement $RootElement -AllowMissing',[StringComparison]::Ordinal) -ge 0) 'generic Document/RootWebArea proof remains available after stored URL revalidation'
 Assert-Proof ($proofSource.IndexOf("proof_surface_revalidated='STORED_CONVERSATION_URL'",[StringComparison]::Ordinal) -ge 0) 'successful URL revalidation explicitly records its durable proof mechanism'
 Assert-Proof ($proofSource.IndexOf('Get-AidosDesktopChatGPTElementConversationProof -RootElement $RootElement',[StringComparison]::Ordinal) -ge 0) 'missing Document/RootWebArea falls back to unique most-specific enrollment-marker proof'
 Assert-Proof ($proofSource.IndexOf("proof_surface='MOST_SPECIFIC_UIA_ELEMENT'",[StringComparison]::Ordinal) -ge 0) 'fallback fingerprint records the non-Document proof surface explicitly'
