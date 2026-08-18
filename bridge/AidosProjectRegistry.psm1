@@ -147,8 +147,15 @@ function Set-AidosPreparationProjectPhase {
     param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)][string]$Phase,[ValidateSet('ACTIVE','WAITING_HUMAN','BLOCKED','READY_FOR_ONBOARDING','PROMOTED')][string]$Status='ACTIVE')
     $path=Get-AidosRegistryProjectPath ([IO.Path]::GetFullPath($RegistryRoot)) $ProjectId
     $record=Get-AidosRegisteredProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
+    if([string]$record.stage -eq 'RUNTIME' -and $Status -ne 'PROMOTED'){
+        throw "Runtime project '$ProjectId' may not be downgraded to preparation status '$Status'."
+    }
     $record.preparation_phase=$Phase;$record.status=$Status;$record.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
-    if($Status-eq'PROMOTED'){$record.stage='RUNTIME';$record.promoted_at=$record.updated_at}
+    if($Status-eq'PROMOTED'){
+        $record.stage='RUNTIME'
+        $record.preparation_phase='RUNTIME'
+        if([string]::IsNullOrWhiteSpace([string]$record.promoted_at)){$record.promoted_at=$record.updated_at}
+    }
     Write-AidosJsonAtomic $path $record
     $record
 }
