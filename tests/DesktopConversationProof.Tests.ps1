@@ -29,7 +29,8 @@ $threw=$false
 try{Select-AidosDesktopChatGPTMostSpecificProofCandidate -Candidates @([pscustomobject]@{id='a';exact=$true;text_length=10;depth=4},[pscustomobject]@{id='b';exact=$true;text_length=10;depth=4}) -ProofText 'marker'|Out-Null}catch{$threw=$true}
 Assert-Proof $threw 'truly equivalent proof candidates remain fail-closed'
 
-$command=Get-Command New-AidosDesktopChatGPTWindowsBackend -ErrorAction Stop
-Assert-Proof ($command.Source -eq 'AidosDesktopChatGPTWindowDiscovery') 'Thinker import graph resolves the resilient backend wrapper after the base Desktop ChatGPT module'
+$thinkerModule=Get-Module AidosDesktopThinkerTransport -ErrorAction Stop
+$command=& $thinkerModule { Get-Command New-AidosDesktopChatGPTWindowsBackend -ErrorAction Stop }
+Assert-Proof ($command.Source -eq 'AidosDesktopChatGPTWindowDiscovery') 'Thinker module scope resolves the resilient backend wrapper after the base Desktop ChatGPT module'
 
 Write-Output "PASS: $passed resilient conversation proof assertions"
