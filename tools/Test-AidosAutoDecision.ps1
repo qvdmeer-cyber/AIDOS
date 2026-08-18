@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)][string]$DecisionPath,
     [Parameter(Mandatory)][string]$ContractsRoot,
+    [string]$ProjectRoot,
     [switch]$Json,
     [switch]$NoExit
 )
@@ -11,6 +12,13 @@ $ErrorActionPreference = 'Stop'
 
 $errors = [System.Collections.Generic.List[string]]::new()
 if (-not (Test-Path -LiteralPath $DecisionPath -PathType Leaf)) { throw "Auto Decision not found: $DecisionPath" }
+if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    $root = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar,[System.IO.Path]::AltDirectorySeparatorChar)
+    $decisionFull = [System.IO.Path]::GetFullPath($DecisionPath)
+    $prefix = $root + [System.IO.Path]::DirectorySeparatorChar
+    $comparison = if ([System.OperatingSystem]::IsWindows()) {[System.StringComparison]::OrdinalIgnoreCase} else {[System.StringComparison]::Ordinal}
+    if (-not $decisionFull.StartsWith($prefix,$comparison)) { $errors.Add('Auto Decision path is outside the bound project root.') }
+}
 $decision = Get-Content -LiteralPath $DecisionPath -Raw | ConvertFrom-Json -Depth 100
 
 if ($decision.contract_version -ne '0.1.0') { $errors.Add('Unsupported Auto Decision contract version.') }
