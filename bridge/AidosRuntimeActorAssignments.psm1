@@ -63,6 +63,7 @@ function New-AidosRuntimeActorAssignment {
     $now=[DateTimeOffset]::UtcNow.ToString('o')
     $assignment=[ordered]@{
         schema_version='0.1'
+        envelope_type='RUNTIME_ACTOR_ASSIGNMENT'
         assignment_id=[guid]::NewGuid().ToString()
         project_id=[string]$Project.project_id
         actor_role=[string]$Selection.actor_role
