@@ -35,7 +35,7 @@ function Get-AidosPendingRuntimeActorAssignments {
             $terminal=$false
             if(Test-Path -LiteralPath $transportPath -PathType Leaf){
                 $transport=Get-Content -LiteralPath $transportPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
-                $terminal=[string]$transport.status -in @('COMPLETED','FAILED','ABANDONED')
+                $terminal=[string]$transport.status -in @('CONSUMED','FAILED','ABANDONED')
             }
             if(-not$terminal){$record}
         }
