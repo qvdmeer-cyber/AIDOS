@@ -173,15 +173,11 @@ function Start-AidosPersistentLocalDesktopAgent {
         $boot=[ordered]@{schema_version='0.1';owner_id=$owner;pid=$PID;project_root=$ProjectRoot;preparation_registry_root=$PreparationRegistryRoot;authorized_user=$AuthorizedUser;process_name=$ProcessName;heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o');phase='BOOTING';last_tick=$null;failure_count=0}
         Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $boot
         Add-AidosHostAgentEvent $StateRoot 'AGENT_BOOTING' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;preparation_registry_root=$PreparationRegistryRoot}
-        try {
-            $startup=Invoke-AidosStartupReconciliation -ProjectRoot $ProjectRoot
-            Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTED' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;startup_reconciliation=$startup.status}
-        } catch {
-            $failureCount=1
-            $boot.phase='STARTUP_ERROR';$boot.failure_count=$failureCount;$boot.startup_error=$_.Exception.Message;$boot.heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')
-            Write-AidosHostAgentJsonAtomic (Get-AidosHostAgentPath $StateRoot status) $boot
-            Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTUP_ERROR' @{owner_id=$owner;error=$_.Exception.Message}
-        }
+        # Portfolio scheduling must never be blocked by legacy single-project startup
+        # reconciliation. The same review reconciliation runs fail-closed inside each
+        # normal tick after preparation/runtime scheduling has already had a chance to
+        # advance registered projects.
+        Add-AidosHostAgentEvent $StateRoot 'AGENT_STARTED' @{owner_id=$owner;project_root=$ProjectRoot;authorized_user=$AuthorizedUser;startup_reconciliation='DEFERRED_TO_TICK'}
         do {
             try {$tick=Invoke-AidosHostAgentTick -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -ResponseTimeoutSeconds $ResponseTimeoutSeconds -PreparationRegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -PreparationPush:$PreparationPush; $failureCount=0}
             catch {$tick=[pscustomobject]@{status='ERROR';reason=$_.Exception.Message};$failureCount=1+[int]$failureCount}
