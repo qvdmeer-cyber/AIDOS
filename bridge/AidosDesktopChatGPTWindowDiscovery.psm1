@@ -209,6 +209,40 @@ function Add-AidosDesktopChatGPTFreshComposerProof {
     $Backend
 }
 
+function Get-AidosDesktopChatGPTResolvedActorResponseText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context,[Parameter(Mandatory)]$Assignment)
+    if(-not$Assignment -or [string]::IsNullOrWhiteSpace([string]$Assignment.assignment_id)){return $null}
+    if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){return $null}
+    Initialize-AidosDesktopChatGPTWindowDiscovery
+    $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+    if(-not$root){return $null}
+    $assignmentId=[string]$Assignment.assignment_id
+    $candidates=[System.Collections.Generic.List[string]]::new()
+    foreach($element in @($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
+        $text=Get-AidosDesktopChatGPTElementText $element
+        if([string]::IsNullOrWhiteSpace([string]$text)){continue}
+        if(([string]$text).IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        if(([string]$text).IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        if(([string]$text).IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+        if(([string]$text).IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+        $candidates.Add([string]$text)
+    }
+    if($candidates.Count-eq0){return $null}
+    $candidates[$candidates.Count-1]
+}
+
+function Add-AidosDesktopChatGPTResolvedActorResponseReader {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Backend)
+    $resolvedReader=Get-Command Get-AidosDesktopChatGPTResolvedActorResponseText -CommandType Function -ErrorAction Stop
+    $Backend|Add-Member -NotePropertyName ReadActorResponseText -NotePropertyValue ({
+        param($Context,$Enrollment,[int]$Attempt,$Assignment)
+        & $resolvedReader -Context $Context -Assignment $Assignment
+    }).GetNewClosure() -Force
+    $Backend
+}
+
 function Add-AidosDesktopChatGPTConversationProofRecovery {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Backend)
@@ -251,6 +285,7 @@ function New-AidosDesktopChatGPTResilientWindowsBackend {
     }).GetNewClosure()
     $backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
     $backend=Add-AidosDesktopChatGPTFreshComposerProof -Backend $backend
+    $backend=Add-AidosDesktopChatGPTResolvedActorResponseReader -Backend $backend
     Add-AidosDesktopChatGPTConversationProofRecovery -Backend $backend
 }
 
@@ -263,4 +298,4 @@ function New-AidosDesktopChatGPTWindowsBackend {
     New-AidosDesktopChatGPTResilientWindowsBackend -ProcessName $ProcessName
 }
 
-Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosWindowDiscoveryText,Get-AidosWindowDiscoveryClass,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,Get-AidosDesktopChatGPTFreshComposerObservation,Wait-AidosDesktopChatGPTFreshComposerCleared,Add-AidosDesktopChatGPTFreshComposerProof,Add-AidosDesktopChatGPTConversationProofRecovery,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
+Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosWindowDiscoveryText,Get-AidosWindowDiscoveryClass,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,Get-AidosDesktopChatGPTFreshComposerObservation,Wait-AidosDesktopChatGPTFreshComposerCleared,Add-AidosDesktopChatGPTFreshComposerProof,Get-AidosDesktopChatGPTResolvedActorResponseText,Add-AidosDesktopChatGPTResolvedActorResponseReader,Add-AidosDesktopChatGPTConversationProofRecovery,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
