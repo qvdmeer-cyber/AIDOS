@@ -6,6 +6,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableName
 Import-Module (Join-Path $PSScriptRoot 'AidosPreparationRuntime.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosPreparationOnboarding.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking
 
 function Get-AidosPreparationRegistryProjects {
     [CmdletBinding()]
@@ -107,7 +108,8 @@ function Invoke-AidosPreparationDispatcherTick {
         [switch]$Push,
         [scriptblock]$ResumeProcessor,
         [scriptblock]$SyncProcessor,
-        [scriptblock]$OnboardingProcessor
+        [scriptblock]$OnboardingProcessor,
+        [scriptblock]$RuntimeProjectManager
     )
     if($MaxItems -lt 1){throw 'MaxItems must be at least 1.'}
     $projects=@(Get-AidosPreparationRegistryProjects -RegistryRoot $RegistryRoot)
@@ -156,9 +158,19 @@ function Invoke-AidosPreparationDispatcherTick {
             $processed++
         }
     }
+
+    $runtime=$null
+    try{
+        $runtime=if($RuntimeProjectManager){& $RuntimeProjectManager $RegistryRoot $MaxItems $Push}else{Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RegistryRoot -MaxProjects $MaxItems -Push:$Push}
+    }catch{
+        $runtime=[pscustomobject][ordered]@{schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;results=@();status='ERROR';error=$_.Exception.Message}
+    }
+    $preparationError=@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count -gt 0
+    $runtimeError=$runtime -and [string]$runtime.status -eq 'ERROR'
+    $didWork=($processed -gt 0 -or ($runtime -and [int]$runtime.processed -gt 0))
     [pscustomobject][ordered]@{
-        schema_version='0.1';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);
-        status=if($processed-eq0-and$results.Count-eq0){'IDLE'}elseif(@($results|Where-Object {$_.status -in @('ERROR','SYNC_ERROR','ONBOARDING_ERROR')}).Count){'ERROR'}else{'PROCESSED'}
+        schema_version='0.2';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');project_count=$projects.Count;processed=$processed;results=@($results);runtime_result=$runtime;
+        status=if($preparationError-or$runtimeError){'ERROR'}elseif($didWork){'PROCESSED'}else{'IDLE'}
     }
 }
 
