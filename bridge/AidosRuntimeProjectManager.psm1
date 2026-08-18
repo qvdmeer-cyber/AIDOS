@@ -5,6 +5,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorResultConsumer.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
     [CmdletBinding()]
@@ -78,9 +79,16 @@ function Invoke-AidosRuntimeProjectManagerTick {
         [Parameter(Mandatory)][string]$RegistryRoot,
         [int]$MaxProjects=1,
         [switch]$Push,
-        [scriptblock]$ActorActivator
+        [scriptblock]$ActorActivator,
+        [scriptblock]$ResultConsumer
     )
     if($MaxProjects -lt 1){throw 'MaxProjects must be at least 1.'}
+    $consume=try{
+        if($ResultConsumer){& $ResultConsumer $RegistryRoot $MaxProjects $Push}else{Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $RegistryRoot -MaxItems $MaxProjects -Push:$Push}
+    }catch{[pscustomobject][ordered]@{status='ERROR';processed=0;results=@();error=$_.Exception.Message}}
+    if([string]$consume.status -eq 'ERROR'){
+        return [pscustomobject][ordered]@{schema_version='0.3';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');runtime_project_count=0;processed=0;consumer_result=$consume;results=@();status='ERROR'}
+    }
     $projects=@(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot)
     $candidates=[System.Collections.Generic.List[object]]::new()
     foreach($project in $projects){
@@ -120,9 +128,9 @@ function Invoke-AidosRuntimeProjectManagerTick {
         $results.Add([pscustomobject][ordered]@{project_id=[string]$candidate.project.project_id;status=$status;selection=$selection;activation=$activation;persistence=$persistence})
     }
     [pscustomobject][ordered]@{
-        schema_version='0.2';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');
-        runtime_project_count=$projects.Count;processed=$processed;results=@($results);
-        status=if(@($results|Where-Object {$_.status -eq 'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed -gt 0){'ACTIONABLE'}elseif($projects.Count -gt 0){'IDLE'}else{'EMPTY'}
+        schema_version='0.3';registry_root=[IO.Path]::GetFullPath($RegistryRoot);observed_at=[DateTimeOffset]::UtcNow.ToString('o');
+        runtime_project_count=$projects.Count;processed=$processed;consumer_result=$consume;results=@($results);
+        status=if(@($results|Where-Object {$_.status -eq 'ACTIVATION_ERROR'}).Count){'ERROR'}elseif($processed -gt 0 -or [int]$consume.processed -gt0){'ACTIONABLE'}elseif($projects.Count -gt 0){'IDLE'}else{'EMPTY'}
     }
 }
 
