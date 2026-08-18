@@ -54,7 +54,8 @@ This product is an interactive browser-based web application with a responsive o
     Assert-Consumer (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 1) 'completed applicability result remains pending before Core consumption'
 
     $consumed=Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $registry -AidosRoot $root -MaxItems 1
-    Assert-Consumer ($consumed.status -eq 'PROCESSED' -and $consumed.results[0].status -eq 'APPLIED') 'Core consumes exact-bound applicability result'
+    $detail=if($consumed.results.Count -gt 0 -and $consumed.results[0].PSObject.Properties['error']){[string]$consumed.results[0].error}else{($consumed|ConvertTo-Json -Depth 20 -Compress)}
+    Assert-Consumer ($consumed.status -eq 'PROCESSED' -and $consumed.results[0].status -eq 'APPLIED') "Core consumes exact-bound applicability result; detail=$detail"
     $profilePath=Join-Path $projectRoot '.aidos/profile/PROJECT_APPLICABILITY.json'
     Assert-Consumer (Test-Path -LiteralPath $profilePath -PathType Leaf) 'canonical Project Applicability profile is persisted'
     $profile=Get-Content -LiteralPath $profilePath -Raw|ConvertFrom-Json -Depth 100
