@@ -52,7 +52,7 @@ function New-AidosDesktopThinkerStubBackend {
         SendPrompt=({param($Context,$Enrollment,[string]$PromptText);$state.send_count++;$state.last_prompt=$PromptText;if($PromptText -match 'AIDOS_THINKER_TRANSPORT_ENROLLMENT::(?<id>[0-9a-f-]+)'){$state.proof_text='AIDOS_THINKER_TRANSPORT_ENROLLMENT::'+$Matches.id}}).GetNewClosure()
         LocateConversation=({
             param($Context,[string]$ProofText,$Enrollment)
-            if(-$ConversationProofAvailable){throw 'Stub Thinker conversation proof is unavailable.'}
+            if(-not$ConversationProofAvailable){throw 'Stub Thinker conversation proof is unavailable.'}
             if([string]::IsNullOrWhiteSpace([string]$state.proof_text) -or [string]$state.proof_text -ne $ProofText){throw 'Stub Thinker conversation proof is not present.'}
             $fingerprint=[ordered]@{window_title=$Context.window_title;window_class_name=$Context.window_class_name;conversation_proof_text=$ProofText;path=@([ordered]@{name='stub';control_type='Window'})}
             $json=$fingerprint|ConvertTo-Json -Depth 100 -Compress
@@ -68,7 +68,7 @@ function Complete-AidosDesktopThinkerEnrollment {
     $Enrollment.status='ENROLLED'
     $Enrollment.conversation_fingerprint_sha256=[string]$Location.conversation_fingerprint_sha256
     $Enrollment.conversation_fingerprint=$Location.conversation_fingerprint
-    if(-$Enrollment.PSObject.Properties['enrolled_at'] -or [string]::IsNullOrWhiteSpace([string]$Enrollment.enrolled_at)){$Enrollment|Add-Member -NotePropertyName enrolled_at -NotePropertyValue $now -Force}
+    if(-not $Enrollment.PSObject.Properties['enrolled_at'] -or [string]::IsNullOrWhiteSpace([string]$Enrollment.enrolled_at)){$Enrollment|Add-Member -NotePropertyName enrolled_at -NotePropertyValue $now -Force}
     $Enrollment.updated_at=$now
     Write-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $Enrollment|Out-Null
     $Enrollment
@@ -88,7 +88,7 @@ function Initialize-AidosDesktopThinkerEnrollment {
         if($existingStatus -eq 'PENDING_ENROLLMENT'){
             $loc=$null
             try{$loc=& $Backend.LocateConversation $context ([string]$existing.conversation_proof_text) $existing}catch{$loc=$null}
-            if(-$loc){
+            if(-not $loc){
                 return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$true;enrollment=$existing;context=$context}
             }
             $completed=Complete-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $existing -Location $loc
@@ -108,8 +108,6 @@ function Initialize-AidosDesktopThinkerEnrollment {
         window_title=[string]$context.window_title;window_class_name=[string]$context.window_class_name;conversation_proof_text=$marker;
         conversation_fingerprint_sha256=$null;conversation_fingerprint=$null;created_at=$now;enrolled_at=$null;updated_at=$now
     }
-    # Persist the marker before sending it. A crash or proof failure must never cause
-    # the next tick to generate and send a different enrollment marker.
     Write-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $pending|Out-Null
     $prompt=$marker+"`nThis is a transport enrollment marker for the AIDOS dedicated Thinker shell. Reply with exactly: AIDOS_THINKER_ENROLLMENT_ACK"
     & $Backend.SendPrompt $context $pending $prompt
@@ -118,7 +116,7 @@ function Initialize-AidosDesktopThinkerEnrollment {
         try{$loc=& $Backend.LocateConversation $context $marker $pending}catch{$loc=$null}
         if($loc){break};Start-Sleep -Milliseconds 250
     }
-    if(-$loc){
+    if(-not $loc){
         return [pscustomobject][ordered]@{status='PENDING_ENROLLMENT';idempotent=$false;enrollment=$pending;context=$context}
     }
     $completed=Complete-AidosDesktopThinkerEnrollment -StateRoot $StateRoot -Enrollment $pending -Location $loc
