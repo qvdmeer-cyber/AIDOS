@@ -60,6 +60,78 @@ function Test-AidosApplicabilityProfileMatchesProposal {
     $expectedOverrides=@($Overrides|ForEach-Object {[ordered]@{surface_id=[string]$_.surface_id;state=[string]$_.state;reason=[string]$_.reason;source_ref=[string]$_.source_ref}})
     (ConvertTo-Json $actualOverrides -Depth 20 -Compress) -eq (ConvertTo-Json $expectedOverrides -Depth 20 -Compress)
 }
+function New-AidosActorResultRejectionException {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Message)
+    $exception=[System.IO.InvalidDataException]::new($Message)
+    $exception.Data['AIDOS_ACTOR_RESULT_REJECTION']=$true
+    $exception
+}
+function Test-AidosActorResultRejectionException {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Exception)
+    $current=$Exception
+    while($null-ne$current){
+        if($current.Data -and $current.Data.Contains('AIDOS_ACTOR_RESULT_REJECTION') -and [bool]$current.Data['AIDOS_ACTOR_RESULT_REJECTION']){return $true}
+        $current=$current.InnerException
+    }
+    $false
+}
+function Resolve-AidosProjectApplicabilityProposalInput {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$ActorResult,[Parameter(Mandatory)][string]$AidosRoot)
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $catalogPath=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'catalog/profile-presets.catalog.json'
+    if(-not(Test-Path -LiteralPath $catalogPath -PathType Leaf)){throw 'Project Applicability preset catalog is unavailable.'}
+    try{$catalog=Get-Content -LiteralPath $catalogPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}
+    catch{throw "Project Applicability preset catalog is unreadable: $($_.Exception.Message)"}
+    $presetById=@{}
+    foreach($preset in @($catalog.presets)){$presetById[[string]$preset.preset_id]=$preset}
+
+    try{
+        $proposal=Get-AidosProjectApplicabilityProposal -ActorResult $ActorResult
+        if([string]$proposal.authority_classification -ne 'REPO_VERIFIABLE'){throw 'Project Applicability proposal must be REPO_VERIFIABLE or remain a human/auto-decision boundary.'}
+        $sourceRefs=@($proposal.source_refs);Assert-AidosActorSourceRefs -ProjectRoot $root -SourceRefs $sourceRefs|Out-Null
+        $presetIds=@($proposal.preset_ids|ForEach-Object {[string]$_}|Where-Object {-not[string]::IsNullOrWhiteSpace($_)}|Select-Object -Unique)
+        if($presetIds.Count-eq0){throw 'Project Applicability proposal requires at least one preset_id.'}
+        foreach($presetId in $presetIds){if(-not$presetById.ContainsKey($presetId)){throw "Project Applicability proposal references unknown preset_id '$presetId'."}}
+        $archetypeIds=@($presetIds|Where-Object {[string]$presetById[$_].category -eq 'PRODUCT_ARCHETYPE'})
+        if($archetypeIds.Count-ne1){throw "Project Applicability proposal requires exactly one PRODUCT_ARCHETYPE preset; found $($archetypeIds.Count)."}
+        $selectionSource=[string]$proposal.selection_source;if([string]::IsNullOrWhiteSpace($selectionSource)){$selectionSource='BASELINE_DERIVED'}
+        if($selectionSource-ne'BASELINE_DERIVED'){throw "New-project repository-verifiable applicability must use BASELINE_DERIVED, not '$selectionSource'."}
+        $overrides=@($proposal.overrides)
+        foreach($override in $overrides){if([string]::IsNullOrWhiteSpace([string]$override.source_ref)){throw 'Every Project Applicability override requires source_ref.'};Assert-AidosActorSourceRefs -ProjectRoot $root -SourceRefs @([string]$override.source_ref)|Out-Null}
+    }catch{
+        throw (New-AidosActorResultRejectionException -Message $_.Exception.Message)
+    }
+
+    [pscustomobject][ordered]@{
+        proposal=$proposal
+        source_refs=@($sourceRefs)
+        preset_ids=@($presetIds)
+        selection_source=$selectionSource
+        overrides=@($overrides)
+        overrides_json=if($overrides.Count-eq0){'[]'}else{$overrides|ConvertTo-Json -Depth 100 -Compress}
+    }
+}
+function Reject-AidosRuntimeActorResult {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Project,
+        [Parameter(Mandatory)][string]$AssignmentId,
+        [Parameter(Mandatory)][string]$Reason,
+        [switch]$Push
+    )
+    $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+    $transport=Read-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId
+    if($null-eq$transport){throw 'Cannot reject actor result because its transport state is missing.'}
+    if([string]$transport.status-ne'COMPLETED'){throw "Actor result rejection requires COMPLETED transport state, not '$($transport.status)'."}
+    $failureReason="ACTOR_RESULT_REJECTED: $Reason"
+    $failed=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status FAILED -LastError $failureReason
+    Add-AidosEvent -ProjectRoot $root -EventType 'ACTOR_RESULT_REJECTED' -Actor SYSTEM -Payload @{assignment_id=$AssignmentId;result_ref=[string]$failed.result_ref;reason=$Reason;transport_status='FAILED'}|Out-Null
+    $persist=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS reject actor result $AssignmentId") -Push:$Push
+    [pscustomobject][ordered]@{status='REJECTED';assignment_id=$AssignmentId;reason=$Reason;transport=$failed;persistence=$persist}
+}
 function Invoke-AidosProjectApplicabilityResultConsumer {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)]$ActorResult,[string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),[switch]$Push)
@@ -70,16 +142,13 @@ function Invoke-AidosProjectApplicabilityResultConsumer {
     if([string]$ActorResult.outcome -ne 'COMPLETED'){throw "Project Applicability actor outcome '$($ActorResult.outcome)' requires a different consumer path."}
     $state=Get-AidosState $root
     if([string]$state.state-ne'IDLE' -or -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'Project Applicability consumption requires pre-Definition IDLE state.'}
-    $proposal=Get-AidosProjectApplicabilityProposal -ActorResult $ActorResult
-    if([string]$proposal.authority_classification -ne 'REPO_VERIFIABLE'){throw 'Project Applicability proposal must be REPO_VERIFIABLE or remain a human/auto-decision boundary.'}
-    $sourceRefs=@($proposal.source_refs);Assert-AidosActorSourceRefs -ProjectRoot $root -SourceRefs $sourceRefs|Out-Null
-    $presetIds=@($proposal.preset_ids|ForEach-Object {[string]$_}|Where-Object {-not[string]::IsNullOrWhiteSpace($_)}|Select-Object -Unique)
-    if($presetIds.Count-eq0){throw 'Project Applicability proposal requires at least one preset_id.'}
-    $selectionSource=[string]$proposal.selection_source;if([string]::IsNullOrWhiteSpace($selectionSource)){$selectionSource='BASELINE_DERIVED'}
-    if($selectionSource-ne'BASELINE_DERIVED'){throw "New-project repository-verifiable applicability must use BASELINE_DERIVED, not '$selectionSource'."}
-    $overrides=@($proposal.overrides)
-    foreach($override in $overrides){if([string]::IsNullOrWhiteSpace([string]$override.source_ref)){throw 'Every Project Applicability override requires source_ref.'};Assert-AidosActorSourceRefs -ProjectRoot $root -SourceRefs @([string]$override.source_ref)|Out-Null}
-    $overridesJson=if($overrides.Count-eq0){'[]'}else{$overrides|ConvertTo-Json -Depth 100 -Compress}
+    $input=Resolve-AidosProjectApplicabilityProposalInput -ProjectRoot $root -ActorResult $ActorResult -AidosRoot $AidosRoot
+    $proposal=$input.proposal
+    $sourceRefs=@($input.source_refs)
+    $presetIds=@($input.preset_ids)
+    $selectionSource=[string]$input.selection_source
+    $overrides=@($input.overrides)
+    $overridesJson=[string]$input.overrides_json
     $profilePath=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
     if(Test-Path -LiteralPath $profilePath -PathType Leaf){
         $existingProfile=Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
@@ -136,7 +205,19 @@ function Invoke-AidosRuntimeActorResultConsumerTick {
                     default {throw "No Core consumer exists yet for runtime actor action '$action'."}
                 }
                 $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$transport.assignment_id;status=[string]$outcome.status;outcome=$outcome})
-            }catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$transport.assignment_id;status='CONSUME_ERROR';error=$_.Exception.Message})}
+            }catch{
+                $consumeError=$_.Exception
+                if(Test-AidosActorResultRejectionException -Exception $consumeError){
+                    try{
+                        $rejected=Reject-AidosRuntimeActorResult -Project $project -AssignmentId ([string]$transport.assignment_id) -Reason $consumeError.Message -Push:$Push
+                        $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$transport.assignment_id;status='REJECTED';outcome=$rejected})
+                    }catch{
+                        $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$transport.assignment_id;status='CONSUME_ERROR';error="Actor result rejection recovery failed: $($_.Exception.Message)"})
+                    }
+                }else{
+                    $results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;assignment_id=[string]$transport.assignment_id;status='CONSUME_ERROR';error=$consumeError.Message})
+                }
+            }
             $processed++
         }
     }
