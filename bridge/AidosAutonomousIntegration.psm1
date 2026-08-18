@@ -7,10 +7,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousExecution.psm1') -Disable
 
 function Get-AidosIntegrationIntentRoot { param([Parameter(Mandatory)][string]$ProjectRoot) Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/runtime/integration' }
 function Get-AidosIntegrationIntentPath { param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$ReviewId) Join-Path (Get-AidosIntegrationIntentRoot $ProjectRoot) ($ReviewId+'.json') }
-function ConvertTo-AidosNormalizedRelativePath {
-    param([Parameter(Mandatory)][string]$Path)
-    $relative=$Path.Replace('\','/').Trim();if($relative.StartsWith('./',[StringComparison]::Ordinal)){$relative=$relative.Substring(2)};$relative.TrimStart('/')
-}
+function ConvertTo-AidosNormalizedRelativePath { param([Parameter(Mandatory)][string]$Path) $relative=$Path.Replace('\','/').Trim();if($relative.StartsWith('./',[StringComparison]::Ordinal)){$relative=$relative.Substring(2)};$relative.TrimStart('/') }
 function New-AidosPassIntegrationIntent {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$ReviewId,[Parameter(Mandatory)][string]$ExecutionId,[Parameter(Mandatory)][int]$Revision)
     $root=Resolve-AidosFileSystemPath $ProjectRoot;$path=Get-AidosIntegrationIntentPath -ProjectRoot $root -ReviewId $ReviewId
@@ -51,7 +48,14 @@ function Invoke-AidosPassIntegration {
 function Invoke-AidosReviewIntegrationTick {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot,[int]$MaxItems=1,[switch]$Push)
     $projectsRoot=Join-Path ([IO.Path]::GetFullPath($RegistryRoot)) 'projects';$results=[Collections.Generic.List[object]]::new();$processed=0;if(-not(Test-Path -LiteralPath $projectsRoot -PathType Container)){return [pscustomobject][ordered]@{status='IDLE';processed=0;results=@()}}
-    foreach($file in @(Get-ChildItem -LiteralPath $projectsRoot -Filter '*.json' -File|Sort-Object Name)){if($processed-ge$MaxItems){break};$project=Read-AidosJson $file.FullName;if([string]$project.stage-ne'RUNTIME' -or [string]$project.status-ne'PROMOTED'){continue};foreach($intent in @(Get-AidosPendingIntegrationIntents -ProjectRoot ([string]$project.local_root)){if($processed-ge$MaxItems){break};try{$outcome=Invoke-AidosPassIntegration -Project $project -ReviewId ([string]$intent.review_id) -Push:$Push;$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;review_id=[string]$intent.review_id;status=[string]$outcome.status;outcome=$outcome});if([string]$outcome.status-ne'WAITING_REVIEW_DECISION'){$processed++}}catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;review_id=[string]$intent.review_id;status='INTEGRATION_ERROR';error=$_.Exception.Message});$processed++}}}
+    foreach($file in @(Get-ChildItem -LiteralPath $projectsRoot -Filter '*.json' -File|Sort-Object Name)){
+        if($processed-ge$MaxItems){break};$project=Read-AidosJson $file.FullName;if([string]$project.stage-ne'RUNTIME' -or [string]$project.status-ne'PROMOTED'){continue}
+        foreach($intent in @(Get-AidosPendingIntegrationIntents -ProjectRoot ([string]$project.local_root))){
+            if($processed-ge$MaxItems){break}
+            try{$outcome=Invoke-AidosPassIntegration -Project $project -ReviewId ([string]$intent.review_id) -Push:$Push;$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;review_id=[string]$intent.review_id;status=[string]$outcome.status;outcome=$outcome});if([string]$outcome.status-ne'WAITING_REVIEW_DECISION'){$processed++}}
+            catch{$results.Add([pscustomobject][ordered]@{project_id=[string]$project.project_id;review_id=[string]$intent.review_id;status='INTEGRATION_ERROR';error=$_.Exception.Message});$processed++}
+        }
+    }
     [pscustomobject][ordered]@{status=if(@($results|Where-Object {$_.status-eq'INTEGRATION_ERROR'}).Count){'ERROR'}elseif($processed-gt0){'PROCESSED'}else{'IDLE'};processed=$processed;results=@($results)}
 }
 
