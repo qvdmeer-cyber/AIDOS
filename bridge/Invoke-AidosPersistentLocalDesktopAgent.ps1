@@ -42,6 +42,22 @@ function Stop-AidosPersistentAgentForReinstall {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
 }
+function Test-AidosPersistentAgentBootstrapTask {
+    param([Parameter(Mandatory)]$Task,[Parameter(Mandatory)][string]$ExpectedUser,[Parameter(Mandatory)][string]$ExpectedVbsPath)
+    $principal=$Task.Principal
+    $taskUser=if($null-eq$principal){''}else{[string]$principal.UserId}
+    $expectedLeaf=($ExpectedUser-split'\\')[-1]
+    $currentUser=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $userMatches=[string]::Equals($taskUser,$ExpectedUser,[StringComparison]::OrdinalIgnoreCase) -or ([string]::Equals($taskUser,$expectedLeaf,[StringComparison]::OrdinalIgnoreCase) -and [string]::Equals($currentUser,$ExpectedUser,[StringComparison]::OrdinalIgnoreCase))
+    # Task Scheduler may canonicalize an interactive local/domain user to its leaf
+    # name. Accept that representation only when the invoking Windows identity
+    # still proves the exact configured DOMAIN\\user binding.
+    if(-not$userMatches){throw 'Existing AIDOS host bootstrap task is not bound to the authorized user; elevated bootstrap repair is required.'}
+    if([string]$principal.LogonType -notin @('Interactive','3')){throw 'Existing AIDOS host bootstrap task does not use Interactive logon; elevated bootstrap repair is required.'}
+    if([string]$principal.RunLevel -notin @('Limited','0')){throw 'Existing AIDOS host bootstrap task is not limited; elevated bootstrap repair is required.'}
+    $actions=@($Task.Actions)
+    if($actions.Count-ne1 -or -not[string]::Equals([string]$actions[0].Execute,(Join-Path $env:WINDIR 'System32\wscript.exe'),[StringComparison]::OrdinalIgnoreCase) -or [string]$actions[0].Arguments -notmatch [regex]::Escape($ExpectedVbsPath)){throw 'Existing AIDOS host bootstrap task action differs from the stable AIDOS launcher; elevated bootstrap repair is required.'}
+}
 function Write-AidosPersistentAgentLocalLauncher {
     param(
         [Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$EntryPoint,[Parameter(Mandatory)][string]$BoundProjectRoot,
@@ -106,16 +122,26 @@ switch($Command){
     foreach($required in @($BuilderRoot,$ContractsRoot)){if(-not(Test-Path -LiteralPath $required -PathType Container)){throw "Required AIDOS preparation dependency is unavailable: $required"}}
     Stop-AidosPersistentAgentForReinstall -Root $StateRoot
     $local=Write-AidosPersistentAgentLocalLauncher -Root $StateRoot -EntryPoint $self -BoundProjectRoot $ProjectRoot -BoundAuthorizedUser $AuthorizedUser -BoundProcessName $ProcessName -BoundPollSeconds $PollSeconds -BoundPreparationRegistryRoot $PreparationRegistryRoot -BoundBuilderRoot $BuilderRoot -BoundContractsRoot $ContractsRoot -BoundPreparationPush $PreparationPush
-    $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
-    if(-not(Test-Path -LiteralPath $wscript -PathType Leaf)){throw 'Windows Script Host is unavailable.'}
-    $arg="`"$($local.vbs_path)`""
-    $action=New-ScheduledTaskAction -Execute $wscript -Argument $arg
-    $principal=New-ScheduledTaskPrincipal -UserId $AuthorizedUser -LogonType Interactive -RunLevel Limited
-    $trigger=New-ScheduledTaskTrigger -AtLogOn -User $AuthorizedUser
-    $settings=New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
-    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'AIDOS host runtime and desktop transport agent; preparation work is independent of desktop availability.' -Force|Out-Null
+    $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if($task){
+        # The task is a one-time, limited interactive bootstrap. Normal runtime
+        # upgrades replace only AIDOS-owned launcher/config files and reuse this
+        # verified task, so they do not require Task Scheduler administration.
+        Test-AidosPersistentAgentBootstrapTask -Task $task -ExpectedUser $AuthorizedUser -ExpectedVbsPath $local.vbs_path
+        $taskProvisioning='REUSED'
+    }else{
+        $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+        if(-not(Test-Path -LiteralPath $wscript -PathType Leaf)){throw 'Windows Script Host is unavailable.'}
+        $arg="`"$($local.vbs_path)`""
+        $action=New-ScheduledTaskAction -Execute $wscript -Argument $arg
+        $principal=New-ScheduledTaskPrincipal -UserId $AuthorizedUser -LogonType Interactive -RunLevel Limited
+        $trigger=New-ScheduledTaskTrigger -AtLogOn -User $AuthorizedUser
+        $settings=New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
+        Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'AIDOS host runtime and desktop transport agent; preparation work is independent of desktop availability.'|Out-Null
+        $taskProvisioning='CREATED'
+    }
     Start-ScheduledTask -TaskName $taskName
-    [pscustomobject]@{status='INSTALLED';task_name=$taskName;state_root=$StateRoot;preparation_registry_root=$PreparationRegistryRoot;builder_root=$BuilderRoot;contracts_root=$ContractsRoot;preparation_push=$PreparationPush;launcher_path=$local.launcher_path;task_launcher=$local.vbs_path}|ConvertTo-Json -Depth 20
+    [pscustomobject]@{status='INSTALLED';task_provisioning=$taskProvisioning;task_name=$taskName;state_root=$StateRoot;preparation_registry_root=$PreparationRegistryRoot;builder_root=$BuilderRoot;contracts_root=$ContractsRoot;preparation_push=$PreparationPush;launcher_path=$local.launcher_path;task_launcher=$local.vbs_path}|ConvertTo-Json -Depth 20
  }
  'Start' {if([string]::IsNullOrWhiteSpace($ProjectRoot)){throw 'Start requires ProjectRoot.'};Start-AidosPersistentLocalDesktopAgent -ProjectRoot $ProjectRoot -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -StateRoot $StateRoot -PollSeconds $PollSeconds -PreparationRegistryRoot $PreparationRegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -PreparationPush:$PreparationPush -Once:$Once}
  'Stop' {Stop-AidosHostAgent -StateRoot $StateRoot;[pscustomobject]@{status='STOP_REQUESTED';state_root=$StateRoot}|ConvertTo-Json}

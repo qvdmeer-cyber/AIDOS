@@ -73,6 +73,9 @@ jobs:
       - name: Host Agent Reload regression tests
         shell: pwsh
         run: ./tests/HostAgentReload.Tests.ps1
+      - name: Host Agent Bootstrap Reuse regression tests
+        shell: pwsh
+        run: ./tests/HostAgentBootstrapReuse.Tests.ps1
       - name: Host Agent Runtime Transport Gate regression tests
         shell: pwsh
         run: ./tests/HostAgentRuntimeTransportGate.Tests.ps1

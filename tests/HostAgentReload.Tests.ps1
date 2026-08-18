@@ -13,6 +13,6 @@ Assert-Reload ($text.IndexOf("([DateTimeOffset]`$Lease.process_started_at).UtcDa
 Assert-Reload ($text.IndexOf("ProcessName -notin @('pwsh','pwsh.exe')",[StringComparison]::Ordinal) -ge 0) 'reload refuses to terminate unexpected process types'
 Assert-Reload ($text.IndexOf("owner_id -ne [string]`$lease.owner_id",[StringComparison]::Ordinal) -ge 0) 'reload refuses cleanup if lease ownership changed'
 Assert-Reload ($text.IndexOf("Stop-Process -Id ([int]`$process.Id) -Force",[StringComparison]::Ordinal) -ge 0) 'reload force-stops only the exact leased agent PID after identity validation'
-Assert-Reload ($text.IndexOf("Stop-ScheduledTask -TaskName `$taskName",[StringComparison]::Ordinal) -ge 0) 'reload stops scheduled task host before leased child process cleanup'
+Assert-Reload ($text.IndexOf('Stop-ScheduledTask -TaskName',[StringComparison]::Ordinal) -lt 0) 'reload never changes the stable scheduled-task bootstrap during normal upgrades'
 
 Write-Output "PASS: $passed host-agent reload assertions"

@@ -49,9 +49,8 @@ function Stop-AidosLeasedHostAgentProcess {
     [pscustomobject]@{status='LEASED_AGENT_STOPPED';pid=[int]$lease.pid;owner_id=[string]$lease.owner_id}
 }
 
-$taskName='AIDOS Persistent Local Desktop Agent'
-$task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if($task -and [string]$task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue;Start-Sleep -Milliseconds 500}
+# The scheduled task is a stable bootstrap. Reloads terminate only the exactly
+# leased AIDOS child; task registration/ACLs are never changed during upgrades.
 $stopped=Stop-AidosLeasedHostAgentProcess -Root $StateRoot
 
 $enable=Join-Path (Split-Path $PSScriptRoot -Parent) 'tools/Enable-AidosAutonomousPreparation.ps1'
