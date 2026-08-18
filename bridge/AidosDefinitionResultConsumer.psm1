@@ -44,6 +44,7 @@ function New-AidosDefinitionHumanInputRequest {
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)]$Assignment,[Parameter(Mandatory)]$Proposal,[Parameter(Mandatory)][string]$AidosRoot)
     $root=Resolve-AidosFileSystemPath ([string]$Project.local_root);$definitionId=[string]$Assignment.binding.definition_id;$definitionVersion=[int]$Assignment.binding.definition_version
     if([string]$Proposal.authority_classification -notin @('HUMAN_REQUIRED','AUTO_DECIDABLE')){throw 'Definition Human Input authority classification is invalid.'}
+    $surfaceId=[string]$Proposal.surface_id;if([string]::IsNullOrWhiteSpace($surfaceId)){throw 'Definition Human Input requires surface_id.'}
     $options=@($Proposal.options);$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach($option in $options){if([string]::IsNullOrWhiteSpace([string]$option.option_id)-or[string]::IsNullOrWhiteSpace([string]$option.label)){throw 'Human Input options require option_id and label.'};if(-not$seen.Add([string]$option.option_id)){throw 'Human Input option ids must be unique.'}}
     $sourceRefs=@(Get-AidosDefinitionValidatedSourceRefs -ProjectRoot $root -AidosRoot $AidosRoot -SourceRefs @($Proposal.source_refs) -DefinitionId $definitionId -DefinitionVersion $definitionVersion)
@@ -54,8 +55,14 @@ function New-AidosDefinitionHumanInputRequest {
     $requestId=[guid]::NewGuid().ToString();$now=[DateTimeOffset]::UtcNow.ToString('o')
     $request=[ordered]@{contract_version='0.1.0';request_id=$requestId;project_id=[string]$Project.project_id;workstream_id=$null;phase='DEFINITION';request_type=[string]$Proposal.request_type;status='WAITING';context_summary=[string]$Proposal.context_summary;question=[string]$Proposal.question;options=@($options|ForEach-Object {[ordered]@{option_id=[string]$_.option_id;label=[string]$_.label;description=if($null-eq$_.description){$null}else{[string]$_.description}}});authority_classification=[string]$Proposal.authority_classification;decision_assessment_ref=if([string]::IsNullOrWhiteSpace([string]$Proposal.decision_assessment_ref)){$null}else{[string]$Proposal.decision_assessment_ref};auto_define_stop_reason=[string]$Proposal.auto_define_stop_reason;binding=[ordered]@{baseline_version=$null;definition_id=$definitionId;definition_version=$definitionVersion;execution_id=$null;revision=$null;review_id=$null};requested_by=[ordered]@{actor='DEFINITION_AGENT';model=$null;session_id=$null};resume_actor_role='THINKER';response=$null;evidence_refs=@($Proposal.evidence_refs|ForEach-Object {[string]$_});source_refs=@($sourceRefs);created_at=$now;updated_at=$now}
     $path=Join-Path $requestRoot ($requestId+'.json');Write-AidosJsonAtomic $path $request
-    Add-AidosEvent -ProjectRoot $root -EventType 'HUMAN_INPUT_REQUIRED' -Actor DEFINITION_AGENT -Payload @{request_id=$requestId;phase='DEFINITION';surface_id=[string]$Proposal.surface_id;authority_classification=[string]$Proposal.authority_classification}|Out-Null
-    [pscustomobject][ordered]@{request_id=$requestId;request_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');request=[pscustomobject]$request}
+
+    $bindingRoot=Join-Path $root '.aidos/human-input-bindings';if(-not(Test-Path -LiteralPath $bindingRoot -PathType Container)){New-Item -ItemType Directory -Path $bindingRoot -Force|Out-Null}
+    $optionValues=[ordered]@{}
+    foreach($option in $options){$optionValues[[string]$option.option_id]=[ordered]@{label=[string]$option.label;description=if($null-eq$option.description){$null}else{[string]$option.description}}}
+    $resolutionBinding=[ordered]@{schema_version='0.1';request_id=$requestId;project_id=[string]$Project.project_id;phase='DEFINITION';processor='DEFINITION_SURFACE_HUMAN_ACCEPTED';target=[ordered]@{surface_id=$surfaceId;completion_status='COMPLETE'};option_values=$optionValues;allow_text=$true;created_at=$now}
+    $bindingPath=Join-Path $bindingRoot ($requestId+'.json');Write-AidosJsonAtomic $bindingPath $resolutionBinding
+    Add-AidosEvent -ProjectRoot $root -EventType 'HUMAN_INPUT_REQUIRED' -Actor DEFINITION_AGENT -Payload @{request_id=$requestId;phase='DEFINITION';surface_id=$surfaceId;authority_classification=[string]$Proposal.authority_classification}|Out-Null
+    [pscustomobject][ordered]@{request_id=$requestId;request_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');resolution_binding_ref=[IO.Path]::GetRelativePath($root,$bindingPath).Replace('\','/');request=[pscustomobject]$request}
 }
 
 function Invoke-AidosDefinitionThinkerResultConsumer {
