@@ -50,5 +50,6 @@ $backendStart=$proofSource.IndexOf('function New-AidosDesktopChatGPTResilientCon
 $backendText=$proofSource.Substring($backendStart)
 Assert-Proof ($backendText.IndexOf('$documentConversationProof=Get-Command Get-AidosDesktopChatGPTDocumentConversationProof',[StringComparison]::Ordinal) -ge 0 -and $backendText.IndexOf('& $documentConversationProof',[StringComparison]::Ordinal) -ge 0) 'live resilient backend captures document-root conversation proof for callback execution'
 Assert-Proof ($backendText.IndexOf('.FindAll(',[StringComparison]::Ordinal) -lt 0) 'live resilient backend does not enumerate the full Chromium UIA subtree'
+Assert-Proof ($proofSource.IndexOf('is ambiguous in the active ChatGPT document',[StringComparison]::Ordinal) -lt 0) 'one UIA-bound conversation document accepts repeated enrollment marker representations'
 
 Write-Output "PASS: $passed resilient conversation proof assertions"

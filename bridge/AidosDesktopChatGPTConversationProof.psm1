@@ -95,8 +95,10 @@ function Get-AidosDesktopChatGPTDocumentConversationProof {
 
     $first=$documentText.IndexOf($ProofText,[StringComparison]::OrdinalIgnoreCase)
     if($first-lt0){throw "Conversation proof text '$ProofText' was not found in the active ChatGPT document."}
-    $second=$documentText.IndexOf($ProofText,$first+$ProofText.Length,[StringComparison]::OrdinalIgnoreCase)
-    if($second-ge0){throw "Conversation proof text '$ProofText' is ambiguous in the active ChatGPT document."}
+    # This is already a single, UIA-bound ChatGPT Document/RootWebArea. The same
+    # enrollment marker may be represented twice by the desktop accessibility
+    # tree (or quoted by the enrolled conversation); repetition inside that one
+    # document is not evidence of a second conversation.
     if(-not[string]::IsNullOrWhiteSpace($AccountProofText) -and $documentText.IndexOf($AccountProofText,[StringComparison]::OrdinalIgnoreCase)-lt0){throw 'ChatGPT account proof text is stale or mismatched.'}
 
     $documentValue=''
