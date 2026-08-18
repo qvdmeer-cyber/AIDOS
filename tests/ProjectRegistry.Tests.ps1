@@ -45,10 +45,11 @@ try{
 
     $promoted=Set-AidosPreparationProjectPhase -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Phase 'RUNTIME' -Status PROMOTED
     Assert-Registry ($promoted.stage -eq 'RUNTIME' -and $promoted.status -eq 'PROMOTED' -and $promoted.preparation_phase -eq 'RUNTIME') 'promotion creates canonical runtime registry state'
-    $promotedAt=[string]$promoted.promoted_at
+    $promotedAt=[DateTimeOffset]::Parse([string]$promoted.promoted_at)
     Start-Sleep -Milliseconds 10
     $replayedPromotion=Set-AidosPreparationProjectPhase -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Phase 'RUNTIME' -Status PROMOTED
-    Assert-Registry ([string]$replayedPromotion.promoted_at -eq $promotedAt) 'idempotent promotion preserves original promoted_at'
+    $replayedPromotedAt=if($replayedPromotion.promoted_at -is [DateTime]){[DateTimeOffset]$replayedPromotion.promoted_at}else{[DateTimeOffset]::Parse([string]$replayedPromotion.promoted_at)}
+    Assert-Registry ($replayedPromotedAt.ToUniversalTime() -eq $promotedAt.ToUniversalTime()) 'idempotent promotion preserves original promoted_at'
 
     $downgradeBlocked=$false
     try{Set-AidosPreparationProjectPhase -RegistryRoot $registry -ProjectId 'REGISTRY-SMOKE' -Phase 'RUNTIME_ONBOARDING' -Status READY_FOR_ONBOARDING|Out-Null}catch{$downgradeBlocked=$_.Exception.Message -match 'may not be downgraded'}
