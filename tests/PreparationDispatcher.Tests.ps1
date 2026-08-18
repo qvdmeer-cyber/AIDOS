@@ -5,8 +5,14 @@ $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $root 'bridge/AidosPersistentLocalDesktopAgent.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -DisableNameChecking
 $script:passed=0
 function Assert-Dispatch([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
+
+$dispatcherText=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosPreparationDispatcher.psm1') -Raw
+Assert-Dispatch (-not($dispatcherText -match '\$IsWindows')) 'runtime actor transport platform gate does not depend on the optional IsWindows automatic variable'
+$expectedWindows=[Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+Assert-Dispatch ((Test-AidosWindowsRuntimeHost) -eq $expectedWindows) 'runtime actor transport host detection follows the actual OS runtime'
 
 $projectRoot=Join-Path ([IO.Path]::GetTempPath()) ('aidos-dispatch-gate-'+[guid]::NewGuid().ToString('N'))
 try{
