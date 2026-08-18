@@ -1,0 +1,6 @@
+{
+  "schema_version": "0.1",
+  "windows_candidate_validation_skip": {
+    "Bridge.Tests.ps1": "Contains Unix executable/process fixtures (bash shebangs, chmod semantics and fake wsl.exe process execution) that are not meaningful under native Windows PowerShell candidate validation. Covered separately by host/runtime integration validation."
+  }
+}
