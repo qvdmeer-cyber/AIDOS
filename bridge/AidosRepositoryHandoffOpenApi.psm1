@@ -25,15 +25,15 @@ function New-AidosRepositoryHandoffOpenApiDocument {
     param([Parameter(Mandatory)][string]$ServerUrl)
 
     $server=Normalize-AidosRepositoryHandoffPublicUrl -ServerUrl $ServerUrl
-    $nullableString=[ordered]@{type='string';nullable=$true}
-    $nullableInteger=[ordered]@{type='integer';nullable=$true;minimum=1}
+    $nullableString=[ordered]@{type=@('string','null')}
+    $nullableInteger=[ordered]@{type=@('integer','null');minimum=1}
     $errorResponse=[ordered]@{
         description='The request was rejected.'
         content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/ErrorResponse'}}}
     }
 
     [ordered]@{
-        openapi='3.0.3'
+        openapi='3.1.0'
         info=[ordered]@{
             title='AIDOS Repository Handoff Gateway'
             version='0.2.0'
@@ -152,11 +152,11 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                         from_actor=[ordered]@{type='string';enum=@('CORE','THINKER','WORKER','HUMAN')}
                         to_actor=[ordered]@{type='string';enum=@('CORE','THINKER','WORKER','HUMAN')}
                         status=[ordered]@{type='string';enum=@('READY')}
-                        parent_handoff_id=[ordered]@{type='string';format='uuid';nullable=$true}
+                        parent_handoff_id=[ordered]@{type=@('string','null');format='uuid'}
                         created_at=[ordered]@{type='string';format='date-time'}
                         action=[ordered]@{type='string';minLength=1}
                         payload_ref=[ordered]@{type='string';minLength=1}
-                        payload_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$';nullable=$true}
+                        payload_sha256=[ordered]@{type=@('string','null');pattern='^[0-9a-f]{64}$'}
                         binding=[ordered]@{'$ref'='#/components/schemas/Binding'}
                         source_refs=[ordered]@{type='array';items=[ordered]@{type='string';minLength=1};uniqueItems=$true}
                     }
@@ -168,7 +168,7 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                     properties=[ordered]@{
                         path=[ordered]@{type='string';minLength=1}
                         sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
-                        content=[ordered]@{oneOf=@([ordered]@{type='object';additionalProperties=$true},[ordered]@{type='string'})}
+                        content=[ordered]@{type='object';additionalProperties=$true}
                     }
                 }
                 HandoffResponse=[ordered]@{
@@ -187,11 +187,11 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                 HumanInputOption=[ordered]@{
                     type='object'
                     additionalProperties=$false
-                    required=@('option_id','label','description')
+                    required=@('option_id','label')
                     properties=[ordered]@{
                         option_id=[ordered]@{type='string';minLength=1}
                         label=[ordered]@{type='string';minLength=1}
-                        description=$nullableString
+                        description=[ordered]@{type=@('string','null')}
                     }
                 }
                 HumanInputResponse=[ordered]@{
@@ -201,15 +201,15 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                     properties=[ordered]@{
                         status=[ordered]@{type='string';enum=@('READY','NO_HUMAN_INPUT')}
                         project_id=[ordered]@{type='string';minLength=1}
-                        request_id=[ordered]@{type='string';format='uuid';nullable=$true}
-                        request_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$';nullable=$true}
-                        phase=$nullableString
-                        request_type=$nullableString
-                        context_summary=$nullableString
-                        question=$nullableString
+                        request_id=[ordered]@{type='string';format='uuid'}
+                        request_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
+                        phase=[ordered]@{type='string'}
+                        request_type=[ordered]@{type='string'}
+                        context_summary=[ordered]@{type='string'}
+                        question=[ordered]@{type='string'}
                         options=[ordered]@{type='array';items=[ordered]@{'$ref'='#/components/schemas/HumanInputOption'}}
-                        authority_classification=$nullableString
-                        auto_define_stop_reason=$nullableString
+                        authority_classification=[ordered]@{type='string'}
+                        auto_define_stop_reason=[ordered]@{type=@('string','null')}
                         binding=[ordered]@{'$ref'='#/components/schemas/Binding'}
                     }
                 }
@@ -219,8 +219,8 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                     required=@('request_sha256')
                     properties=[ordered]@{
                         request_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
-                        selected_option_id=$nullableString
-                        text=$nullableString
+                        selected_option_id=[ordered]@{type='string';minLength=1}
+                        text=[ordered]@{type='string';minLength=1}
                     }
                 }
                 HumanInputAcceptedResponse=[ordered]@{
@@ -231,7 +231,7 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                         status=[ordered]@{type='string';enum=@('ACCEPTED','ALREADY_ACCEPTED')}
                         project_id=[ordered]@{type='string';minLength=1}
                         request_id=[ordered]@{type='string';format='uuid'}
-                        resume_ref=$nullableString
+                        resume_ref=[ordered]@{type='string'}
                     }
                 }
                 SourceResponse=[ordered]@{
@@ -246,65 +246,14 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                         content=[ordered]@{type='string'}
                     }
                 }
-                RuntimeActorResult=[ordered]@{
-                    type='object'
-                    additionalProperties=$false
-                    required=@('schema_version','envelope_type','assignment_id','assignment_sha256','project_id','actor_role','actor_identity','action','binding','outcome','result','responded_at')
-                    properties=[ordered]@{
-                        schema_version=[ordered]@{type='string';enum=@('0.1')}
-                        envelope_type=[ordered]@{type='string';enum=@('RUNTIME_ACTOR_RESULT')}
-                        assignment_id=[ordered]@{type='string';format='uuid'}
-                        assignment_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
-                        project_id=[ordered]@{type='string';minLength=1}
-                        actor_role=[ordered]@{type='string';enum=@('THINKER')}
-                        actor_identity=[ordered]@{type='string';minLength=1}
-                        action=[ordered]@{type='string';minLength=1}
-                        binding=[ordered]@{'$ref'='#/components/schemas/Binding'}
-                        outcome=[ordered]@{type='string';enum=@('COMPLETED','BLOCKED','FAILED')}
-                        result=[ordered]@{type='object';additionalProperties=$true}
-                        responded_at=[ordered]@{type='string';format='date-time'}
-                    }
-                }
-                EvidenceRef=[ordered]@{
-                    type='object'
-                    additionalProperties=$true
-                    required=@('path','sha256')
-                    properties=[ordered]@{
-                        path=[ordered]@{type='string';minLength=1}
-                        sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
-                    }
-                }
-                ReviewResponse=[ordered]@{
-                    type='object'
-                    additionalProperties=$true
-                    required=@('schema_version','envelope_type','review_id','project_id','definition_id','definition_version','execution_id','revision','assignment_sha256','package_manifest_sha256','outcome','reason','evidence_refs','repair_guidance','responded_at','responded_by')
-                    properties=[ordered]@{
-                        schema_version=[ordered]@{type='string';enum=@('0.1')}
-                        envelope_type=[ordered]@{type='string';enum=@('REVIEW_RESPONSE')}
-                        review_id=[ordered]@{type='string';format='uuid'}
-                        project_id=[ordered]@{type='string';minLength=1}
-                        definition_id=[ordered]@{type='string';minLength=1}
-                        definition_version=[ordered]@{type='integer';minimum=1}
-                        execution_id=[ordered]@{type='string';minLength=1}
-                        revision=[ordered]@{type='integer';minimum=1}
-                        assignment_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
-                        package_manifest_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
-                        outcome=[ordered]@{type='string';minLength=1}
-                        reason=[ordered]@{type='string';minLength=1}
-                        evidence_refs=[ordered]@{type='array';minItems=1;items=[ordered]@{'$ref'='#/components/schemas/EvidenceRef'}}
-                        repair_guidance=[ordered]@{type='array';items=[ordered]@{type='string'}}
-                        responded_at=[ordered]@{type='string';format='date-time'}
-                        responded_by=[ordered]@{type='string';minLength=1}
-                    }
-                }
                 SubmitResultRequest=[ordered]@{
                     type='object'
                     additionalProperties=$false
                     required=@('expected_parent_handoff_id','result')
                     properties=[ordered]@{
                         expected_parent_handoff_id=[ordered]@{type='string';format='uuid'}
-                        summary=[ordered]@{type='string';nullable=$true}
-                        result=[ordered]@{oneOf=@([ordered]@{'$ref'='#/components/schemas/RuntimeActorResult'},[ordered]@{'$ref'='#/components/schemas/ReviewResponse'})}
+                        summary=[ordered]@{type='string'}
+                        result=[ordered]@{type='object';additionalProperties=$true;description='Exact bound RUNTIME_ACTOR_RESULT or REVIEW_RESPONSE envelope. AIDOS Core validates its full contract.'}
                     }
                 }
                 AcceptedResultResponse=[ordered]@{
@@ -317,7 +266,7 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                     type='object'
                     additionalProperties=$true
                     required=@('error')
-                    properties=[ordered]@{error=[ordered]@{type='string'};detail=[ordered]@{type='string';nullable=$true}}
+                    properties=[ordered]@{error=[ordered]@{type='string'};detail=[ordered]@{type='string'}}
                 }
             }
         }
@@ -339,7 +288,7 @@ function Write-AidosRepositoryHandoffOpenApiDocument {
     $tmp="$full.$([guid]::NewGuid().ToString('N')).tmp"
     try{
         ConvertTo-AidosRepositoryHandoffOpenApiJson -ServerUrl $ServerUrl|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
-        Move-Item -LiteralPath $tmp -Destination $full -Force
+        [IO.File]::Move($tmp,$full,$true)
     }finally{if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}}
     [pscustomobject][ordered]@{status='WRITTEN';path=$full;server_url=(Normalize-AidosRepositoryHandoffPublicUrl -ServerUrl $ServerUrl)}
 }
