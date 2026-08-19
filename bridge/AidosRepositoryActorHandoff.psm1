@@ -17,7 +17,6 @@ function ConvertTo-AidosRepositoryActorName {
         default {throw "Unsupported repository handoff actor role '$ActorRole'."}
     }
 }
-
 function Get-AidosRepositoryActorAssignmentRelativePath {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentId)
@@ -25,7 +24,6 @@ function Get-AidosRepositoryActorAssignmentRelativePath {
     $path=(Read-AidosRuntimeActorAssignment -ProjectRoot $root -AssignmentId $AssignmentId).path
     [IO.Path]::GetRelativePath($root,$path).Replace('\','/')
 }
-
 function Get-AidosRepositoryActorSourceRefs {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$BoundAssignment)
@@ -35,9 +33,7 @@ function Get-AidosRepositoryActorSourceRefs {
         return @($documents|ForEach-Object {[string]$_.path}|Where-Object {-not[string]::IsNullOrWhiteSpace($_)}|Select-Object -Unique)
     }
     $refs=[System.Collections.Generic.List[string]]::new()
-    foreach($relative in @('.aidos/PROJECT.json','.aidos/STATE.json','AGENTS.md')){
-        if(Test-Path -LiteralPath (Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) $relative) -PathType Leaf){$refs.Add($relative)}
-    }
+    foreach($relative in @('.aidos/PROJECT.json','.aidos/STATE.json','AGENTS.md')){if(Test-Path -LiteralPath (Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) $relative) -PathType Leaf){$refs.Add($relative)}}
     $definitionId=[string]$assignment.binding.definition_id
     if(-not[string]::IsNullOrWhiteSpace($definitionId) -and $null-ne$assignment.binding.definition_version){
         $definitionRef=('.aidos/definitions/{0}/v{1}/DEFINITION.json' -f $definitionId,[int]$assignment.binding.definition_version)
@@ -45,64 +41,22 @@ function Get-AidosRepositoryActorSourceRefs {
     }
     @($refs|Select-Object -Unique)
 }
-
 function New-AidosRepositoryActorResultTemplate {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$BoundAssignment)
     $assignment=$BoundAssignment.assignment
     $payload=if([string]$assignment.action-eq'RESOLVE_PROJECT_APPLICABILITY'){
-        [ordered]@{
-            result_type='DEFINITION_THINKER_OUTPUT'
-            summary='REQUIRED: concise evidence-based applicability rationale'
-            proposed_artifacts=@([ordered]@{
-                artifact_type='PROJECT_APPLICABILITY_PROPOSAL'
-                authority_classification='REPO_VERIFIABLE'
-                preset_ids='REQUIRED_NONEMPTY: exact preset_id values from AIDOS/catalog/profile-presets.catalog.json'
-                selection_source='BASELINE_DERIVED'
-                overrides=@()
-                source_refs='REQUIRED_NONEMPTY: only paths from handoff source_refs'
-            })
-            human_input_request=$null
-        }
+        [ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='REQUIRED: concise evidence-based applicability rationale';proposed_artifacts=@([ordered]@{artifact_type='PROJECT_APPLICABILITY_PROPOSAL';authority_classification='REPO_VERIFIABLE';preset_ids='REQUIRED_NONEMPTY: exact preset_id values from AIDOS/catalog/profile-presets.catalog.json';selection_source='BASELINE_DERIVED';overrides=@();source_refs='REQUIRED_NONEMPTY: only paths from handoff source_refs'});human_input_request=$null}
     }elseif([string]$assignment.actor_role-eq'THINKER'){
-        [ordered]@{
-            result_type='DEFINITION_THINKER_OUTPUT'
-            summary=''
-            applicability_resolutions=@()
-            surface_resolutions=@()
-            human_input_request=$null
-        }
+        [ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='';applicability_resolutions=@();surface_resolutions=@();human_input_request=$null}
     }else{
-        [ordered]@{
-            result_type='WORKER_OUTPUT'
-            summary=''
-            evidence_refs=@()
-            human_input_request=$null
-        }
+        [ordered]@{result_type='WORKER_OUTPUT';summary='';evidence_refs=@();human_input_request=$null}
     }
-    [pscustomobject][ordered]@{
-        schema_version='0.1'
-        envelope_type='RUNTIME_ACTOR_RESULT'
-        assignment_id=[string]$assignment.assignment_id
-        assignment_sha256=[string]$BoundAssignment.sha256
-        project_id=[string]$assignment.project_id
-        actor_role=[string]$assignment.actor_role
-        actor_identity=[string]$assignment.actor_identity
-        action=[string]$assignment.action
-        binding=$assignment.binding
-        outcome='COMPLETED'
-        result=[pscustomobject]$payload
-        responded_at='REQUIRED: ISO-8601 completion timestamp'
-    }
+    [pscustomobject][ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$assignment.assignment_id;assignment_sha256=[string]$BoundAssignment.sha256;project_id=[string]$assignment.project_id;actor_role=[string]$assignment.actor_role;actor_identity=[string]$assignment.actor_identity;action=[string]$assignment.action;binding=$assignment.binding;outcome='COMPLETED';result=[pscustomobject]$payload;responded_at='REQUIRED: ISO-8601 completion timestamp'}
 }
-
 function New-AidosRepositoryActorAssignmentBody {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]$BoundAssignment,
-        [Parameter(Mandatory)][string]$PayloadRef,
-        [Parameter(Mandatory)][string[]]$SourceRefs
-    )
+    param([Parameter(Mandatory)]$BoundAssignment,[Parameter(Mandatory)][string]$PayloadRef,[Parameter(Mandatory)][string[]]$SourceRefs)
     $assignment=$BoundAssignment.assignment
     $target=ConvertTo-AidosRepositoryActorName -ActorRole ([string]$assignment.actor_role)
     $template=New-AidosRepositoryActorResultTemplate -BoundAssignment $BoundAssignment
@@ -128,23 +82,18 @@ AIDOS Core has assigned this handoff. The repository is the transport and canoni
 
 ## Required result envelope
 
-```json
+BEGIN_RESULT_JSON
 $($template|ConvertTo-Json -Depth 100)
-```
+END_RESULT_JSON
 
 ## Authorized source refs
 
 $sourceLines
 "@
 }
-
 function Publish-AidosRuntimeActorRepositoryHandoff {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]$Project,
-        [Parameter(Mandatory)][string]$AssignmentId,
-        [switch]$Push
-    )
+    param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)][string]$AssignmentId,[switch]$Push)
     $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
     $bound=Read-AidosRuntimeActorAssignment -ProjectRoot $root -AssignmentId $AssignmentId
     $assignment=$bound.assignment
@@ -160,23 +109,7 @@ function Publish-AidosRuntimeActorRepositoryHandoff {
         return [pscustomobject][ordered]@{status='BLOCKED_ACTIVE_HANDOFF';active_handoff=$existing;assignment_id=$AssignmentId}
     }
     $sourceRefs=@(Get-AidosRepositoryActorSourceRefs -ProjectRoot $root -BoundAssignment $bound)
-    $metadata=[pscustomobject][ordered]@{
-        schema_version='0.1'
-        envelope_type='AIDOS_REPOSITORY_HANDOFF'
-        handoff_id=[guid]::NewGuid().ToString()
-        project_id=[string]$assignment.project_id
-        kind='ASSIGNMENT'
-        from_actor='CORE'
-        to_actor=$target
-        status='READY'
-        parent_handoff_id=if($existing){[string]$existing.metadata.handoff_id}else{$null}
-        created_at=[DateTimeOffset]::UtcNow.ToString('o')
-        action=[string]$assignment.action
-        payload_ref=$payloadRef
-        payload_sha256=[string]$bound.sha256
-        binding=$assignment.binding
-        source_refs=@($sourceRefs)
-    }
+    $metadata=[pscustomobject][ordered]@{schema_version='0.1';envelope_type='AIDOS_REPOSITORY_HANDOFF';handoff_id=[guid]::NewGuid().ToString();project_id=[string]$assignment.project_id;kind='ASSIGNMENT';from_actor='CORE';to_actor=$target;status='READY';parent_handoff_id=if($existing){[string]$existing.metadata.handoff_id}else{$null};created_at=[DateTimeOffset]::UtcNow.ToString('o');action=[string]$assignment.action;payload_ref=$payloadRef;payload_sha256=[string]$bound.sha256;binding=$assignment.binding;source_refs=@($sourceRefs)}
     if($existing){$null=Test-AidosRepositoryHandoffTransition -Previous $existing -Next $metadata}
     $body=New-AidosRepositoryActorAssignmentBody -BoundAssignment $bound -PayloadRef $payloadRef -SourceRefs $sourceRefs
     $expectedParent=if($existing){[string]$existing.metadata.handoff_id}else{$null}
@@ -186,7 +119,6 @@ function Publish-AidosRuntimeActorRepositoryHandoff {
     $persistence=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS publish $target handoff $AssignmentId") -Push:$Push
     [pscustomobject][ordered]@{status='PUBLISHED';handoff=$handoff;transport=$transport;persistence=$persistence}
 }
-
 function Resolve-AidosRepositoryHandoffPayloadPath {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$RelativePath)
@@ -198,7 +130,6 @@ function Resolve-AidosRepositoryHandoffPayloadPath {
     if(-not$path.StartsWith($prefix,$comparison)){throw 'Repository handoff payload escapes project root.'}
     $path
 }
-
 function Import-AidosRepositoryActorResultHandoff {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Project,[switch]$Push)
@@ -215,8 +146,10 @@ function Import-AidosRepositoryActorResultHandoff {
     $assignmentRef=[IO.Path]::GetRelativePath($root,$assignment.path).Replace('\','/')
     $previousId=[string]$handoff.metadata.parent_handoff_id
     if([string]::IsNullOrWhiteSpace($previousId)){throw 'Repository result handoff has no parent assignment handoff.'}
-    if([string]$handoff.metadata.from_actor-ne(ConvertTo-AidosRepositoryActorName -ActorRole ([string]$assignment.assignment.actor_role)){throw 'Repository result actor does not match runtime assignment.'}
-    if([string]$handoff.metadata.action-ne([string]$assignment.assignment.action+'_RESULT')){throw 'Repository result handoff action does not match runtime assignment.'}
+    $expectedActor=ConvertTo-AidosRepositoryActorName -ActorRole ([string]$assignment.assignment.actor_role)
+    if([string]$handoff.metadata.from_actor-ne$expectedActor){throw 'Repository result actor does not match runtime assignment.'}
+    $expectedAction=[string]$assignment.assignment.action+'_RESULT'
+    if([string]$handoff.metadata.action-ne$expectedAction){throw 'Repository result handoff action does not match runtime assignment.'}
     $saved=Save-AidosRuntimeActorResult -ProjectRoot $root -Result $result
     Add-AidosEvent -ProjectRoot $root -EventType 'REPOSITORY_HANDOFF_RESULT_IMPORTED' -Actor SYSTEM -Payload @{handoff_id=[string]$handoff.metadata.handoff_id;parent_handoff_id=$previousId;assignment_id=[string]$result.assignment_id;payload_ref=[string]$handoff.metadata.payload_ref;assignment_ref=$assignmentRef}|Out-Null
     $persistence=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS import repository result $($result.assignment_id)") -Push:$Push
