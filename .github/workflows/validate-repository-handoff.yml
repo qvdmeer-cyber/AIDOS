@@ -27,6 +27,10 @@ jobs:
             'bridge/AidosRepositoryHandoffGateway.psm1',
             'bridge/AidosRepositoryThinkerBinding.psm1',
             'bridge/AidosRepositoryHandoffBridge.psm1',
+            'bridge/AidosRuntimeActorAssignments.psm1',
+            'bridge/AidosRuntimeActorResultConsumer.psm1',
+            'bridge/AidosRuntimeProjectManager.psm1',
+            'bridge/AidosDefinitionResultConsumer.psm1',
             'tests/RepositoryHandoff.Tests.ps1',
             'tests/RepositoryHandoffPersistence.Tests.ps1',
             'tests/RepositoryHandoffOpenApi.Tests.ps1',
@@ -38,6 +42,7 @@ jobs:
             'tests/RepositoryHandoffNestedRuntimeRouting.Tests.ps1',
             'tests/RepositoryRuntimeActorPending.Tests.ps1',
             'tests/RepositoryDefinitionApplicabilityCompatibility.Tests.ps1',
+            'tests/RepositoryProjectApplicabilityDefinitionGate.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
@@ -88,6 +93,9 @@ jobs:
       - name: Definition applicability compatibility
         shell: pwsh
         run: ./tests/RepositoryDefinitionApplicabilityCompatibility.Tests.ps1
+      - name: Project applicability before Definition
+        shell: pwsh
+        run: ./tests/RepositoryProjectApplicabilityDefinitionGate.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1
