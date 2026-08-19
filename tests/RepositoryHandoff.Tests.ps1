@@ -83,9 +83,10 @@ try{
     Assert-Handoff ([bool]$nextTransition.valid) 'Core may publish the next Worker assignment after a result'
 
     $autoParent=New-Metadata -Kind RESULT -From THINKER -To CORE
+    $callerParentBefore=[string]$autoParent.parent_handoff_id
     $autoWritten=Write-AidosRepositoryHandoff -ProjectRoot $temp -Metadata $autoParent -Body 'Result.' -ExpectedParentHandoffId ([string]$assignment.handoff_id)
     Assert-Handoff ([string]$autoWritten.metadata.parent_handoff_id-eq[string]$assignment.handoff_id) 'write fills parent_handoff_id from current canonical handoff when omitted'
-    Assert-Handoff ($null-eq$autoParent.parent_handoff_id) 'atomic writer does not mutate caller-owned metadata'
+    Assert-Handoff ([string]$autoParent.parent_handoff_id-eq$callerParentBefore) 'atomic writer does not mutate caller-owned metadata'
 
     Assert-HandoffThrows {Test-AidosRepositoryHandoffMetadata -Metadata (New-Metadata -Kind ASSIGNMENT -From THINKER -To WORKER)} 'must be published by CORE' 'actors cannot directly assign one another'
     Assert-HandoffThrows {Test-AidosRepositoryHandoffMetadata -Metadata (New-Metadata -Kind RESULT -From THINKER -To WORKER)} 'must return to CORE' 'actor result cannot bypass Core'
