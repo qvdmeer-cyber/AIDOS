@@ -23,8 +23,12 @@ function Write-AidosRepositoryHandoffGatewayJsonAtomic {
     $dir=Split-Path -Parent $Path
     if(-not(Test-Path -LiteralPath $dir -PathType Container)){New-Item -ItemType Directory -Path $dir -Force|Out-Null}
     $tmp="$Path.$([guid]::NewGuid().ToString('N')).tmp"
-    $Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
-    Move-Item -LiteralPath $tmp -Destination $Path -Force
+    try{
+        $Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
+        Move-Item -LiteralPath $tmp -Destination $Path -Force
+    }finally{
+        if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}
+    }
 }
 function New-AidosRepositoryHandoffGatewayKey {
     $bytes=[byte[]]::new(32)
@@ -88,7 +92,6 @@ function Get-AidosRepositoryHandoffGatewayProject {
 function Get-AidosRepositoryHandoffGatewayPayload {
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)]$Handoff)
     $path=Resolve-AidosRepositoryHandoffPayloadPath -ProjectRoot ([string]$Project.local_root) -RelativePath ([string]$Handoff.metadata.payload_ref)
-    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){throw 'Repository handoff payload is missing.'}
     $bytes=[IO.File]::ReadAllBytes($path)
     if($bytes.Length-gt1048576){throw 'Repository handoff payload exceeds the gateway limit.'}
     $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
@@ -108,12 +111,14 @@ function Get-AidosRepositoryHandoffGatewayCurrentHandoff {
 function Resolve-AidosRepositoryHandoffGatewaySourcePath {
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)][string]$AidosRoot,[Parameter(Mandatory)][string]$SourceRef)
     $ref=$SourceRef.Replace('\','/').Trim()
-    if($ref.StartsWith('AIDOS/',[StringComparison]::Ordinal)){$base=[IO.Path]::GetFullPath($AidosRoot);$relative=$ref.Substring(6)}else{$base=Resolve-AidosFileSystemPath ([string]$Project.local_root);$relative=$ref}
-    $relative=Test-AidosRepositoryRelativePath -Path $relative -FieldName 'source_ref'
-    $path=[IO.Path]::GetFullPath((Join-Path $base $relative))
-    $comparison=if([OperatingSystem]::IsWindows()){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
-    $prefix=$base.TrimEnd([IO.Path]::DirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
-    if(-not$path.StartsWith($prefix,$comparison)){throw 'Repository handoff source_ref escapes its authority root.'}
+    if($ref.StartsWith('AIDOS/',[StringComparison]::Ordinal)){
+        $base=Resolve-AidosFileSystemPath $AidosRoot
+        $relative=$ref.Substring(6)
+    }else{
+        $base=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+        $relative=$ref
+    }
+    $path=Resolve-AidosRepositoryContainedPath -BaseRoot $base -RelativePath $relative -FieldName 'source_ref' -RequireLeaf
     [pscustomobject][ordered]@{path=$path;source_ref=$ref}
 }
 function Get-AidosRepositoryHandoffGatewaySource {
@@ -123,9 +128,9 @@ function Get-AidosRepositoryHandoffGatewaySource {
     $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId $ProjectId
     if($null-eq$handoff-or[string]$handoff.metadata.kind-ne'ASSIGNMENT'){throw 'No active assignment handoff authorizes source access.'}
     $authorized=@($handoff.metadata.source_refs|ForEach-Object {[string]$_})
-    if($SourceRef-notin$authorized){throw "Source ref '$SourceRef' is not authorized by the current handoff."}
+    $exact=@($authorized|Where-Object {[string]::Equals($_,$SourceRef,[StringComparison]::Ordinal)})
+    if($exact.Count-ne1){throw "Source ref '$SourceRef' is not authorized exactly by the current handoff."}
     $resolved=Resolve-AidosRepositoryHandoffGatewaySourcePath -Project $project -AidosRoot $AidosRoot -SourceRef $SourceRef
-    if(-not(Test-Path -LiteralPath $resolved.path -PathType Leaf)){throw "Authorized source is missing: $SourceRef"}
     $bytes=[IO.File]::ReadAllBytes($resolved.path)
     if($bytes.Length-gt$MaximumBytes){throw "Authorized source exceeds the $MaximumBytes byte limit: $SourceRef"}
     $text=[Text.Encoding]::UTF8.GetString($bytes)
@@ -148,7 +153,7 @@ function Submit-AidosRepositoryRuntimeActorResult {
     $handoff=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId ([string]$Project.project_id)
     if($null-eq$handoff){throw 'No repository assignment handoff is available.'}
     if([string]$handoff.metadata.kind-eq'RESULT'){
-        if([string]$handoff.metadata.parent_handoff_id-eq[string]$Request.expected_parent_handoff_id){return [pscustomobject][ordered]@{status='ALREADY_ACCEPTED';handoff=$handoff}}
+        if([string]::Equals([string]$handoff.metadata.parent_handoff_id,[string]$Request.expected_parent_handoff_id,[StringComparison]::OrdinalIgnoreCase)){return [pscustomobject][ordered]@{status='ALREADY_ACCEPTED';handoff=$handoff}}
         throw 'Repository handoff already contains a different result.'
     }
     if([string]$handoff.metadata.kind-ne'ASSIGNMENT'-or[string]$handoff.metadata.to_actor-ne'THINKER'){throw 'Current repository handoff is not a Thinker assignment.'}
