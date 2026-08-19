@@ -4,7 +4,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
-Import-Module (Join-Path $root 'bridge/AidosRepositoryHumanInputTransport.psm1') -Force -DisableNameChecking
+$modulePath=Join-Path $root 'bridge/AidosRepositoryHumanInputTransport.psm1'
+Import-Module $modulePath -Force -DisableNameChecking
 
 $script:passed=0
 function Assert-Human([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
@@ -39,6 +40,21 @@ try{
     Assert-Human ($calls.prompt.Contains("request_id=$requestId") -and $calls.prompt.Contains("request_sha256=$($current.request_sha256)")) 'trigger carries exact request identity and hash'
     $again=Invoke-AidosRepositoryHumanInputTrigger -StateRoot $stateRoot -HumanInput $current -ProcessName 'ChatGPT Classic Test' -Backend $backend
     Assert-Human ([string]$again.status-eq'ALREADY_TRIGGERED' -and $calls.send-eq1) 'committed Human Input trigger is idempotent'
+
+    $prompt='AIDOS_HUMAN_INPUT_REQUIRED exact payload'
+    $probe=[pscustomobject]@{index=0;sleeps=0}
+    $sequence=@($prompt,$prompt,'')
+    $read=({param($Context);$value=$sequence[[Math]::Min($probe.index,$sequence.Count-1)];$probe.index++;$value}).GetNewClosure()
+    $sleep=({param($Milliseconds);$probe.sleeps++}).GetNewClosure()
+    $settled=Wait-AidosRepositoryHumanInputSendCommitProof -Context ([pscustomobject]@{window_handle=1}) -PromptText $prompt -TimeoutMilliseconds 500 -PollMilliseconds 100 -ReadComposerText $read -SleepAction $sleep
+    Assert-Human ([bool]$settled.committed -and [string]$settled.committed_message_proof_state-eq'PROVEN_AFTER_SETTLE') 'delayed composer release proves the already-invoked send without resubmitting'
+    Assert-Human ([int]$settled.settle_attempt-eq3 -and $probe.sleeps-eq2) 'settle proof polls until the outbound payload leaves the composer'
+    $stuckRead={param($Context)$prompt}.GetNewClosure()
+    Assert-HumanThrows {Wait-AidosRepositoryHumanInputSendCommitProof -Context ([pscustomobject]@{window_handle=1}) -PromptText $prompt -TimeoutMilliseconds 300 -PollMilliseconds 100 -ReadComposerText $stuckRead -SleepAction {param($Milliseconds)}} 'settle window' 'unchanged composer remains fail-closed after the bounded settle window'
+    $moduleText=Get-Content -LiteralPath $modulePath -Raw -Encoding UTF8
+    Assert-Human ($moduleText.Contains("StartsWith('ChatGPT composer still contains the exact outbound payload after submit;'")) 'settle recovery is limited to the exact legacy post-invoke proof failure'
+    Assert-Human ($moduleText.Contains('Wait-AidosRepositoryHumanInputSendCommitProof -Context $context -PromptText $prompt')) 'Human Input trigger recovers only by observing delayed composer release'
+    Assert-Human (-not$moduleText.Contains('SendKeys.SendWait')) 'Human Input send-proof recovery never performs a second keyboard submit'
 
     $request.context_summary='Changed after committed trigger.';$request.updated_at=[DateTimeOffset]::UtcNow.ToString('o');$request|ConvertTo-Json -Depth 30|Set-Content -LiteralPath $requestPath -Encoding utf8NoBOM
     $changed=Get-AidosRepositoryWaitingHumanInput -Project $project
