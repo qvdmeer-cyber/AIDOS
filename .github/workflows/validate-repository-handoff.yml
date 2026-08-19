@@ -1,0 +1,71 @@
+name: Validate Repository Handoff Bridge
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  repository-handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell
+        shell: pwsh
+        run: |
+          $paths = @(
+            'bridge/AidosRepositoryHandoff.psm1',
+            'bridge/AidosRepositoryHandoffSignal.psm1',
+            'bridge/AidosRepositoryHandoffPersistence.psm1',
+            'bridge/AidosRepositoryHandoffOpenApi.psm1',
+            'bridge/AidosRepositoryHandoffInstallation.psm1',
+            'bridge/Invoke-AidosRepositoryHandoffHost.ps1',
+            'bridge/AidosRepositoryActorHandoff.psm1',
+            'bridge/AidosRepositoryWorkerHandoff.psm1',
+            'bridge/AidosRepositoryReviewHandoff.psm1',
+            'bridge/AidosRepositoryHandoffGateway.psm1',
+            'bridge/AidosRepositoryThinkerBinding.psm1',
+            'bridge/AidosRepositoryHandoffBridge.psm1',
+            'tests/RepositoryHandoff.Tests.ps1',
+            'tests/RepositoryHandoffPersistence.Tests.ps1',
+            'tests/RepositoryHandoffOpenApi.Tests.ps1',
+            'tests/RepositoryHandoffInstallation.Tests.ps1',
+            'tests/RepositoryWorkerHandoff.Tests.ps1',
+            'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
+            'tests/RepositoryHandoffGateway.Tests.ps1',
+            'tests/RepositoryThinkerBinding.Tests.ps1',
+            'tests/RepositoryHandoffBridge.Tests.ps1'
+          )
+          foreach ($path in $paths) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw "${path}: $($errors.Message -join '; ')" }
+          }
+      - name: Repository handoff contract
+        shell: pwsh
+        run: ./tests/RepositoryHandoff.Tests.ps1
+      - name: Scoped repository handoff persistence
+        shell: pwsh
+        run: ./tests/RepositoryHandoffPersistence.Tests.ps1
+      - name: GPT Action OpenAPI contract
+        shell: pwsh
+        run: ./tests/RepositoryHandoffOpenApi.Tests.ps1
+      - name: Repository handoff host installation model
+        shell: pwsh
+        run: ./tests/RepositoryHandoffInstallation.Tests.ps1
+      - name: Repository Worker handoff
+        shell: pwsh
+        run: ./tests/RepositoryWorkerHandoff.Tests.ps1
+      - name: Guarded Worker runtime integration
+        shell: pwsh
+        run: ./tests/RepositoryWorkerRuntimeIntegration.Tests.ps1
+      - name: Repository handoff gateway
+        shell: pwsh
+        run: ./tests/RepositoryHandoffGateway.Tests.ps1
+      - name: Project Thinker binding and trigger
+        shell: pwsh
+        run: ./tests/RepositoryThinkerBinding.Tests.ps1
+      - name: Unified preparation and runtime bridge
+        shell: pwsh
+        run: ./tests/RepositoryHandoffBridge.Tests.ps1

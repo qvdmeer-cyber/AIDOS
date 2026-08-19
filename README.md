@@ -69,6 +69,16 @@ Actors do not directly own one another's lifecycle.
 
 Abstract roles are **Thinker**, technical **Worker** and **Human**. Existing concrete identities remain compatible: `DEFINITION_AGENT` and reasoning/review `WORKER_AGENT` can serve Thinker roles; `EXECUTION_AGENT`/Codex serves the technical Worker role.
 
+## Repository-only actor handoffs
+
+The project repository is the actor work-content transport. Core publishes one exact `ASSIGNMENT` in `.aidos/HANDOFF.md`; the assigned Thinker or Worker returns one bound `RESULT` to Core. Core validates the result and is the only authority that selects the next actor.
+
+The desktop bridge may activate the exact manually bound project conversation, but it does not read ChatGPT responses. Chat history is not project state. The private Thinker reads the handoff and authorized sources through an authenticated Action and submits the result through the same gateway. Codex reads and writes the local repository handoff directly.
+
+Worker lifecycle commits are deferred until the existing Git authority guard proves Codex did not change Git HEAD. Core then commits only scoped `.aidos` lifecycle files, while the product delta remains uncommitted for Thinker review.
+
+See `docs/REPOSITORY_HANDOFF_TRANSPORT.md` and `schemas/repository-handoff.schema.json`.
+
 ## Auto Define — confidence-driven autonomous Definition
 
 Before AIDOS asks the human about an unresolved Definition concern, it classifies decision authority through shared AIDOS-Contracts Decision Governance:
@@ -276,13 +286,15 @@ Accepted Launch Definition freezes release criteria. New findings become `LAUNCH
 
 ## Durable state and recovery
 
-Chats and Codex sessions are disposable. Essential state is reconstructable from project/workstream objects, decision records, events, Git bindings, leases, review transport, Human Input Requests and canonical project sources.
+Chats and Codex sessions are disposable. Essential state is reconstructable from project/workstream objects, decision records, events, Git bindings, leases, review transport, Human Input Requests, canonical handoffs and canonical project sources.
 
 Crash/restart/session replacement must never require hidden chat memory to recover control flow.
 
 ## Implementation status
 
-Already present/proven runtime foundations include exact project/execution binding, execution leases, bounded Codex lifecycle, deterministic execution validation, review transport/cleanup, fail-closed recovery and supervised interactive-session gating.
+Already present/proven runtime foundations include exact project/execution binding, execution leases, bounded Codex lifecycle, deterministic execution validation, repository-only actor handoffs, authenticated Thinker source/result transport, manually bound project-conversation activation, guarded Worker handoff persistence, review transport/cleanup, fail-closed recovery and supervised interactive-session gating.
+
+The Windows host installer, Tailscale Funnel model, generated private-GPT Action contract/instructions and cross-platform regression coverage are present. One-time private GPT configuration, project-chat binding and a live operator-machine smoke test remain deployment steps rather than hidden runtime assumptions.
 
 Auto Define now has shared Decision Governance contracts, durable Baseline/Definition Auto Decision writepaths, deterministic policy/lineage validators, Human Input escalation semantics, telemetry/learning semantics and regression coverage. The full runtime actor loop that automatically performs Decision Assessments and publishes/resumes Human Input Requests remains orchestration integration work.
 
