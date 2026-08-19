@@ -6,6 +6,31 @@ $ErrorActionPreference='Stop'
 # without weakening the existing assignment-bound JSON selector.
 . (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.Base.ps1')
 
+# Keep an immutable handle to the preserved selector before wrapping it. The
+# wrapper adds one deterministic surface that the preserved selector already
+# intended to model: exact separator-free reconstruction of adjacent UIA text
+# fragments. All JSON/template/assignment/hash checks remain in the base selector.
+$script:BaseResolvedActorResponseSelector=(Get-Command Select-AidosDesktopChatGPTResolvedActorResponseText -CommandType Function -ErrorAction Stop).ScriptBlock
+
+function Select-AidosDesktopChatGPTResolvedActorResponseText {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Texts,
+        [Parameter(Mandatory)]$Assignment
+    )
+    if($Texts.Count-eq0){return $null}
+    $expanded=[Collections.Generic.List[string]]::new()
+    foreach($text in @($Texts)){
+        if(-not[string]::IsNullOrWhiteSpace([string]$text)){$expanded.Add([string]$text)}
+    }
+    if($expanded.Count-eq0){return $null}
+    if($expanded.Count-gt1){
+        $compact=[string]::Join('',@($expanded))
+        if(-not[string]::IsNullOrWhiteSpace($compact)){$expanded.Add($compact)}
+    }
+    & $script:BaseResolvedActorResponseSelector -Texts @($expanded) -Assignment $Assignment
+}
+
 function Select-AidosDesktopChatGPTResolvedActorResponseFromHierarchyTexts {
     [CmdletBinding()]
     param(
