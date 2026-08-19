@@ -17,8 +17,10 @@ jobs:
             'bridge/AidosRepositoryHandoff.psm1',
             'bridge/AidosRepositoryActorHandoff.psm1',
             'bridge/AidosRepositoryHandoffGateway.psm1',
+            'bridge/AidosRepositoryThinkerBinding.psm1',
             'tests/RepositoryHandoff.Tests.ps1',
-            'tests/RepositoryHandoffGateway.Tests.ps1'
+            'tests/RepositoryHandoffGateway.Tests.ps1',
+            'tests/RepositoryThinkerBinding.Tests.ps1'
           )
           foreach ($path in $paths) {
             $tokens = $null
@@ -32,3 +34,6 @@ jobs:
       - name: Repository handoff gateway
         shell: pwsh
         run: ./tests/RepositoryHandoffGateway.Tests.ps1
+      - name: Project Thinker binding and trigger
+        shell: pwsh
+        run: ./tests/RepositoryThinkerBinding.Tests.ps1
