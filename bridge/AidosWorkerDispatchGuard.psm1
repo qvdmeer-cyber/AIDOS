@@ -67,8 +67,14 @@ function Resolve-AidosReusableInitialWorkerDispatchGuard {
     $guardRef=[IO.Path]::GetRelativePath($root,$GuardPath).Replace('\','/')
     if($guardRef-notin@($ChangedPaths)){throw 'Existing Worker dispatch guard retry evidence is not present in the current worktree delta.'}
     $eventPaths=@($ChangedPaths|Where-Object {$_.StartsWith('.aidos/events/',[StringComparison]::Ordinal)})
-    $allowed=@($guardRef)+$eventPaths
-    $unexpected=@($ChangedPaths|Where-Object {$_-notin$allowed})
+    $allowed=[Collections.Generic.List[string]]::new();$allowed.Add($guardRef);foreach($eventPath in $eventPaths){$allowed.Add([string]$eventPath)}
+    $bridgeLockRef='.aidos/runtime/bridge.lock'
+    if($bridgeLockRef-in@($ChangedPaths)){
+        $bridgeLockPath=Join-Path $root $bridgeLockRef
+        if(-not(Test-Path -LiteralPath $bridgeLockPath -PathType Leaf) -or (Get-Item -LiteralPath $bridgeLockPath -Force).Length-ne0){throw 'Existing Worker dispatch guard retry bridge lock is not the expected zero-byte Core lock file.'}
+        $allowed.Add($bridgeLockRef)
+    }
+    $unexpected=@($ChangedPaths|Where-Object {$_-notin@($allowed)})
     if($unexpected.Count){throw "Existing Worker dispatch guard retry has unrelated worktree changes: $($unexpected -join ', ')"}
     Assert-AidosWorkerDispatchRetryEventDelta -ProjectRoot $root -EventPaths $eventPaths -Guard $guard|Out-Null
     [pscustomobject]$guard
