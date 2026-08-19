@@ -5,6 +5,8 @@ Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffSignal.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorTransport.psm1') -DisableNameChecking
 
 function Get-AidosRepositoryHandoffGatewayDefaultStateRoot {
@@ -14,7 +16,10 @@ function Get-AidosRepositoryHandoffGatewayDefaultStateRoot {
 
 function Get-AidosRepositoryHandoffGatewayPath {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$StateRoot,[ValidateSet('config','key','status','stop')][string]$Kind)
+    param(
+        [Parameter(Mandatory)][string]$StateRoot,
+        [Parameter(Mandatory)][ValidateSet('config','key','status','stop')][string]$Kind
+    )
     $names=@{config='CONFIG.json';key='API_KEY.txt';status='STATUS.json';stop='STOP'}
     Join-Path ([IO.Path]::GetFullPath($StateRoot)) $names[$Kind]
 }
@@ -43,6 +48,7 @@ function Initialize-AidosRepositoryHandoffGateway {
         [Parameter(Mandatory)][string]$RegistryRoot,
         [string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),
         [string]$StateRoot=(Get-AidosRepositoryHandoffGatewayDefaultStateRoot),
+        [string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),
         [int]$Port=47831,
         [switch]$RotateKey
     )
@@ -53,11 +59,12 @@ function Initialize-AidosRepositoryHandoffGateway {
     if($RotateKey -or -not(Test-Path -LiteralPath $keyPath -PathType Leaf)){
         New-AidosRepositoryHandoffGatewayKey|Set-Content -LiteralPath $keyPath -Encoding ascii -NoNewline
     }
-    $config=[ordered]@{
-        schema_version='0.1'
+    $config=[pscustomobject][ordered]@{
+        schema_version='0.2'
         registry_root=[IO.Path]::GetFullPath($RegistryRoot)
         aidos_root=[IO.Path]::GetFullPath($AidosRoot)
         state_root=$state
+        bridge_state_root=[IO.Path]::GetFullPath($BridgeStateRoot)
         listen_prefix="http://127.0.0.1:$Port/"
         port=$Port
         maximum_request_bytes=1048576
@@ -65,7 +72,11 @@ function Initialize-AidosRepositoryHandoffGateway {
         configured_at=[DateTimeOffset]::UtcNow.ToString('o')
     }
     Write-AidosRepositoryHandoffGatewayJsonAtomic -Path (Get-AidosRepositoryHandoffGatewayPath -StateRoot $state -Kind config) -Value $config
-    [pscustomobject][ordered]@{status='CONFIGURED';config=[pscustomobject]$config;api_key=(Get-Content -LiteralPath $keyPath -Raw -Encoding ASCII)}
+    [pscustomobject][ordered]@{
+        status='CONFIGURED'
+        config=$config
+        api_key=(Get-Content -LiteralPath $keyPath -Raw -Encoding ASCII)
+    }
 }
 
 function Read-AidosRepositoryHandoffGatewayConfiguration {
@@ -83,12 +94,15 @@ function Read-AidosRepositoryHandoffGatewayConfiguration {
 
 function Test-AidosRepositoryHandoffGatewayKey {
     [CmdletBinding()]
-    param([AllowNull()][AllowEmptyString()][string]$Expected,[AllowNull()][AllowEmptyString()][string]$Presented)
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Expected,
+        [AllowNull()][AllowEmptyString()][string]$Presented
+    )
     if([string]::IsNullOrWhiteSpace($Expected)-or[string]::IsNullOrWhiteSpace($Presented)){return $false}
-    $a=[Text.Encoding]::UTF8.GetBytes($Expected)
-    $b=[Text.Encoding]::UTF8.GetBytes($Presented)
-    if($a.Length-ne$b.Length){return $false}
-    [Security.Cryptography.CryptographicOperations]::FixedTimeEquals($a,$b)
+    $expectedBytes=[Text.Encoding]::UTF8.GetBytes($Expected)
+    $presentedBytes=[Text.Encoding]::UTF8.GetBytes($Presented)
+    if($expectedBytes.Length-ne$presentedBytes.Length){return $false}
+    [Security.Cryptography.CryptographicOperations]::FixedTimeEquals($expectedBytes,$presentedBytes)
 }
 
 function Get-AidosRepositoryHandoffGatewayPresentedKey {
@@ -131,14 +145,13 @@ function Get-AidosRepositoryHandoffGatewayCurrentHandoff {
     $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
     $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId $ProjectId
     if($null-eq$handoff){return [pscustomobject][ordered]@{status='NO_HANDOFF';project_id=$ProjectId}}
-    $payload=Get-AidosRepositoryHandoffGatewayPayload -Project $project -Handoff $handoff
     [pscustomobject][ordered]@{
         status='READY'
         project_id=$ProjectId
         handoff_sha256=[string]$handoff.text_sha256
         metadata=$handoff.metadata
         body=[string]$handoff.body
-        payload=$payload
+        payload=(Get-AidosRepositoryHandoffGatewayPayload -Project $project -Handoff $handoff)
     }
 }
 
@@ -191,34 +204,37 @@ function Get-AidosRepositoryHandoffGatewaySource {
     }
 }
 
-function Submit-AidosRepositoryHandoffGatewayResult {
+function Ensure-AidosRepositoryRuntimeActorActivated {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$RegistryRoot,
-        [Parameter(Mandatory)][string]$ProjectId,
-        [Parameter(Mandatory)]$Request,
-        [switch]$Push
-    )
-    foreach($name in @('expected_parent_handoff_id','result')){if(-not$Request.PSObject.Properties[$name]){throw "Result submission is missing '$name'."}}
-    $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
-    $root=Resolve-AidosFileSystemPath ([string]$project.local_root)
-    $handoff=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId $ProjectId
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentId)
+    $state=Read-AidosRuntimeActorTransportState -ProjectRoot $ProjectRoot -AssignmentId $AssignmentId
+    if($null-eq$state){$state=Initialize-AidosRuntimeActorTransportState -ProjectRoot $ProjectRoot -AssignmentId $AssignmentId}
+    if([string]$state.status-eq'PENDING'){
+        return Set-AidosRuntimeActorTransportState -ProjectRoot $ProjectRoot -AssignmentId $AssignmentId -Status ACTIVATED -TransportType REPOSITORY_HANDOFF -LastError $null
+    }
+    if([string]$state.status-ne'ACTIVATED' -and [string]$state.status-ne'COMPLETED'){throw "Repository result cannot use runtime actor transport state '$($state.status)'."}
+    $state
+}
+
+function Submit-AidosRepositoryRuntimeActorResult {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)]$Request,[switch]$Push)
+    $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+    $handoff=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId ([string]$Project.project_id)
     if($null-eq$handoff){throw 'No repository assignment handoff is available.'}
     if([string]$handoff.metadata.kind-eq'RESULT'){
-        if([string]$handoff.metadata.parent_handoff_id-eq[string]$Request.expected_parent_handoff_id){
-            return [pscustomobject][ordered]@{status='ALREADY_ACCEPTED';project_id=$ProjectId;handoff_id=[string]$handoff.metadata.handoff_id;parent_handoff_id=[string]$handoff.metadata.parent_handoff_id}
-        }
+        if([string]$handoff.metadata.parent_handoff_id-eq[string]$Request.expected_parent_handoff_id){return [pscustomobject][ordered]@{status='ALREADY_ACCEPTED';handoff=$handoff}}
         throw 'Repository handoff already contains a different result.'
     }
-    if([string]$handoff.metadata.kind-ne'ASSIGNMENT'){throw 'Current repository handoff is not an assignment.'}
+    if([string]$handoff.metadata.kind-ne'ASSIGNMENT' -or [string]$handoff.metadata.to_actor-ne'THINKER'){throw 'Current repository handoff is not a Thinker assignment.'}
     if(-not[string]::Equals([string]$handoff.metadata.handoff_id,[string]$Request.expected_parent_handoff_id,[StringComparison]::OrdinalIgnoreCase)){throw 'Result submission parent handoff is stale.'}
-    if([string]$handoff.metadata.to_actor-ne'THINKER'){throw 'Gateway result submission is currently restricted to THINKER assignments.'}
     $result=$Request.result
     $binding=Test-AidosRuntimeActorResultBinding -ProjectRoot $root -Result $result
     if([string]$result.actor_role-ne'THINKER'){throw 'Gateway result payload is not a Thinker result.'}
     $assignment=Read-AidosRuntimeActorAssignment -ProjectRoot $root -AssignmentId ([string]$result.assignment_id)
     $assignmentRef=[IO.Path]::GetRelativePath($root,$assignment.path).Replace('\','/')
     if([string]$handoff.metadata.payload_ref-ne$assignmentRef -or [string]$handoff.metadata.payload_sha256-ne[string]$assignment.sha256){throw 'Current handoff does not bind the submitted runtime assignment.'}
+    $null=Ensure-AidosRepositoryRuntimeActorActivated -ProjectRoot $root -AssignmentId ([string]$result.assignment_id)
     $saved=Save-AidosRuntimeActorResult -ProjectRoot $root -Result $result
     $resultPath=Get-AidosRuntimeActorResultPath -ProjectRoot $root -AssignmentId ([string]$result.assignment_id)
     $resultRef=[IO.Path]::GetRelativePath($root,$resultPath).Replace('\','/')
@@ -227,7 +243,7 @@ function Submit-AidosRepositoryHandoffGatewayResult {
         schema_version='0.1'
         envelope_type='AIDOS_REPOSITORY_HANDOFF'
         handoff_id=[guid]::NewGuid().ToString()
-        project_id=$ProjectId
+        project_id=[string]$Project.project_id
         kind='RESULT'
         from_actor='THINKER'
         to_actor='CORE'
@@ -240,12 +256,36 @@ function Submit-AidosRepositoryHandoffGatewayResult {
         binding=$assignment.assignment.binding
         source_refs=@()
     }
-    $null=Test-AidosRepositoryHandoffTransition -Previous $handoff -Next $metadata
+    Test-AidosRepositoryHandoffTransition -Previous $handoff -Next $metadata|Out-Null
     $body=if($Request.PSObject.Properties['summary'] -and -not[string]::IsNullOrWhiteSpace([string]$Request.summary)){"# Thinker result`n`n$([string]$Request.summary)"}else{"# Thinker result`n`nRuntime actor result submitted to AIDOS Core."}
     $written=Write-AidosRepositoryHandoff -ProjectRoot $root -Metadata $metadata -Body $body -ExpectedParentHandoffId ([string]$handoff.metadata.handoff_id)
     Add-AidosEvent -ProjectRoot $root -EventType 'REPOSITORY_HANDOFF_RESULT_PUBLISHED' -Actor THINKER -Payload @{handoff_id=[string]$metadata.handoff_id;parent_handoff_id=[string]$metadata.parent_handoff_id;assignment_id=[string]$result.assignment_id;payload_ref=$resultRef}|Out-Null
-    $persist=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS Thinker result $($result.assignment_id)") -Push:$Push
-    [pscustomobject][ordered]@{status='ACCEPTED';project_id=$ProjectId;handoff=$written;saved=$saved;binding=$binding;persistence=$persist}
+    $persistence=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS Thinker result $($result.assignment_id)") -Push:$Push
+    [pscustomobject][ordered]@{status='ACCEPTED';handoff=$written;saved=$saved;binding=$binding;persistence=$persistence}
+}
+
+function Submit-AidosRepositoryHandoffGatewayResult {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RegistryRoot,
+        [Parameter(Mandatory)][string]$ProjectId,
+        [Parameter(Mandatory)]$Request,
+        [string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),
+        [switch]$Push
+    )
+    foreach($name in @('expected_parent_handoff_id','result')){if(-not$Request.PSObject.Properties[$name]){throw "Result submission is missing '$name'."}}
+    $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
+    $envelope=[string]$Request.result.envelope_type
+    $accepted=switch($envelope){
+        'RUNTIME_ACTOR_RESULT' {Submit-AidosRepositoryRuntimeActorResult -Project $project -Request $Request -Push:$Push}
+        'REVIEW_RESPONSE' {Submit-AidosRepositoryReviewResult -Project $project -Request $Request -Push:$Push}
+        default {throw "Unsupported repository handoff result envelope '$envelope'."}
+    }
+    if([string]$accepted.status-in@('ACCEPTED','ALREADY_ACCEPTED')){
+        $handoffId=if($accepted.PSObject.Properties['handoff']){[string]$accepted.handoff.metadata.handoff_id}else{$null}
+        Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'ACTOR_RESULT_ACCEPTED' -ProjectId $ProjectId -HandoffId $handoffId|Out-Null
+    }
+    $accepted
 }
 
 function New-AidosRepositoryHandoffGatewayResponse {
@@ -264,25 +304,23 @@ function Invoke-AidosRepositoryHandoffGatewayRequest {
         [Parameter(Mandatory)][string]$ExpectedKey,
         [Parameter(Mandatory)][string]$RegistryRoot,
         [Parameter(Mandatory)][string]$AidosRoot,
+        [string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),
         [switch]$Push
     )
     if(-not(Test-AidosRepositoryHandoffGatewayKey -Expected $ExpectedKey -Presented $PresentedKey)){return New-AidosRepositoryHandoffGatewayResponse -StatusCode 401 -Body ([ordered]@{error='UNAUTHORIZED'})}
     try{
         if($Method-eq'GET' -and $Path-eq'/health'){return New-AidosRepositoryHandoffGatewayResponse -StatusCode 200 -Body ([ordered]@{status='OK';service='AIDOS_REPOSITORY_HANDOFF_GATEWAY'})}
         if($Path-match'^/v1/projects/([^/]+)/handoff$' -and $Method-eq'GET'){
-            $projectId=[Uri]::UnescapeDataString($Matches[1])
-            return New-AidosRepositoryHandoffGatewayResponse -StatusCode 200 -Body (Get-AidosRepositoryHandoffGatewayCurrentHandoff -RegistryRoot $RegistryRoot -ProjectId $projectId)
+            return New-AidosRepositoryHandoffGatewayResponse -StatusCode 200 -Body (Get-AidosRepositoryHandoffGatewayCurrentHandoff -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))
         }
         if($Path-match'^/v1/projects/([^/]+)/sources$' -and $Method-eq'GET'){
-            $projectId=[Uri]::UnescapeDataString($Matches[1])
             $sourceRef=[string]$Query['path']
             if([string]::IsNullOrWhiteSpace($sourceRef)){return New-AidosRepositoryHandoffGatewayResponse -StatusCode 400 -Body ([ordered]@{error='SOURCE_PATH_REQUIRED'})}
-            return New-AidosRepositoryHandoffGatewayResponse -StatusCode 200 -Body (Get-AidosRepositoryHandoffGatewaySource -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ProjectId $projectId -SourceRef $sourceRef)
+            return New-AidosRepositoryHandoffGatewayResponse -StatusCode 200 -Body (Get-AidosRepositoryHandoffGatewaySource -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -SourceRef $sourceRef)
         }
         if($Path-match'^/v1/projects/([^/]+)/results$' -and $Method-eq'POST'){
-            $projectId=[Uri]::UnescapeDataString($Matches[1])
             if($null-eq$Body){return New-AidosRepositoryHandoffGatewayResponse -StatusCode 400 -Body ([ordered]@{error='BODY_REQUIRED'})}
-            return New-AidosRepositoryHandoffGatewayResponse -StatusCode 200 -Body (Submit-AidosRepositoryHandoffGatewayResult -RegistryRoot $RegistryRoot -ProjectId $projectId -Request $Body -Push:$Push)
+            return New-AidosRepositoryHandoffGatewayResponse -StatusCode 200 -Body (Submit-AidosRepositoryHandoffGatewayResult -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -Request $Body -BridgeStateRoot $BridgeStateRoot -Push:$Push)
         }
         New-AidosRepositoryHandoffGatewayResponse -StatusCode 404 -Body ([ordered]@{error='NOT_FOUND'})
     }catch{
@@ -322,6 +360,7 @@ function Start-AidosRepositoryHandoffGateway {
     param([string]$StateRoot=(Get-AidosRepositoryHandoffGatewayDefaultStateRoot),[switch]$Push)
     $loaded=Read-AidosRepositoryHandoffGatewayConfiguration -StateRoot $StateRoot
     $config=$loaded.config
+    $bridgeStateRoot=if($config.PSObject.Properties['bridge_state_root']){[string]$config.bridge_state_root}else{Get-AidosRepositoryHandoffBridgeDefaultStateRoot}
     $listener=[Net.HttpListener]::new()
     $listener.Prefixes.Add([string]$config.listen_prefix)
     $statusPath=Get-AidosRepositoryHandoffGatewayPath -StateRoot $StateRoot -Kind status
@@ -329,14 +368,14 @@ function Start-AidosRepositoryHandoffGateway {
     Remove-Item -LiteralPath $stopPath -Force -ErrorAction SilentlyContinue
     try{
         $listener.Start()
-        Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.1';status='RUNNING';pid=$PID;listen_prefix=[string]$config.listen_prefix;started_at=[DateTimeOffset]::UtcNow.ToString('o');heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')})
+        Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.2';status='RUNNING';pid=$PID;listen_prefix=[string]$config.listen_prefix;started_at=[DateTimeOffset]::UtcNow.ToString('o');heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')})
         while(-not(Test-Path -LiteralPath $stopPath -PathType Leaf)){
             $async=$listener.BeginGetContext($null,$null)
             while(-not$async.AsyncWaitHandle.WaitOne(1000)){
+                if(Test-Path -LiteralPath $stopPath -PathType Leaf){break}
                 $status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
                 $status.heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')
                 Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status
-                if(Test-Path -LiteralPath $stopPath -PathType Leaf){break}
             }
             if(Test-Path -LiteralPath $stopPath -PathType Leaf){break}
             $context=$listener.EndGetContext($async)
@@ -349,13 +388,15 @@ function Start-AidosRepositoryHandoffGateway {
                     try{$bodyText=$reader.ReadToEnd()}finally{$reader.Dispose()}
                     if(-not[string]::IsNullOrWhiteSpace($bodyText)){$body=$bodyText|ConvertFrom-Json -Depth 100}
                 }
-                $response=Invoke-AidosRepositoryHandoffGatewayRequest -Method ([string]$context.Request.HttpMethod) -Path ([string]$context.Request.Url.AbsolutePath) -Query (ConvertFrom-AidosRepositoryHandoffGatewayQuery -Uri $context.Request.Url) -Body $body -PresentedKey $presented -ExpectedKey ([string]$loaded.api_key) -RegistryRoot ([string]$config.registry_root) -AidosRoot ([string]$config.aidos_root) -Push:$Push
-            }catch{$response=New-AidosRepositoryHandoffGatewayResponse -StatusCode 400 -Body ([ordered]@{error='BAD_REQUEST';detail=$_.Exception.Message})}
+                $response=Invoke-AidosRepositoryHandoffGatewayRequest -Method ([string]$context.Request.HttpMethod) -Path ([string]$context.Request.Url.AbsolutePath) -Query (ConvertFrom-AidosRepositoryHandoffGatewayQuery -Uri $context.Request.Url) -Body $body -PresentedKey $presented -ExpectedKey ([string]$loaded.api_key) -RegistryRoot ([string]$config.registry_root) -AidosRoot ([string]$config.aidos_root) -BridgeStateRoot $bridgeStateRoot -Push:$Push
+            }catch{
+                $response=New-AidosRepositoryHandoffGatewayResponse -StatusCode 400 -Body ([ordered]@{error='BAD_REQUEST';detail=$_.Exception.Message})
+            }
             Write-AidosRepositoryHandoffGatewayHttpResponse -Context $context -Response $response
         }
-        Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.1';status='STOPPED';pid=$PID;stopped_at=[DateTimeOffset]::UtcNow.ToString('o')})
+        Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.2';status='STOPPED';pid=$PID;stopped_at=[DateTimeOffset]::UtcNow.ToString('o')})
     }catch{
-        Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.1';status='ERROR';pid=$PID;observed_at=[DateTimeOffset]::UtcNow.ToString('o');error=$_.Exception.Message})
+        Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.2';status='ERROR';pid=$PID;observed_at=[DateTimeOffset]::UtcNow.ToString('o');error=$_.Exception.Message})
         throw
     }finally{
         if($listener.IsListening){$listener.Stop()}
@@ -373,4 +414,4 @@ function Stop-AidosRepositoryHandoffGateway {
     [pscustomobject][ordered]@{status='STOP_REQUESTED';state_root=[IO.Path]::GetFullPath($StateRoot)}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
+Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
