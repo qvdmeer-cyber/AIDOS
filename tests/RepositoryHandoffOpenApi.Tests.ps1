@@ -19,7 +19,7 @@ try{
     Assert-OpenApiThrows {Normalize-AidosRepositoryHandoffPublicUrl -ServerUrl 'relative/path'} 'absolute HTTPS' 'public GPT Action URL rejects relative paths'
 
     $document=New-AidosRepositoryHandoffOpenApiDocument -ServerUrl 'https://aidos-machine.example.ts.net/'
-    Assert-OpenApi ([string]$document.openapi-eq'3.0.3') 'OpenAPI version is explicit and GPT Action compatible'
+    Assert-OpenApi ([string]$document.openapi-eq'3.1.0') 'OpenAPI version matches the proven custom GPT Action schema generation'
     Assert-OpenApi ([string]$document.servers[0].url-eq'https://aidos-machine.example.ts.net') 'OpenAPI server uses normalized Funnel URL'
     Assert-OpenApi (@($document.paths.Keys).Count-eq5) 'OpenAPI exposes handoff, Human Input read/submit, authorized source and result endpoints'
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/handoff'.get.operationId-eq'getAidosProjectHandoff') 'handoff operation ID is stable'
@@ -30,15 +30,18 @@ try{
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/sources'.get.operationId-eq'getAidosAuthorizedSource') 'source operation ID is stable'
     $submit=$document.paths.'/v1/projects/{projectId}/results'.post
     Assert-OpenApi ([string]$submit.operationId-eq'submitAidosBoundResult') 'result operation ID is stable'
-    Assert-OpenApi ($submit.'x-openai-isConsequential'-eq$false) 'bound result submission permits persistent operator approval'
+    Assert-OpenApi ($submit.'x-openai-isConsequential'-eq$false) 'bound result submission remains marked non-consequential at the Action UI layer'
     Assert-OpenApi ([string]$document.components.securitySchemes.BearerAuth.scheme-eq'bearer') 'OpenAPI requires bearer API-key authentication'
     Assert-OpenApi ([string]$document.components.schemas.HumanInputSubmitRequest.properties.request_sha256.pattern-eq'^[0-9a-f]{64}$') 'Human Input submission binds the exact request hash'
-    Assert-OpenApi (@($document.components.schemas.SubmitResultRequest.properties.result.oneOf).Count-eq2) 'Thinker result submission remains runtime actor or review only'
+    Assert-OpenApi ([string]$document.components.schemas.SubmitResultRequest.properties.result.type-eq'object' -and [bool]$document.components.schemas.SubmitResultRequest.properties.result.additionalProperties) 'GPT Action result request uses a simple object while Core retains full envelope validation'
+    Assert-OpenApi ([string]$document.components.schemas.Payload.properties.content.type-eq'object') 'handoff payload schema avoids unnecessary union constructs'
 
     $json=ConvertTo-AidosRepositoryHandoffOpenApiJson -ServerUrl 'https://aidos-machine.example.ts.net'
+    Assert-OpenApi (-not($json.Contains('"nullable"'))) 'OpenAPI 3.1 output contains no 3.0 nullable keyword'
     $roundTrip=$json|ConvertFrom-Json -Depth 100
     Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/human-input'.get.operationId-eq'getAidosHumanInput') 'Human Input OpenAPI JSON round-trips without losing operation identity'
     Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/results'.post.operationId-eq'submitAidosBoundResult') 'OpenAPI JSON round-trips without losing Thinker operation identity'
+    Assert-OpenApi (@($roundTrip.components.schemas.Binding.properties.definition_id.type)-contains'null') 'OpenAPI 3.1 nullable binding values use JSON Schema null types'
 
     $path=Join-Path $temp 'openapi.json'
     $written=Write-AidosRepositoryHandoffOpenApiDocument -ServerUrl 'https://aidos-machine.example.ts.net' -Path $path
