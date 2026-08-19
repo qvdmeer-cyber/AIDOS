@@ -44,6 +44,12 @@ try{
     Assert-Gate ($definitionConsumer.Contains('PROJECT_APPLICABILITY_RECOVERED_FROM_LEGACY_DEFINITION')) 'legacy recovery is evented durably'
     Assert-Gate ($definitionConsumer.Contains("'tools/New-AidosDefinitionApplicability.ps1'")) 'legacy recovery rebuilds Definition applicability after project-scope repair'
 
+    $setter=Get-Content -LiteralPath (Join-Path $root 'tools/Set-AidosDefinitionApplicabilitySurface.ps1') -Raw -Encoding UTF8
+    Assert-Gate ($setter.Contains("if(`$DefinitionState -eq 'AFFECTED'){throw")) 'project NOT_APPLICABLE keeps a hard conflict branch for AFFECTED Definition results'
+    Assert-Gate ($setter.Contains('cannot be affected by Definition.')) 'AFFECTED conflict branch is explicit'
+    Assert-Gate ($setter.Contains("status='ALREADY_NOT_APPLICABLE'")) 'project NOT_APPLICABLE plus NOT_AFFECTED is consumed idempotently'
+    Assert-Gate ($setter.Contains("definition_state='NOT_APPLICABLE'")) 'idempotent result preserves canonical Definition NOT_APPLICABLE state'
+
     Write-Output "PASS: $passed project applicability / Definition gate assertions"
 }finally{
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
