@@ -13,6 +13,7 @@ Import-Module (Join-Path $root 'bridge/AidosRepositoryWorkerHandoff.psm1') -Forc
 $script:passed=0
 $script:GitExecutable=(Get-Command git -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
 function Assert-WorkerRuntime([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
+function Assert-WorkerRuntimeThrows([scriptblock]$Action,[string]$Pattern,[string]$Message){$thrown=$false;try{&$Action}catch{$thrown=$true;if($_.Exception.Message-notmatch$Pattern){throw "ASSERTION FAILED: $Message; unexpected: $($_.Exception.Message)"}};if(-not$thrown){throw "ASSERTION FAILED: $Message; no exception"};$script:passed++}
 function Invoke-TestGit([string]$Repo,[string[]]$Arguments){$output=@(& $script:GitExecutable -C $Repo @Arguments 2>&1);if($LASTEXITCODE-ne0){throw "git $($Arguments-join' ') failed: $($output-join'; ')"};@($output)}
 
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aidos-worker-runtime-'+[guid]::NewGuid().ToString('N'))
@@ -62,6 +63,19 @@ try{
     $project=Register-AidosPreparationProject -RegistryRoot $registry -ProjectId 'WORKER-RUNTIME' -Repository 'https://github.com/example/worker-runtime.git' -LocalRoot $repo -ProjectMode NEW_PROJECT -AllowedPersistencePaths @('.aidos')
     $guard=New-AidosWorkerDispatchGuard -ProjectRoot $repo
     Assert-WorkerRuntime ([string]$guard.git_head_before-eq$headBefore) 'dispatch guard binds the pre-Worker Git HEAD'
+
+    $eventPath=Join-Path $repo ('.aidos/events/'+(Get-Date).ToUniversalTime().ToString('yyyy-MM')+'.jsonl')
+    $eventCountBefore=@(Get-Content -LiteralPath $eventPath -Encoding UTF8).Count
+    $retryGuard=New-AidosWorkerDispatchGuard -ProjectRoot $repo
+    Assert-WorkerRuntime ([string]$retryGuard.status-eq'BOUND' -and [string]$retryGuard.git_head_before-eq$headBefore) 'same TASK_READY execution reuses an existing BOUND initial dispatch guard'
+    Assert-WorkerRuntime (@(Get-Content -LiteralPath $eventPath -Encoding UTF8).Count-eq$eventCountBefore) 'guard retry does not append a duplicate guard-bound event'
+
+    $roguePath=Join-Path $repo 'rogue.txt'
+    Set-Content -LiteralPath $roguePath -Value 'unexpected' -Encoding utf8NoBOM
+    Assert-WorkerRuntimeThrows {New-AidosWorkerDispatchGuard -ProjectRoot $repo|Out-Null} 'unrelated worktree changes' 'guard retry remains fail-closed when any non-Core delta appears'
+    Remove-Item -LiteralPath $roguePath -Force
+    $retryGuard=New-AidosWorkerDispatchGuard -ProjectRoot $repo
+    Assert-WorkerRuntime ([string]$retryGuard.git_head_before-eq$headBefore) 'guard remains reusable after unrelated retry delta is removed'
 
     $codexInvoker={
         param($Project,$ExecutionPath,$Prompt)
