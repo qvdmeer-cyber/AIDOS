@@ -70,7 +70,7 @@ try{
     Assert-Handoff ($null-ne$read) 'written repository handoff can be read from canonical path'
     Assert-Handoff ([string]$read.metadata.handoff_id-eq[string]$written.metadata.handoff_id) 'read handoff identity matches written identity'
     Assert-Handoff ((Get-AidosRepositoryHandoffRelativePath)-eq'.aidos/HANDOFF.md') 'canonical repository handoff path is stable'
-    Assert-Handoff ((Get-ChildItem -LiteralPath (Join-Path $temp '.aidos') -Filter '.HANDOFF.md.*.tmp' -File -ErrorAction SilentlyContinue).Count-eq0) 'atomic handoff write leaves no temporary file'
+    Assert-Handoff (@(Get-ChildItem -LiteralPath (Join-Path $temp '.aidos') -Filter '.HANDOFF.md.*.tmp' -File -ErrorAction SilentlyContinue).Count-eq0) 'atomic handoff write leaves no temporary file'
     $lockPath=Get-AidosRepositoryHandoffLockPath -ProjectRoot $temp
     Assert-Handoff (-not$lockPath.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase)) 'cross-process handoff lock lives outside the project repository'
 
