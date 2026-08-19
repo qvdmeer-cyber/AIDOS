@@ -36,10 +36,13 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
 
     $orderedSurfaces=$surfaces.ToArray()
     if($orderedSurfaces.Count-gt1){
-        $compact=[string]::Join('',[string[]]$orderedSurfaces)
-        if(-not[string]::IsNullOrWhiteSpace($compact) -and $seenSurfaces.Add($compact)){$surfaces.Add($compact)}
+        # Newline aggregation remains a fallback for controls that represent
+        # separate rendered lines. Exact separator-free reconstruction is added
+        # last so it has higher precedence when both forms parse as valid JSON.
         $aggregate=[string]::Join("`n",[string[]]$orderedSurfaces)
         if($seenSurfaces.Add($aggregate)){$surfaces.Add($aggregate)}
+        $compact=[string]::Join('',[string[]]$orderedSurfaces)
+        if(-not[string]::IsNullOrWhiteSpace($compact) -and $seenSurfaces.Add($compact)){$surfaces.Add($compact)}
     }
 
     if($expectedAssignmentHashes.Count-eq0){
