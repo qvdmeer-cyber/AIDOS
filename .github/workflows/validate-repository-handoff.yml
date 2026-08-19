@@ -36,6 +36,7 @@ jobs:
             'tests/RepositoryHandoffGatewayAtomicWrite.Tests.ps1',
             'tests/RepositoryHandoffBridgeAtomicWrite.Tests.ps1',
             'tests/RepositoryHandoffNestedRuntimeRouting.Tests.ps1',
+            'tests/RepositoryRuntimeActorPending.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
@@ -78,6 +79,9 @@ jobs:
       - name: Nested WSL-safe handoff routing
         shell: pwsh
         run: ./tests/RepositoryHandoffNestedRuntimeRouting.Tests.ps1
+      - name: Completed actor assignment dispatch guard
+        shell: pwsh
+        run: ./tests/RepositoryRuntimeActorPending.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1
