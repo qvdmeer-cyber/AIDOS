@@ -101,6 +101,56 @@ Fetch the exact current Human Input through your configured AIDOS Human Input ac
 "@.Trim()
 }
 
+function Get-AidosRepositoryHumanInputComposerText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context)
+    if(-not('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+    if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw 'ChatGPT window is not present for Human Input send proof.'}
+    $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+    if(-not$root){throw 'ChatGPT window is unavailable through UI Automation for Human Input send proof.'}
+    $matches=@($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition)|Where-Object {
+        [string]$_.Current.AutomationId-eq'prompt-textarea' -and
+        $_.Current.ControlType-eq[System.Windows.Automation.ControlType]::Edit -and
+        [bool]$_.Current.IsKeyboardFocusable
+    })
+    if($matches.Count-ne1){throw "Expected exactly one ChatGPT composer control during Human Input send proof, found $($matches.Count)."}
+    $composer=$matches[0]
+    try{$value=$composer.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern);if($value){return [string]$value.Current.Value}}catch{}
+    try{$text=$composer.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern);if($text){return [string]$text.DocumentRange.GetText(-1)}}catch{}
+    [string]$composer.Current.Name
+}
+
+function Wait-AidosRepositoryHumanInputSendCommitProof {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)][string]$PromptText,
+        [ValidateRange(100,30000)][int]$TimeoutMilliseconds=5000,
+        [ValidateRange(25,1000)][int]$PollMilliseconds=100,
+        [scriptblock]$ReadComposerText,
+        [scriptblock]$SleepAction
+    )
+    if($null-eq$ReadComposerText){$ReadComposerText={param($CurrentContext);Get-AidosRepositoryHumanInputComposerText -Context $CurrentContext}}
+    if($null-eq$SleepAction){$SleepAction={param($Milliseconds);Start-Sleep -Milliseconds $Milliseconds}}
+    $attempts=[Math]::Max(1,[int][Math]::Ceiling($TimeoutMilliseconds/[double]$PollMilliseconds))
+    for($attempt=1;$attempt-le$attempts;$attempt++){
+        $remaining=[string](& $ReadComposerText $Context)
+        if([string]::IsNullOrWhiteSpace($remaining) -or $remaining.IndexOf($PromptText,[StringComparison]::Ordinal)-lt0){
+            return [pscustomobject][ordered]@{
+                schema_version='0.1'
+                send_invocation_state='INVOKED'
+                composer_result='RELEASED_AFTER_SETTLE'
+                committed_message_proof_state='PROVEN_AFTER_SETTLE'
+                settle_attempt=$attempt
+                settle_timeout_milliseconds=$TimeoutMilliseconds
+                committed=$true
+            }
+        }
+        if($attempt-lt$attempts){& $SleepAction $PollMilliseconds}
+    }
+    throw "ChatGPT composer still contains the exact outbound payload after submit and $TimeoutMilliseconds ms settle window; committed-send proof is absent."
+}
+
 function Invoke-AidosRepositoryHumanInputTrigger {
     [CmdletBinding()]
     param(
@@ -145,7 +195,13 @@ function Invoke-AidosRepositoryHumanInputTrigger {
         $context=& $Backend.FocusConversation $activation.context $binding
         $prompt=New-AidosRepositoryHumanInputTriggerText -Binding $binding -HumanInput $HumanInput
         $metadata=[pscustomobject][ordered]@{kind='HUMAN_INPUT';project_id=$projectId;request_id=$requestId;request_sha256=[string]$HumanInput.request_sha256}
-        $send=& $Backend.SendPrompt $context $binding $prompt $metadata
+        try{
+            $send=& $Backend.SendPrompt $context $binding $prompt $metadata
+        }catch{
+            $sendError=$_.Exception.Message
+            if(-not$sendError.StartsWith('ChatGPT composer still contains the exact outbound payload after submit;',[StringComparison]::Ordinal)){throw}
+            $send=Wait-AidosRepositoryHumanInputSendCommitProof -Context $context -PromptText $prompt
+        }
         if($null-eq$send -or -not[bool]$send.committed){throw 'ChatGPT Human Input trigger has no committed-send proof.'}
         $state.status='COMMITTED';$state.triggered_at=[DateTimeOffset]::UtcNow.ToString('o');$state.updated_at=$state.triggered_at
         Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
@@ -170,4 +226,4 @@ function Reset-AidosRepositoryHumanInputTrigger {
     [pscustomobject][ordered]@{status='RESET';project_id=$ProjectId;request_id=$RequestId}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHumanInputTriggerPath,Get-AidosRepositoryHumanInputTriggerState,Assert-AidosRepositoryHumanInputBinding,Get-AidosRepositoryWaitingHumanInput,New-AidosRepositoryHumanInputTriggerText,Invoke-AidosRepositoryHumanInputTrigger,Reset-AidosRepositoryHumanInputTrigger
+Export-ModuleMember -Function Get-AidosRepositoryHumanInputTriggerPath,Get-AidosRepositoryHumanInputTriggerState,Assert-AidosRepositoryHumanInputBinding,Get-AidosRepositoryWaitingHumanInput,New-AidosRepositoryHumanInputTriggerText,Get-AidosRepositoryHumanInputComposerText,Wait-AidosRepositoryHumanInputSendCommitProof,Invoke-AidosRepositoryHumanInputTrigger,Reset-AidosRepositoryHumanInputTrigger
