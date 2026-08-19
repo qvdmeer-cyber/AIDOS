@@ -7,9 +7,11 @@ $root=Split-Path $PSScriptRoot -Parent
 $bootstrapPath=Join-Path $root 'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1'
 $hostPath=Join-Path $root 'bridge/Invoke-AidosRepositoryHandoffHost.ps1'
 $bridgePath=Join-Path $root 'bridge/AidosRepositoryHandoffBridge.psm1'
+$handoffPath=Join-Path $root 'bridge/AidosRepositoryHandoff.psm1'
 $text=Get-Content -LiteralPath $bootstrapPath -Raw -Encoding UTF8
 $hostText=Get-Content -LiteralPath $hostPath -Raw -Encoding UTF8
 $bridgeText=Get-Content -LiteralPath $bridgePath -Raw -Encoding UTF8
+$handoffText=Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8
 
 $script:passed=0
 function Assert-Bootstrap([bool]$Condition,[string]$Message){
@@ -19,26 +21,66 @@ function Assert-Bootstrap([bool]$Condition,[string]$Message){
 
 Assert-Bootstrap ($text.Contains("`$runtimeHost=Join-Path `$PSScriptRoot ('Invoke-AidosRepositoryHandoffHost.runtime.'")) 'bootstrap materializes a temporary runtime host'
 Assert-Bootstrap ($text.Contains("`$runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.'")) 'bootstrap materializes a temporary runtime bridge'
+Assert-Bootstrap ($text.Contains("`$runtimeHandoffName='AidosRepositoryHandoff.runtime.'")) 'bootstrap materializes a temporary runtime handoff module'
 Assert-Bootstrap ($text.Contains("`$script:AidosWindowsSessionModule=Import-Module")) 'runtime host stores the imported Windows-session module object'
 Assert-Bootstrap ($text.Contains("`$updated.entry_point=`$PSCommandPath")) 'successful install persists bootstrap as scheduled-task entrypoint'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeBridge){Remove-Item -LiteralPath `$runtimeBridge -Force}")) 'temporary runtime bridge is removed'
+Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeHandoff){Remove-Item -LiteralPath `$runtimeHandoff -Force}")) 'temporary runtime handoff module is removed'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeHost){Remove-Item -LiteralPath `$runtimeHost -Force}")) 'temporary runtime host is removed'
 
+$handoffTarget=@'
+function Test-AidosRepositoryPathItemIsLink {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Item)
+    $reparse=(($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    $linkType=$null
+    if($Item.PSObject.Properties['LinkType']){$linkType=[string]$Item.LinkType}
+    $reparse -or -not[string]::IsNullOrWhiteSpace($linkType)
+}
+'@
+Assert-Bootstrap ([regex]::Matches($handoffText,[regex]::Escape($handoffTarget)).Count-eq1) 'canonical handoff has one raw reparse-point link guard'
+$handoffReplacement=@'
+function Test-AidosRepositoryPathItemIsLink {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Item)
+    $reparse=(($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    $linkType=$null
+    if($Item.PSObject.Properties['LinkType']){$linkType=[string]$Item.LinkType}
+    $linkTarget=$null
+    if($Item.PSObject.Properties['LinkTarget']){$linkTarget=[string]$Item.LinkTarget}
+    elseif($Item.PSObject.Properties['Target']){$linkTarget=[string]$Item.Target}
+    $explicitLink=(-not[string]::IsNullOrWhiteSpace($linkType)) -or (-not[string]::IsNullOrWhiteSpace($linkTarget))
+    $fullName=if($Item.PSObject.Properties['FullName']){[string]$Item.FullName}else{''}
+    $wslProviderPath=$fullName.StartsWith('\\wsl.localhost\',[StringComparison]::OrdinalIgnoreCase) -or $fullName.StartsWith('\\wsl$\',[StringComparison]::OrdinalIgnoreCase)
+    if($wslProviderPath){return $explicitLink}
+    $reparse -or $explicitLink
+}
+'@
+$handoffRuntime=$handoffText.Replace($handoffTarget,$handoffReplacement)
+Assert-Bootstrap ($handoffRuntime.Contains("StartsWith('\\wsl.localhost\'")) 'runtime handoff recognizes the WSL localhost provider path'
+Assert-Bootstrap ($handoffRuntime.Contains('if($wslProviderPath){return $explicitLink}')) 'runtime handoff ignores provider-only reparse flags but retains explicit link metadata'
+$handoffTokens=$null
+$handoffErrors=$null
+[void][System.Management.Automation.Language.Parser]::ParseInput($handoffRuntime,[ref]$handoffTokens,[ref]$handoffErrors)
+Assert-Bootstrap (@($handoffErrors).Count-eq0) ('runtime handoff parses: '+(@($handoffErrors|ForEach-Object Message)-join'; '))
+
+$runtimeHandoffName='AidosRepositoryHandoff.runtime.test.psm1'
 $bridgeRuntime=$bridgeText
-$assignmentTarget='$assignment=$pending.assignment'
-Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape($assignmentTarget)).Count-eq1) 'canonical bridge has one wrapper-style pending assignment target'
-$bridgeRuntime=$bridgeRuntime.Replace($assignmentTarget,'$assignment=$pending')
-
-$whereTarget="Where-Object status -eq'ERROR'"
-Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape($whereTarget)).Count-eq2) 'canonical bridge has two fragile error predicates'
-$whereReplacement="Where-Object { `$_.status -eq 'ERROR' }"
-$bridgeRuntime=$bridgeRuntime.Replace($whereTarget,$whereReplacement)
-
+$bridgeTransforms=[ordered]@{
+    '$assignment=$pending.assignment' = '$assignment=$pending'
+    "Where-Object status -eq'ERROR'" = "Where-Object { `$_.status -eq 'ERROR' }"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
+}
+foreach($pair in $bridgeTransforms.GetEnumerator()){
+    $expected=if([string]$pair.Key -eq "Where-Object status -eq'ERROR'"){2}else{1}
+    Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape([string]$pair.Key)).Count-eq$expected) "canonical bridge contains expected runtime target: $($pair.Key)"
+    $bridgeRuntime=$bridgeRuntime.Replace([string]$pair.Key,[string]$pair.Value)
+}
 Assert-Bootstrap (-not$bridgeRuntime.Contains('$assignment=$pending.assignment')) 'runtime bridge removes wrapper-style pending assignment access'
 Assert-Bootstrap ($bridgeRuntime.Contains('$assignment=$pending')) 'runtime bridge consumes raw pending assignment records'
-Assert-Bootstrap (-not$bridgeRuntime.Contains($whereTarget)) 'runtime bridge removes fragile Where-Object property syntax'
-Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape($whereReplacement)).Count-eq2) 'runtime bridge uses explicit predicates for both error collections'
-
+Assert-Bootstrap ($bridgeRuntime.Contains("AidosRuntimeProjectManager.psm1') -Global")) 'runtime manager command is exported into bridge-visible session scope'
+Assert-Bootstrap ($bridgeRuntime.Contains($runtimeHandoffName)) 'runtime bridge imports the WSL-compatible handoff module'
 $bridgeTokens=$null
 $bridgeErrors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($bridgeRuntime,[ref]$bridgeTokens,[ref]$bridgeErrors)

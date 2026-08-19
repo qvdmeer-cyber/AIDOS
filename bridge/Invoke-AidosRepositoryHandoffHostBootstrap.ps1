@@ -32,26 +32,76 @@ if(-not$IsWindows){throw 'The AIDOS repository handoff host bootstrap must run w
 
 $original=Join-Path $PSScriptRoot 'Invoke-AidosRepositoryHandoffHost.ps1'
 $bridgeOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoffBridge.psm1'
+$handoffOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1'
 if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $original"}
 if(-not(Test-Path -LiteralPath $bridgeOriginal -PathType Leaf)){throw "Repository handoff bridge module is unavailable: $bridgeOriginal"}
+if(-not(Test-Path -LiteralPath $handoffOriginal -PathType Leaf)){throw "Repository handoff module is unavailable: $handoffOriginal"}
 
 # The operator machine has proven that both unqualified command lookup and
-# module-qualified lookup are unreliable for a module loaded from this UNC/WSL
-# path. Materialize one temporary runtime host beside the canonical host and
-# hold the imported Windows-session module as an object. Invoke the required
-# functions inside that module object's own session state; no module-name or
-# exported-function lookup is then required at call time.
+# module-qualified lookup are unreliable for modules loaded from this UNC/WSL
+# path. Materialize temporary runtime copies beside the canonical modules.
 #
-# Live bridge startup exposed two integration issues in the canonical bridge:
-# pending runtime actor enumeration returns raw RUNTIME_ACTOR_ASSIGNMENT records
-# rather than wrappers, and the compact Where-Object property syntax is parsed
-# incorrectly by the operator PowerShell version. Materialize a runtime bridge
-# copy with those exact compatibility corrections until the bridge source is
-# consolidated.
+# Live Windows/WSL startup has also exposed provider-specific integration
+# differences. The WSL Plan 9 provider marks ordinary repository items with
+# ReparsePoint, so raw FileAttributes cannot by itself identify a link on a
+# \\wsl.localhost\... path. For those paths, use the explicit PowerShell
+# LinkType/LinkTarget metadata; on normal Windows paths retain the conservative
+# ReparsePoint check. This keeps actual links blocked without rejecting every
+# ordinary WSL-backed repository file.
+$handoffSource=Get-Content -LiteralPath $handoffOriginal -Raw -Encoding UTF8
+$handoffTarget=@'
+function Test-AidosRepositoryPathItemIsLink {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Item)
+    $reparse=(($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    $linkType=$null
+    if($Item.PSObject.Properties['LinkType']){$linkType=[string]$Item.LinkType}
+    $reparse -or -not[string]::IsNullOrWhiteSpace($linkType)
+}
+'@
+$handoffReplacement=@'
+function Test-AidosRepositoryPathItemIsLink {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Item)
+    $reparse=(($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    $linkType=$null
+    if($Item.PSObject.Properties['LinkType']){$linkType=[string]$Item.LinkType}
+    $linkTarget=$null
+    if($Item.PSObject.Properties['LinkTarget']){$linkTarget=[string]$Item.LinkTarget}
+    elseif($Item.PSObject.Properties['Target']){$linkTarget=[string]$Item.Target}
+    $explicitLink=(-not[string]::IsNullOrWhiteSpace($linkType)) -or (-not[string]::IsNullOrWhiteSpace($linkTarget))
+    $fullName=if($Item.PSObject.Properties['FullName']){[string]$Item.FullName}else{''}
+    $wslProviderPath=$fullName.StartsWith('\\wsl.localhost\',[StringComparison]::OrdinalIgnoreCase) -or $fullName.StartsWith('\\wsl$\',[StringComparison]::OrdinalIgnoreCase)
+    if($wslProviderPath){return $explicitLink}
+    $reparse -or $explicitLink
+}
+'@
+$handoffMatches=[regex]::Matches($handoffSource,[regex]::Escape($handoffTarget)).Count
+if($handoffMatches-ne1){throw "Repository host bootstrap expected exactly one repository-link guard source match; found $handoffMatches."}
+$handoffSource=$handoffSource.Replace($handoffTarget,$handoffReplacement)
+
+$runtimeHandoffName='AidosRepositoryHandoff.runtime.'+[guid]::NewGuid().ToString('N')+'.psm1'
+$runtimeHandoff=Join-Path $PSScriptRoot $runtimeHandoffName
+$runtimeHandoffBytes=[Text.UTF8Encoding]::new($false).GetBytes($handoffSource)
+$runtimeHandoffStream=[IO.FileStream]::new($runtimeHandoff,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+try{
+    $runtimeHandoffStream.Write($runtimeHandoffBytes,0,$runtimeHandoffBytes.Length)
+    $runtimeHandoffStream.Flush($true)
+}finally{
+    $runtimeHandoffStream.Dispose()
+}
+
+# Pending runtime actor enumeration returns raw RUNTIME_ACTOR_ASSIGNMENT
+# records rather than wrappers, the compact Where-Object property syntax is
+# parsed incorrectly by the operator PowerShell version, and the runtime
+# manager's exported command is not visible from the nested bridge closure when
+# imported only into module-local scope. Correct those exact runtime boundaries.
 $bridgeSource=Get-Content -LiteralPath $bridgeOriginal -Raw -Encoding UTF8
 $bridgeReplacements=[ordered]@{
     '$assignment=$pending.assignment' = '$assignment=$pending'
     "Where-Object status -eq'ERROR'" = "Where-Object { `$_.status -eq 'ERROR' }"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
 }
 foreach($pair in $bridgeReplacements.GetEnumerator()){
     $matches=[regex]::Matches($bridgeSource,[regex]::Escape([string]$pair.Key)).Count
@@ -138,4 +188,5 @@ try{
 }finally{
     if(Test-Path -LiteralPath $runtimeHost){Remove-Item -LiteralPath $runtimeHost -Force}
     if(Test-Path -LiteralPath $runtimeBridge){Remove-Item -LiteralPath $runtimeBridge -Force}
+    if(Test-Path -LiteralPath $runtimeHandoff){Remove-Item -LiteralPath $runtimeHandoff -Force}
 }
