@@ -33,17 +33,17 @@ if(-not$IsWindows){throw 'The AIDOS repository handoff host bootstrap must run w
 $original=Join-Path $PSScriptRoot 'Invoke-AidosRepositoryHandoffHost.ps1'
 if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $original"}
 
-# The operator machine has proven that unqualified module-export lookup is not
-# reliable across the Windows/UNC script scopes used by this host. Do not try
-# to repair that with import-scope tricks. Materialize one temporary runtime
-# copy beside the canonical host and make the two Windows-session calls
-# explicitly module-qualified. Keeping the runtime copy in this directory
-# preserves the canonical host's PSScriptRoot-relative imports.
+# The operator machine has proven that both unqualified command lookup and
+# module-qualified lookup are unreliable for a module loaded from this UNC/WSL
+# path. Materialize one temporary runtime copy beside the canonical host and
+# hold the imported Windows-session module as an object. Invoke the required
+# functions inside that module object's own session state; no module-name or
+# exported-function lookup is then required at call time.
 $source=Get-Content -LiteralPath $original -Raw -Encoding UTF8
 $replacements=[ordered]@{
-    "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -Force -Global -DisableNameChecking"
-    '$snapshot=Get-AidosInteractiveSessionSnapshot' = '$snapshot=AidosWindowsSession\Get-AidosInteractiveSessionSnapshot'
-    '$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser' = '$authorization=AidosWindowsSession\Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser'
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking" = "`$script:AidosWindowsSessionModule=Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -Force -PassThru -DisableNameChecking"
+    '$snapshot=Get-AidosInteractiveSessionSnapshot' = '$snapshot=& $script:AidosWindowsSessionModule { Get-AidosInteractiveSessionSnapshot }'
+    '$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser' = '$authorization=& $script:AidosWindowsSessionModule { param($Snapshot,$AuthorizedUser) Test-AidosAuthorizedInteractiveSession -Snapshot $Snapshot -AuthorizedUser $AuthorizedUser } $snapshot $ExpectedUser'
 }
 foreach($pair in $replacements.GetEnumerator()){
     $matches=[regex]::Matches($source,[regex]::Escape([string]$pair.Key)).Count
@@ -79,7 +79,7 @@ try{
         # starts the task. Stop that task while the temporary runtime copy still
         # exists, atomically replace the durable entrypoint with this bootstrap,
         # then restart. Every later host/bridge/gateway command therefore passes
-        # through the same module-qualified runtime materialization.
+        # through the same module-object runtime materialization.
         $taskName='AIDOS Repository Handoff Host'
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 
