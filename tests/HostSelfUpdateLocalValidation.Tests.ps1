@@ -18,7 +18,7 @@ function Assert-LocalValidation([bool]$Condition,[string]$Message){
 
 Assert-LocalValidation ($text.Contains("Join-Path ([IO.Path]::GetTempPath()) 'AIDOS-core-validation'")) 'candidate validation uses an AIDOS-owned local Windows temp root'
 Assert-LocalValidation ($text.Contains('Get-ChildItem -LiteralPath $candidateUnc -Force|Copy-Item -Destination $validationRoot -Recurse -Force')) 'candidate contents are mirrored from the bound WSL worktree before execution'
-Assert-LocalValidation ($text.Contains("$validator=Join-Path $validationRoot 'tools\\Test-AidosCorePortable.ps1'")) 'portable validator is resolved from the local mirror'
+Assert-LocalValidation ($text.Contains('$validator=Join-Path $validationRoot ''tools\Test-AidosCorePortable.ps1''')) 'portable validator is resolved from the local mirror'
 Assert-LocalValidation ($text.Contains('-File $validator -RepoRoot $validationRoot')) 'PowerShell executes validation only against the local mirror'
 Assert-LocalValidation (-not$text.Contains('-File $sourceValidator -RepoRoot $candidateUnc')) 'UNC candidate validator is never executed directly'
 Assert-LocalValidation ($text.Contains('Remove-Item -LiteralPath $validationRoot -Recurse -Force')) 'ephemeral local validation mirror is removed in cleanup'
