@@ -44,6 +44,7 @@ jobs:
             'tests/RepositoryDefinitionApplicabilityCompatibility.Tests.ps1',
             'tests/RepositoryProjectApplicabilityDefinitionGate.Tests.ps1',
             'tests/RepositoryDefinitionProjectSourceAllowlist.Tests.ps1',
+            'tests/RepositoryDefinitionOptionalResultProperties.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
@@ -100,6 +101,9 @@ jobs:
       - name: Definition project identity source allowlist
         shell: pwsh
         run: ./tests/RepositoryDefinitionProjectSourceAllowlist.Tests.ps1
+      - name: Optional Definition result properties
+        shell: pwsh
+        run: ./tests/RepositoryDefinitionOptionalResultProperties.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1
