@@ -1,0 +1,18 @@
+name: Validate Classic Response Capture
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  classic-response-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Actor response extraction regression
+        shell: pwsh
+        run: ./tests/DesktopActorResponseExtraction.Tests.ps1
+      - name: Parent message-range recovery regression
+        shell: pwsh
+        run: ./tests/DesktopActorMessageRangeRecovery.Tests.ps1
