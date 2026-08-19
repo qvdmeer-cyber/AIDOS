@@ -14,7 +14,8 @@ function Assert-Bootstrap([bool]$Condition,[string]$Message){
 }
 
 Assert-Bootstrap ($text.Contains("Import-Module `$sessionModule -Force -Global -DisableNameChecking")) 'bootstrap imports Windows session commands into global runspace scope'
-Assert-Bootstrap ($text.Contains("`$output=& `$original @PSBoundParameters")) 'bootstrap forwards the exact host command parameters'
+Assert-Bootstrap ($text.Contains("`$output=. `$original @PSBoundParameters")) 'bootstrap dot-sources the canonical host with exact parameters in the same scope'
+Assert-Bootstrap (-not$text.Contains("`$output=& `$original @PSBoundParameters")) 'bootstrap does not invoke the host in an isolated child script scope'
 Assert-Bootstrap ($text.Contains("`$updated.entry_point=`$PSCommandPath")) 'successful install persists bootstrap as scheduled-task entrypoint'
 Assert-Bootstrap ($text.Contains("Stop-ScheduledTask -TaskName `$taskName")) 'bootstrap stops the just-created task before replacing its entrypoint'
 Assert-Bootstrap ($text.Contains("Start-ScheduledTask -TaskName `$taskName")) 'bootstrap restarts the task after durable entrypoint replacement'
