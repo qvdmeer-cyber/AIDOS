@@ -32,6 +32,7 @@ jobs:
             'tests/RepositoryHandoffOpenApi.Tests.ps1',
             'tests/RepositoryHandoffInstallation.Tests.ps1',
             'tests/RepositoryHandoffBootstrap.Tests.ps1',
+            'tests/RepositoryHandoffWslProvider.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
@@ -59,6 +60,9 @@ jobs:
       - name: Repository handoff host bootstrap
         shell: pwsh
         run: ./tests/RepositoryHandoffBootstrap.Tests.ps1
+      - name: WSL provider metadata compatibility
+        shell: pwsh
+        run: ./tests/RepositoryHandoffWslProvider.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1

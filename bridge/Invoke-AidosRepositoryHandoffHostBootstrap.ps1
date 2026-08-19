@@ -45,9 +45,10 @@ if(-not(Test-Path -LiteralPath $gatewayOriginal -PathType Leaf)){throw "Reposito
 # module-qualified lookup are unreliable for modules loaded from this UNC/WSL
 # path. Materialize temporary runtime copies beside the canonical modules.
 #
-# The Windows WSL provider marks ordinary repository items with ReparsePoint.
-# Use explicit LinkType/LinkTarget metadata for WSL provider paths while keeping
-# the conservative ReparsePoint check on normal Windows paths.
+# The Windows WSL provider can report ordinary directories as LinkType=HardLink
+# without any LinkTarget/Target. Treat that specific provider-only shape as
+# ordinary content while still rejecting real targets and other explicit link
+# types. On normal Windows paths retain the conservative ReparsePoint check.
 $handoffSource=Get-Content -LiteralPath $handoffOriginal -Raw -Encoding UTF8
 $handoffTarget=@'
 function Test-AidosRepositoryPathItemIsLink {
@@ -69,11 +70,15 @@ function Test-AidosRepositoryPathItemIsLink {
     $linkTarget=$null
     if($Item.PSObject.Properties['LinkTarget']){$linkTarget=[string]$Item.LinkTarget}
     elseif($Item.PSObject.Properties['Target']){$linkTarget=[string]$Item.Target}
-    $explicitLink=(-not[string]::IsNullOrWhiteSpace($linkType)) -or (-not[string]::IsNullOrWhiteSpace($linkTarget))
+    $hasLinkType=-not[string]::IsNullOrWhiteSpace($linkType)
+    $hasLinkTarget=-not[string]::IsNullOrWhiteSpace($linkTarget)
     $fullName=if($Item.PSObject.Properties['FullName']){[string]$Item.FullName}else{''}
     $wslProviderPath=$fullName.StartsWith('\\wsl.localhost\',[StringComparison]::OrdinalIgnoreCase) -or $fullName.StartsWith('\\wsl$\',[StringComparison]::OrdinalIgnoreCase)
-    if($wslProviderPath){return $explicitLink}
-    $reparse -or $explicitLink
+    if($wslProviderPath){
+        $providerOnlyHardLink=[string]::Equals($linkType,'HardLink',[StringComparison]::OrdinalIgnoreCase) -and -not$hasLinkTarget
+        return $hasLinkTarget -or ($hasLinkType -and -not$providerOnlyHardLink)
+    }
+    $reparse -or $hasLinkType -or $hasLinkTarget
 }
 '@
 $handoffMatches=[regex]::Matches($handoffSource,[regex]::Escape($handoffTarget)).Count
