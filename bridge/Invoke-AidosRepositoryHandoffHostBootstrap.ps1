@@ -35,12 +35,33 @@ $sessionModule=Join-Path $PSScriptRoot 'AidosWindowsSession.psm1'
 if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $original"}
 if(-not(Test-Path -LiteralPath $sessionModule -PathType Leaf)){throw "Windows session module is unavailable: $sessionModule"}
 
-# The canonical host defines its command helpers in script scope. Dot-source it
-# into this bootstrap scope after globally importing the session commands, so
-# both operator invocations and later scheduled-task runs resolve the exported
-# Windows-session functions deterministically.
+# Windows/UNC PowerShell runspaces do not reliably surface imported module
+# exports to script-defined functions by unqualified name. Import the module,
+# prove its module-qualified exports exist, then publish two ordinary global
+# proxy functions for the exact session commands used by the canonical host.
 Import-Module $sessionModule -Force -Global -DisableNameChecking
+Get-Command 'AidosWindowsSession\Get-AidosInteractiveSessionSnapshot' -ErrorAction Stop|Out-Null
+Get-Command 'AidosWindowsSession\Test-AidosAuthorizedInteractiveSession' -ErrorAction Stop|Out-Null
 
+function global:Get-AidosInteractiveSessionSnapshot {
+    [CmdletBinding()]
+    param()
+    AidosWindowsSession\Get-AidosInteractiveSessionSnapshot
+}
+
+function global:Test-AidosAuthorizedInteractiveSession {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Snapshot,
+        [Parameter(Mandatory)][string]$AuthorizedUser,
+        [ValidateSet('SUPERVISED','UNATTENDED_ALLOWED')][string]$Policy='SUPERVISED'
+    )
+    AidosWindowsSession\Test-AidosAuthorizedInteractiveSession -Snapshot $Snapshot -AuthorizedUser $AuthorizedUser -Policy $Policy
+}
+
+# Dot-source the canonical host in the same runspace after the explicit proxies
+# exist. The bootstrap itself becomes the scheduled-task entrypoint after a
+# successful installation, so the same binding is recreated on every start.
 $output=. $original @PSBoundParameters
 
 if($Command-eq'Install'){
