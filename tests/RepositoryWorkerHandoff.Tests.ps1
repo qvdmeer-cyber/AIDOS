@@ -10,7 +10,7 @@ Import-Module (Join-Path $root 'bridge/AidosRepositoryHandoff.psm1') -Force -Dis
 Import-Module (Join-Path $root 'bridge/AidosRepositoryWorkerHandoff.psm1') -Force -DisableNameChecking
 
 $script:passed=0
-$script:GitExecutable=(Get-Command git -CommandType Application -ErrorAction Stop).Source
+$script:GitExecutable=(Get-Command git -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
 function Assert-Worker([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
 function Invoke-TestGit([string]$Repo,[string[]]$Arguments){$output=@(& $script:GitExecutable -C $Repo @Arguments 2>&1);if($LASTEXITCODE-ne0){throw "git $($Arguments-join' ') failed: $($output-join'; ')"};@($output)}
 
