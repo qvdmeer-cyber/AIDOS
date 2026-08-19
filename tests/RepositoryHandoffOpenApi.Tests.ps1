@@ -21,18 +21,24 @@ try{
     $document=New-AidosRepositoryHandoffOpenApiDocument -ServerUrl 'https://aidos-machine.example.ts.net/'
     Assert-OpenApi ([string]$document.openapi-eq'3.0.3') 'OpenAPI version is explicit and GPT Action compatible'
     Assert-OpenApi ([string]$document.servers[0].url-eq'https://aidos-machine.example.ts.net') 'OpenAPI server uses normalized Funnel URL'
-    Assert-OpenApi (@($document.paths.Keys).Count-eq3) 'OpenAPI exposes only handoff, authorized source and result endpoints'
+    Assert-OpenApi (@($document.paths.Keys).Count-eq5) 'OpenAPI exposes handoff, Human Input read/submit, authorized source and result endpoints'
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/handoff'.get.operationId-eq'getAidosProjectHandoff') 'handoff operation ID is stable'
+    Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/human-input'.get.operationId-eq'getAidosHumanInput') 'Human Input read operation ID is stable'
+    $humanSubmit=$document.paths.'/v1/projects/{projectId}/human-input/{requestId}/response'.post
+    Assert-OpenApi ([string]$humanSubmit.operationId-eq'submitAidosHumanInputResponse') 'Human Input submit operation ID is stable'
+    Assert-OpenApi ($humanSubmit.'x-openai-isConsequential'-eq$false) 'explicit user answer can be submitted without a second platform confirmation'
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/sources'.get.operationId-eq'getAidosAuthorizedSource') 'source operation ID is stable'
     $submit=$document.paths.'/v1/projects/{projectId}/results'.post
     Assert-OpenApi ([string]$submit.operationId-eq'submitAidosBoundResult') 'result operation ID is stable'
     Assert-OpenApi ($submit.'x-openai-isConsequential'-eq$false) 'bound result submission permits persistent operator approval'
     Assert-OpenApi ([string]$document.components.securitySchemes.BearerAuth.scheme-eq'bearer') 'OpenAPI requires bearer API-key authentication'
-    Assert-OpenApi (@($document.components.schemas.SubmitResultRequest.properties.result.oneOf).Count-eq2) 'result submission accepts only runtime actor or review envelopes'
+    Assert-OpenApi ([string]$document.components.schemas.HumanInputSubmitRequest.properties.request_sha256.pattern-eq'^[0-9a-f]{64}$') 'Human Input submission binds the exact request hash'
+    Assert-OpenApi (@($document.components.schemas.SubmitResultRequest.properties.result.oneOf).Count-eq2) 'Thinker result submission remains runtime actor or review only'
 
     $json=ConvertTo-AidosRepositoryHandoffOpenApiJson -ServerUrl 'https://aidos-machine.example.ts.net'
     $roundTrip=$json|ConvertFrom-Json -Depth 100
-    Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/results'.post.operationId-eq'submitAidosBoundResult') 'OpenAPI JSON round-trips without losing operation identity'
+    Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/human-input'.get.operationId-eq'getAidosHumanInput') 'Human Input OpenAPI JSON round-trips without losing operation identity'
+    Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/results'.post.operationId-eq'submitAidosBoundResult') 'OpenAPI JSON round-trips without losing Thinker operation identity'
 
     $path=Join-Path $temp 'openapi.json'
     $written=Write-AidosRepositoryHandoffOpenApiDocument -ServerUrl 'https://aidos-machine.example.ts.net' -Path $path
