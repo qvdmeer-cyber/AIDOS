@@ -26,6 +26,7 @@ jobs:
             'bridge/AidosRepositoryReviewHandoff.psm1',
             'bridge/AidosRepositoryHandoffGateway.psm1',
             'bridge/AidosRepositoryThinkerBinding.psm1',
+            'bridge/AidosRepositoryHumanInputTransport.psm1',
             'bridge/AidosRepositoryHandoffBridge.psm1',
             'bridge/AidosRuntimeActorAssignments.psm1',
             'bridge/AidosRuntimeActorResultConsumer.psm1',
@@ -45,6 +46,8 @@ jobs:
             'tests/RepositoryProjectApplicabilityDefinitionGate.Tests.ps1',
             'tests/RepositoryDefinitionProjectSourceAllowlist.Tests.ps1',
             'tests/RepositoryDefinitionOptionalResultProperties.Tests.ps1',
+            'tests/RepositoryHumanInputTransport.Tests.ps1',
+            'tests/RepositoryHumanInputGateway.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
@@ -104,6 +107,12 @@ jobs:
       - name: Optional Definition result properties
         shell: pwsh
         run: ./tests/RepositoryDefinitionOptionalResultProperties.Tests.ps1
+      - name: ChatGPT Human Input transport
+        shell: pwsh
+        run: ./tests/RepositoryHumanInputTransport.Tests.ps1
+      - name: Human Input gateway roundtrip
+        shell: pwsh
+        run: ./tests/RepositoryHumanInputGateway.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1
