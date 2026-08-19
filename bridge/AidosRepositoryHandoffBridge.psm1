@@ -123,7 +123,7 @@ function Publish-AidosPendingRepositoryActorHandoffs {
                 }elseif($ThinkerTrigger){
                     & $ThinkerTrigger $StateRoot $handoff $ProcessName
                 }else{
-                    Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName
+                    AidosRepositoryThinkerBinding\Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName
                 }
                 $results.Add([pscustomobject][ordered]@{
                     project_id=[string]$project.project_id
@@ -166,7 +166,7 @@ function Invoke-AidosCurrentRepositoryThinkerTriggers {
         try{
             $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
             if($null-eq$handoff -or [string]$handoff.metadata.kind-ne'ASSIGNMENT' -or [string]$handoff.metadata.to_actor-ne'THINKER'){continue}
-            $trigger=if($ThinkerTrigger){& $ThinkerTrigger $StateRoot $handoff $ProcessName}else{Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName}
+            $trigger=if($ThinkerTrigger){& $ThinkerTrigger $StateRoot $handoff $ProcessName}else{AidosRepositoryThinkerBinding\Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName}
             $results.Add([pscustomobject][ordered]@{
                 project_id=[string]$project.project_id
                 handoff_id=[string]$handoff.metadata.handoff_id
@@ -204,11 +204,11 @@ function Invoke-AidosRepositoryHandoffBridgeTick {
     )
     $workerInvoker={
         param($Project,$ExecutionPath)
-        Invoke-AidosRepositoryWorkerHandoff -Project $Project -ExecutionPath $ExecutionPath -Push:$Push -CodexInvoker $CodexInvoker
+        AidosRepositoryWorkerHandoff\Invoke-AidosRepositoryWorkerHandoff -Project $Project -ExecutionPath $ExecutionPath -Push:$Push -CodexInvoker $CodexInvoker
     }.GetNewClosure()
     $reviewPublisher={
         param($Project)
-        Publish-AidosRepositoryReviewHandoff -Project $Project -Push:$Push
+        AidosRepositoryReviewHandoff\Publish-AidosRepositoryReviewHandoff -Project $Project -Push:$Push
     }.GetNewClosure()
     $runtimeAdapter={
         param($RuntimeRegistryRoot,$RuntimeMaxProjects,$RuntimePush)
@@ -217,7 +217,7 @@ function Invoke-AidosRepositoryHandoffBridgeTick {
         }else{
             Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RuntimeRegistryRoot -MaxProjects $RuntimeMaxProjects -Push:$RuntimePush -ContractsRoot $ContractsRoot -AidosRoot $AidosRoot -WorkerInvoker $workerInvoker -ReviewPublisher $reviewPublisher
         }
-        $finalization=Invoke-AidosRepositoryWorkerFinalizationFromManagerResult -RegistryRoot $RuntimeRegistryRoot -ManagerResult $manager -Push:$RuntimePush
+        $finalization=AidosRepositoryWorkerHandoff\Invoke-AidosRepositoryWorkerFinalizationFromManagerResult -RegistryRoot $RuntimeRegistryRoot -ManagerResult $manager -Push:$RuntimePush
         $manager|Add-Member -NotePropertyName repository_worker_finalization -NotePropertyValue $finalization -Force
         $manager
     }.GetNewClosure()
