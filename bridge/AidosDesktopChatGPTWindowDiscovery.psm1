@@ -19,16 +19,16 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
         [Parameter(Mandatory)]$Assignment
     )
     if($Texts.Count-eq0){return $null}
-    $expanded=[Collections.Generic.List[string]]::new()
-    foreach($text in @($Texts)){
-        if(-not[string]::IsNullOrWhiteSpace([string]$text)){$expanded.Add([string]$text)}
-    }
-    if($expanded.Count-eq0){return $null}
-    if($expanded.Count-gt1){
-        $compact=[string]::Join('',@($expanded))
-        if(-not[string]::IsNullOrWhiteSpace($compact)){$expanded.Add($compact)}
-    }
-    & $script:BaseResolvedActorResponseSelector -Texts @($expanded) -Assignment $Assignment
+    $nonEmpty=@($Texts|Where-Object {-not[string]::IsNullOrWhiteSpace([string]$_)}|ForEach-Object {[string]$_})
+    if($nonEmpty.Count-eq0){return $null}
+
+    $direct=& $script:BaseResolvedActorResponseSelector -Texts ([string[]]$nonEmpty) -Assignment $Assignment
+    if(-not[string]::IsNullOrWhiteSpace([string]$direct)){return $direct}
+    if($nonEmpty.Count-eq1){return $null}
+
+    $compact=[string]::Join('',[string[]]$nonEmpty)
+    if([string]::IsNullOrWhiteSpace($compact)){return $null}
+    & $script:BaseResolvedActorResponseSelector -Texts ([string[]]@($compact)) -Assignment $Assignment
 }
 
 function Select-AidosDesktopChatGPTResolvedActorResponseFromHierarchyTexts {
