@@ -26,7 +26,11 @@ if([string]$definition.definition_id -ne $DefinitionId -or [int]$definition.defi
 $projectSurface=@($project.resolved_surfaces|Where-Object {[string]$_.surface_id -eq $SurfaceId})
 $definitionSurface=@($definition.development_surfaces|Where-Object {[string]$_.surface_id -eq $SurfaceId})
 if($projectSurface.Count -ne 1 -or $definitionSurface.Count -ne 1){throw "Definition applicability surface '$SurfaceId' is not uniquely bound."}
-if([string]$projectSurface[0].state -eq 'NOT_APPLICABLE'){throw "Project-NOT_APPLICABLE surface '$SurfaceId' cannot be reclassified by Definition."}
+if([string]$projectSurface[0].state -eq 'NOT_APPLICABLE'){
+    if($DefinitionState -eq 'AFFECTED'){throw "Project-NOT_APPLICABLE surface '$SurfaceId' cannot be affected by Definition."}
+    if([string]$definitionSurface[0].project_state -ne 'NOT_APPLICABLE' -or [string]$definitionSurface[0].definition_state -ne 'NOT_APPLICABLE'){throw "Project-NOT_APPLICABLE surface '$SurfaceId' is not represented canonically in Definition applicability."}
+    return [pscustomobject][ordered]@{project_id=[string]$definition.project_id;definition_id=$DefinitionId;definition_version=$DefinitionVersion;surface_id=$SurfaceId;definition_state='NOT_APPLICABLE';unresolved_count=[int]$definition.unresolved_count;status='ALREADY_NOT_APPLICABLE'}
+}
 if([string]$projectSurface[0].state -eq 'UNRESOLVED'){throw "Project-unresolved surface '$SurfaceId' cannot be classified at Definition scope."}
 if([string]$definitionSurface[0].project_state -ne [string]$projectSurface[0].state){throw "Definition applicability project_state mismatch for '$SurfaceId'."}
 
@@ -39,4 +43,4 @@ $definition.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
 if($PSCmdlet.ShouldProcess($definitionPath,"Set Definition applicability surface '$SurfaceId' to '$DefinitionState'")){
     [IO.File]::WriteAllText($definitionPath,($definition|ConvertTo-Json -Depth 100)+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
 }
-[pscustomobject][ordered]@{project_id=[string]$definition.project_id;definition_id=$DefinitionId;definition_version=$DefinitionVersion;surface_id=$SurfaceId;definition_state=$DefinitionState;unresolved_count=[int]$definition.unresolved_count}
+[pscustomobject][ordered]@{project_id=[string]$definition.project_id;definition_id=$DefinitionId;definition_version=$DefinitionVersion;surface_id=$SurfaceId;definition_state=$DefinitionState;unresolved_count=[int]$definition.unresolved_count;status='UPDATED'}
