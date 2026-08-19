@@ -28,7 +28,9 @@ function Test-AidosRepositoryRelativePath {
     $value=$Path.Replace('\','/').Trim()
     if([string]::IsNullOrWhiteSpace($value)){throw "Repository handoff requires '$FieldName'."}
     if([IO.Path]::IsPathRooted($value) -or $value.StartsWith('../',[StringComparison]::Ordinal) -or $value.Contains('/../',[StringComparison]::Ordinal)){throw "Repository handoff '$FieldName' must be a project-relative path."}
-    $value.TrimStart('./')
+    if($value.StartsWith('./',[StringComparison]::Ordinal)){$value=$value.Substring(2)}
+    if([string]::IsNullOrWhiteSpace($value)){throw "Repository handoff requires '$FieldName'."}
+    $value
 }
 
 function Test-AidosRepositoryHandoffBinding {
