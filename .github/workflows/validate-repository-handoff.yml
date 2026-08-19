@@ -37,6 +37,7 @@ jobs:
             'tests/RepositoryHandoffBridgeAtomicWrite.Tests.ps1',
             'tests/RepositoryHandoffNestedRuntimeRouting.Tests.ps1',
             'tests/RepositoryRuntimeActorPending.Tests.ps1',
+            'tests/RepositoryDefinitionApplicabilityCompatibility.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
@@ -44,6 +45,7 @@ jobs:
             'tests/RepositoryThinkerCustomGptBinding.Tests.ps1',
             'tests/RepositoryThinkerOptionalLegacyPattern.Tests.ps1',
             'tests/RepositoryThinkerMarkdownNormalization.Tests.ps1',
+            'tests/RepositoryThinkerRetryTimestamp.Tests.ps1',
             'tests/RepositoryHandoffBridge.Tests.ps1'
           )
           foreach ($path in $paths) {
@@ -82,6 +84,9 @@ jobs:
       - name: Completed actor assignment dispatch guard
         shell: pwsh
         run: ./tests/RepositoryRuntimeActorPending.Tests.ps1
+      - name: Definition applicability compatibility
+        shell: pwsh
+        run: ./tests/RepositoryDefinitionApplicabilityCompatibility.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1
@@ -103,6 +108,9 @@ jobs:
       - name: Thinker markdown marker normalization
         shell: pwsh
         run: ./tests/RepositoryThinkerMarkdownNormalization.Tests.ps1
+      - name: Thinker retry timestamp parsing
+        shell: pwsh
+        run: ./tests/RepositoryThinkerRetryTimestamp.Tests.ps1
       - name: Unified preparation and runtime bridge
         shell: pwsh
         run: ./tests/RepositoryHandoffBridge.Tests.ps1
