@@ -152,10 +152,12 @@ function Invoke-AidosProjectApplicabilityResultConsumer {
     $profilePath=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
     if(Test-Path -LiteralPath $profilePath -PathType Leaf){
         $existingProfile=Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
-        if(-not(Test-AidosApplicabilityProfileMatchesProposal -Profile $existingProfile -PresetIds $presetIds -Overrides $overrides)){throw 'Existing Project Applicability does not match completed actor result; refusing idempotent consume.'}
-        Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId ([string]$ActorResult.assignment_id) -Status CONSUMED|Out-Null
-        $persist=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS consume actor result $($ActorResult.assignment_id)") -Push:$Push
-        return [pscustomobject][ordered]@{status='ALREADY_APPLIED';assignment_id=[string]$ActorResult.assignment_id;profile_ref='.aidos/profile/PROJECT_APPLICABILITY.json';persistence=$persist}
+        if(Test-AidosApplicabilityProfileMatchesProposal -Profile $existingProfile -PresetIds $presetIds -Overrides $overrides){
+            Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId ([string]$ActorResult.assignment_id) -Status CONSUMED|Out-Null
+            $persist=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS consume actor result $($ActorResult.assignment_id)") -Push:$Push
+            return [pscustomobject][ordered]@{status='ALREADY_APPLIED';assignment_id=[string]$ActorResult.assignment_id;profile_ref='.aidos/profile/PROJECT_APPLICABILITY.json';persistence=$persist}
+        }
+        if(@($existingProfile.resolved_surfaces|Where-Object {[string]$_.state-eq'UNRESOLVED'}).Count-eq0){throw 'Existing fully resolved Project Applicability does not match completed actor result; refusing replacement.'}
     }
     $resolveTool=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'tools/Resolve-AidosProjectApplicability.ps1';$catalogTest=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'tools/Test-AidosProfileCatalog.ps1'
     if(-not(Test-Path -LiteralPath $resolveTool -PathType Leaf)){throw 'Project Applicability resolver is unavailable.'}
@@ -167,7 +169,7 @@ function Invoke-AidosProjectApplicabilityResultConsumer {
     if([string]$profile.project_id-ne[string]$Project.project_id){throw 'Persisted Project Applicability project_id mismatch.'}
     if(@($profile.selected_presets|Where-Object {$_.category-eq'PRODUCT_ARCHETYPE'}).Count-ne1){throw 'Persisted Project Applicability must contain exactly one product archetype.'}
     if(-not(Test-AidosApplicabilityProfileMatchesProposal -Profile $profile -PresetIds $presetIds -Overrides $overrides)){throw 'Persisted Project Applicability does not match actor proposal.'}
-    Add-AidosEvent -ProjectRoot $root -EventType 'PROJECT_APPLICABILITY_RESOLVED' -Actor DEFINITION_AGENT -Payload @{assignment_id=[string]$ActorResult.assignment_id;preset_ids=$presetIds;source_refs=$sourceRefs}|Out-Null
+    Add-AidosEvent -ProjectRoot $root -EventType 'PROJECT_APPLICABILITY_RESOLVED' -Actor DEFINITION_AGENT -Payload @{assignment_id=[string]$ActorResult.assignment_id;preset_ids=$presetIds;source_refs=$sourceRefs;unresolved_count=@($profile.resolved_surfaces|Where-Object {$_.state-eq'UNRESOLVED'}).Count}|Out-Null
     Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId ([string]$ActorResult.assignment_id) -Status CONSUMED|Out-Null
     $persist=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS consume actor result $($ActorResult.assignment_id)") -Push:$Push
     [pscustomobject][ordered]@{status='APPLIED';assignment_id=[string]$ActorResult.assignment_id;profile_ref='.aidos/profile/PROJECT_APPLICABILITY.json';selected_presets=@($profile.selected_presets);unresolved_count=@($profile.resolved_surfaces|Where-Object {$_.state-eq'UNRESOLVED'}).Count;persistence=$persist;binding=$binding}

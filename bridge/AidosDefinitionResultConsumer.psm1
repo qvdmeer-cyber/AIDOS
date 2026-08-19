@@ -55,10 +55,8 @@ function New-AidosDefinitionHumanInputRequest {
     $requestId=[guid]::NewGuid().ToString();$now=[DateTimeOffset]::UtcNow.ToString('o')
     $request=[ordered]@{contract_version='0.1.0';request_id=$requestId;project_id=[string]$Project.project_id;workstream_id=$null;phase='DEFINITION';request_type=[string]$Proposal.request_type;status='WAITING';context_summary=[string]$Proposal.context_summary;question=[string]$Proposal.question;options=@($options|ForEach-Object {[ordered]@{option_id=[string]$_.option_id;label=[string]$_.label;description=if($null-eq$_.description){$null}else{[string]$_.description}}});authority_classification=[string]$Proposal.authority_classification;decision_assessment_ref=if([string]::IsNullOrWhiteSpace([string]$Proposal.decision_assessment_ref)){$null}else{[string]$Proposal.decision_assessment_ref};auto_define_stop_reason=[string]$Proposal.auto_define_stop_reason;binding=[ordered]@{baseline_version=$null;definition_id=$definitionId;definition_version=$definitionVersion;execution_id=$null;revision=$null;review_id=$null};requested_by=[ordered]@{actor='DEFINITION_AGENT';model=$null;session_id=$null};resume_actor_role='THINKER';response=$null;evidence_refs=@($Proposal.evidence_refs|ForEach-Object {[string]$_});source_refs=@($sourceRefs);created_at=$now;updated_at=$now}
     $path=Join-Path $requestRoot ($requestId+'.json');Write-AidosJsonAtomic $path $request
-
     $bindingRoot=Join-Path $root '.aidos/human-input-bindings';if(-not(Test-Path -LiteralPath $bindingRoot -PathType Container)){New-Item -ItemType Directory -Path $bindingRoot -Force|Out-Null}
-    $optionValues=[ordered]@{}
-    foreach($option in $options){$optionValues[[string]$option.option_id]=[ordered]@{label=[string]$option.label;description=if($null-eq$option.description){$null}else{[string]$option.description}}}
+    $optionValues=[ordered]@{};foreach($option in $options){$optionValues[[string]$option.option_id]=[ordered]@{label=[string]$option.label;description=if($null-eq$option.description){$null}else{[string]$option.description}}}
     $resolutionBinding=[ordered]@{schema_version='0.1';request_id=$requestId;project_id=[string]$Project.project_id;phase='DEFINITION';processor='DEFINITION_SURFACE_HUMAN_ACCEPTED';target=[ordered]@{surface_id=$surfaceId;completion_status='COMPLETE'};option_values=$optionValues;allow_text=$true;created_at=$now}
     $bindingPath=Join-Path $bindingRoot ($requestId+'.json');Write-AidosJsonAtomic $bindingPath $resolutionBinding
     Add-AidosEvent -ProjectRoot $root -EventType 'HUMAN_INPUT_REQUIRED' -Actor DEFINITION_AGENT -Payload @{request_id=$requestId;phase='DEFINITION';surface_id=$surfaceId;authority_classification=[string]$Proposal.authority_classification}|Out-Null
@@ -67,20 +65,53 @@ function New-AidosDefinitionHumanInputRequest {
 
 function Resolve-AidosDefinitionThinkerApplicabilityState {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$ProjectRoot,
-        [Parameter(Mandatory)][string]$AssignmentAction,
-        [Parameter(Mandatory)][string]$DefinitionState
-    )
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentAction,[Parameter(Mandatory)][string]$DefinitionState)
     if($DefinitionState -in @('AFFECTED','NOT_AFFECTED')){return $DefinitionState}
     if($DefinitionState -notin @('APPLICABLE','NOT_APPLICABLE')){throw "Unsupported Definition applicability state '$DefinitionState'."}
     $projectPath=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/PROJECT.json'
     if(-not(Test-Path -LiteralPath $projectPath -PathType Leaf)){throw 'Legacy Definition applicability compatibility requires project identity.'}
     $identity=Get-Content -LiteralPath $projectPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
-    if($AssignmentAction -ne 'START_DEFINITION' -or [string]$identity.project_mode -ne 'NEW_PROJECT'){
-        throw "Legacy Definition applicability state '$DefinitionState' is only compatible with NEW_PROJECT START_DEFINITION."
-    }
+    if($AssignmentAction -ne 'START_DEFINITION' -or [string]$identity.project_mode -ne 'NEW_PROJECT'){throw "Legacy Definition applicability state '$DefinitionState' is only compatible with NEW_PROJECT START_DEFINITION."}
     if($DefinitionState -eq 'APPLICABLE'){'AFFECTED'}else{'NOT_AFFECTED'}
+}
+
+function Invoke-AidosLegacyNewProjectApplicabilityRecovery {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)]$Assignment,[Parameter(Mandatory)]$Output,[Parameter(Mandatory)][string]$AidosRoot)
+    $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+    if([string]$Project.project_mode-ne'NEW_PROJECT' -or [string]$Assignment.action-ne'START_DEFINITION'){return [pscustomobject]@{status='NOT_APPLICABLE';recovered=0}}
+    $profilePath=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
+    if(-not(Test-Path -LiteralPath $profilePath -PathType Leaf)){return [pscustomobject]@{status='NOT_REQUIRED';recovered=0}}
+    $profile=Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+    $unresolved=@($profile.resolved_surfaces|Where-Object {[string]$_.state-eq'UNRESOLVED'})
+    if($unresolved.Count-eq0){return [pscustomobject]@{status='NOT_REQUIRED';recovered=0}}
+    $definitionId=[string]$Assignment.binding.definition_id;$definitionVersion=[int]$Assignment.binding.definition_version
+    $decisions=[Collections.Generic.List[object]]::new()
+    foreach($surface in $unresolved){
+        $matches=@($Output.applicability_resolutions|Where-Object {[string]$_.surface_id-eq[string]$surface.surface_id})
+        if($matches.Count-ne1){throw "Legacy NEW_PROJECT recovery requires exactly one applicability resolution for project-unresolved surface '$($surface.surface_id)'."}
+        $resolution=$matches[0]
+        if([string]$resolution.authority_classification -notin @('SYSTEM_INVARIANT','REPO_VERIFIABLE')){throw "Legacy NEW_PROJECT recovery requires evidence-bound authority for '$($surface.surface_id)'."}
+        $refs=@(Get-AidosDefinitionValidatedSourceRefs -ProjectRoot $root -AidosRoot $AidosRoot -SourceRefs @($resolution.source_refs) -DefinitionId $definitionId -DefinitionVersion $definitionVersion -RequireAny)
+        $definitionState=Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $root -AssignmentAction START_DEFINITION -DefinitionState ([string]$resolution.definition_state)
+        $projectState=if($definitionState-eq'AFFECTED'){'APPLICABLE'}else{'NOT_APPLICABLE'}
+        $decisions.Add([pscustomobject]@{surface_id=[string]$surface.surface_id;project_state=$projectState;definition_state=$definitionState;reason=[string]$resolution.reason;source_ref=[string]$refs[0]})
+    }
+    $overrides=[Collections.Generic.List[object]]::new();foreach($override in @($profile.overrides)){$overrides.Add($override)}
+    foreach($decision in $decisions){
+        $surface=@($profile.resolved_surfaces|Where-Object {[string]$_.surface_id-eq[string]$decision.surface_id})[0]
+        $surface.state=[string]$decision.project_state;$surface.override_applied=$true;$surface.reason="Recovered from evidence-bound NEW_PROJECT START_DEFINITION result: $([string]$decision.reason)"
+        $overrides.Add([pscustomobject][ordered]@{surface_id=[string]$decision.surface_id;state=[string]$decision.project_state;reason=[string]$surface.reason;source_ref=[string]$decision.source_ref})
+    }
+    $profile.overrides=@($overrides);$profile.updated_at=[DateTimeOffset]::UtcNow.ToString('o');Write-AidosJsonAtomic $profilePath $profile
+    $newDefinition=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'tools/New-AidosDefinitionApplicability.ps1'
+    if(-not(Test-Path -LiteralPath $newDefinition -PathType Leaf)){throw 'Definition applicability initializer is unavailable for legacy recovery.'}
+    $affected=@($Output.applicability_resolutions|ForEach-Object {$canonical=Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $root -AssignmentAction START_DEFINITION -DefinitionState ([string]$_.definition_state);if($canonical-eq'AFFECTED'){[string]$_.surface_id}})
+    $notAffected=@($Output.applicability_resolutions|ForEach-Object {$canonical=Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $root -AssignmentAction START_DEFINITION -DefinitionState ([string]$_.definition_state);if($canonical-eq'NOT_AFFECTED'){[string]$_.surface_id}})
+    $definitionPath=Join-Path $root ('.aidos/definitions/{0}/v{1}/APPLICABILITY.json' -f $definitionId,$definitionVersion)
+    & $newDefinition -ProjectRoot $root -ProjectId ([string]$Project.project_id) -DefinitionId $definitionId -DefinitionVersion $definitionVersion -AffectedSurfaceIds $affected -NotAffectedSurfaceIds $notAffected -OutputPath $definitionPath|Out-Null
+    Add-AidosEvent -ProjectRoot $root -EventType 'PROJECT_APPLICABILITY_RECOVERED_FROM_LEGACY_DEFINITION' -Actor SYSTEM -Payload @{assignment_id=[string]$Assignment.assignment_id;surface_ids=@($decisions|ForEach-Object {$_.surface_id});recovered_count=$decisions.Count}|Out-Null
+    [pscustomobject]@{status='RECOVERED';recovered=$decisions.Count;surface_ids=@($decisions|ForEach-Object {$_.surface_id})}
 }
 
 function Invoke-AidosDefinitionThinkerResultConsumer {
@@ -95,6 +126,7 @@ function Invoke-AidosDefinitionThinkerResultConsumer {
     Ensure-AidosDefinitionWorkspace -ProjectRoot $root -AidosRoot $AidosRoot|Out-Null
     $output=$ActorResult.result;if($null-eq$output -or [string]$output.result_type-ne'DEFINITION_THINKER_OUTPUT'){throw 'Definition Thinker result_type mismatch.'}
     $definitionId=[string]$state.definition_id;$definitionVersion=[int]$state.definition_version;$aidos=[IO.Path]::GetFullPath($AidosRoot)
+    $recovery=Invoke-AidosLegacyNewProjectApplicabilityRecovery -Project $Project -Assignment $assignment -Output $output -AidosRoot $AidosRoot
     $setApplicability=Join-Path $aidos 'tools/Set-AidosDefinitionApplicabilitySurface.ps1';$setSurface=Join-Path $aidos 'tools/Set-AidosDefinitionSurface.ps1';$newAutoDecision=Join-Path $aidos 'tools/New-AidosDefinitionAutoDecision.ps1';$testAutoDecision=Join-Path $aidos 'tools/Test-AidosAutoDecision.ps1';$testApplicability=Join-Path $aidos 'tools/Test-AidosDefinitionApplicability.ps1';$testProgress=Join-Path $aidos 'tools/Test-AidosDefinitionProgress.ps1'
     foreach($tool in @($setApplicability,$setSurface,$newAutoDecision,$testAutoDecision,$testApplicability,$testProgress)){if(-not(Test-Path -LiteralPath $tool -PathType Leaf)){throw "Definition result consumer tool unavailable: $tool"}}
     $applied=[Collections.Generic.List[object]]::new();$appSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -127,8 +159,8 @@ function Invoke-AidosDefinitionThinkerResultConsumer {
     $progressCheck=& $testProgress -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -NoExit;if(-not[bool]$progressCheck.pass){throw "Definition Progress validation failed after actor result: $(@($progressCheck.errors)-join'; ')"}
     if($humanRequest){Set-AidosState -ProjectRoot $root -NewState WAITING_USER -Actor SYSTEM -Patch @{}|Out-Null}
     Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId ([string]$ActorResult.assignment_id) -Status CONSUMED|Out-Null
-    Add-AidosEvent -ProjectRoot $root -EventType 'DEFINITION_THINKER_RESULT_CONSUMED' -Actor SYSTEM -Payload @{assignment_id=[string]$ActorResult.assignment_id;applied_count=$applied.Count;human_input_request_id=if($humanRequest){$humanRequest.request_id}else{$null};complete_count=[int]$progressCheck.complete_count;incomplete_count=[int]$progressCheck.incomplete_count;applicability_unresolved=[int]$appCheck.unresolved_count}|Out-Null
-    [pscustomobject][ordered]@{status=if($humanRequest){'WAITING_HUMAN'}else{'APPLIED'};assignment_id=[string]$ActorResult.assignment_id;applied=@($applied);human_input=$humanRequest;applicability=$appCheck;progress=$progressCheck;binding=$binding}
+    Add-AidosEvent -ProjectRoot $root -EventType 'DEFINITION_THINKER_RESULT_CONSUMED' -Actor SYSTEM -Payload @{assignment_id=[string]$ActorResult.assignment_id;applied_count=$applied.Count;human_input_request_id=if($humanRequest){$humanRequest.request_id}else{$null};complete_count=[int]$progressCheck.complete_count;incomplete_count=[int]$progressCheck.incomplete_count;applicability_unresolved=[int]$appCheck.unresolved_count;project_applicability_recovery=[string]$recovery.status}|Out-Null
+    [pscustomobject][ordered]@{status=if($humanRequest){'WAITING_HUMAN'}else{'APPLIED'};assignment_id=[string]$ActorResult.assignment_id;applied=@($applied);human_input=$humanRequest;applicability=$appCheck;progress=$progressCheck;binding=$binding;project_applicability_recovery=$recovery}
 }
 
-Export-ModuleMember -Function Resolve-AidosDefinitionActorSourceRef,Get-AidosDefinitionValidatedSourceRefs,New-AidosDefinitionHumanInputRequest,Resolve-AidosDefinitionThinkerApplicabilityState,Invoke-AidosDefinitionThinkerResultConsumer
+Export-ModuleMember -Function Resolve-AidosDefinitionActorSourceRef,Get-AidosDefinitionValidatedSourceRefs,New-AidosDefinitionHumanInputRequest,Resolve-AidosDefinitionThinkerApplicabilityState,Invoke-AidosLegacyNewProjectApplicabilityRecovery,Invoke-AidosDefinitionThinkerResultConsumer

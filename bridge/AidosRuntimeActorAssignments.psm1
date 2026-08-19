@@ -22,6 +22,16 @@ function Get-AidosRuntimeActorTransportStatePath {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentId)
     Join-Path (Get-AidosRuntimeActorTransportRoot -ProjectRoot $ProjectRoot) ($AssignmentId+'.json')
 }
+function Test-AidosProjectApplicabilityResolvedForDefinition {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $path=Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json'
+    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){return $false}
+    try{$profile=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}catch{return $false}
+    if($null-eq$profile -or $null-eq$profile.resolved_surfaces){return $false}
+    @($profile.resolved_surfaces|Where-Object {[string]$_.state-eq'UNRESOLVED'}).Count-eq0
+}
 function Get-AidosPendingRuntimeActorAssignments {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot)
@@ -75,10 +85,10 @@ function New-AidosRuntimeActorAssignment {
 
     if([string]$Selection.action -eq 'RESOLVE_PROJECT_APPLICABILITY'){
         if([string]$state.state -ne 'IDLE' -or -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'RESOLVE_PROJECT_APPLICABILITY requires new-project IDLE state without Definition lineage.'}
-        if(Test-Path -LiteralPath (Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json') -PathType Leaf){throw 'Project Applicability already exists.'}
+        if(Test-AidosProjectApplicabilityResolvedForDefinition -ProjectRoot $root){throw 'Project Applicability is already fully resolved.'}
     } elseif([string]$Selection.action -eq 'START_DEFINITION'){
         if([string]$state.state -ne 'IDLE' -or -not[string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'START_DEFINITION requires new-project IDLE state without Definition lineage.'}
-        if(-not(Test-Path -LiteralPath (Join-Path $root '.aidos/profile/PROJECT_APPLICABILITY.json') -PathType Leaf)){throw 'START_DEFINITION requires resolved Project Applicability.'}
+        if(-not(Test-AidosProjectApplicabilityResolvedForDefinition -ProjectRoot $root)){throw 'START_DEFINITION requires fully resolved Project Applicability with no UNRESOLVED surfaces.'}
         $definitionId=('DEF-'+[guid]::NewGuid().ToString())
         $state=Set-AidosState -ProjectRoot $root -NewState WAITING_DEFINITION -Actor SYSTEM -Patch @{definition_id=$definitionId;definition_version=1}
         Ensure-AidosDefinitionWorkspace -ProjectRoot $root|Out-Null
@@ -117,4 +127,4 @@ function New-AidosRuntimeActorAssignment {
     [pscustomobject][ordered]@{status='PENDING';assignment_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');assignment_sha256=$sha;assignment=[pscustomobject]$assignment}
 }
 
-Export-ModuleMember -Function Get-AidosRuntimeActorAssignmentRoot,Get-AidosRuntimeActorTransportRoot,Get-AidosRuntimeActorAssignmentPath,Get-AidosRuntimeActorTransportStatePath,Get-AidosPendingRuntimeActorAssignments,New-AidosRuntimeActorAssignment
+Export-ModuleMember -Function Get-AidosRuntimeActorAssignmentRoot,Get-AidosRuntimeActorTransportRoot,Get-AidosRuntimeActorAssignmentPath,Get-AidosRuntimeActorTransportStatePath,Test-AidosProjectApplicabilityResolvedForDefinition,Get-AidosPendingRuntimeActorAssignments,New-AidosRuntimeActorAssignment
