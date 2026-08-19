@@ -56,7 +56,12 @@ function Write-AidosRepositoryHostJsonAtomic {
     $dir=Split-Path -Parent $Path
     if(-not(Test-Path -LiteralPath $dir -PathType Container)){New-Item -ItemType Directory -Path $dir -Force|Out-Null}
     $tmp="$Path.$([guid]::NewGuid().ToString('N')).tmp"
-    try{$Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM;Move-Item -LiteralPath $tmp -Destination $Path -Force}finally{if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}}
+    try{
+        $Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
+        Move-Item -LiteralPath $tmp -Destination $Path -Force
+    }finally{
+        if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}
+    }
 }
 
 function Read-AidosRepositoryHostConfiguration {
@@ -72,12 +77,10 @@ function Get-AidosRepositoryHostPowerShellPath {
 }
 
 function Get-AidosRepositoryHostTailscalePath {
-    $commands=@(Get-Command tailscale.exe,tailscale -CommandType Application -ErrorAction SilentlyContinue)
-    if($commands.Count-gt0){return [string]$commands[0].Source}
-    foreach($candidate in @(
-        (Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Tailscale\tailscale.exe')
-    )){if(-not[string]::IsNullOrWhiteSpace($candidate)-and(Test-Path -LiteralPath $candidate -PathType Leaf)){return $candidate}}
+    $command=Get-Command tailscale.exe,tailscale -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1
+    if($command){return [string]$command.Source}
+    $candidate=Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
+    if(Test-Path -LiteralPath $candidate -PathType Leaf){return $candidate}
     throw 'Tailscale CLI is unavailable. Install and sign in to Tailscale or use -SkipFunnel with an explicit HTTPS PublicUrl.'
 }
 
@@ -85,8 +88,13 @@ function Invoke-AidosRepositoryHostNative {
     param([Parameter(Mandatory)][string]$FilePath,[Parameter(Mandatory)][string[]]$Arguments,[switch]$AllowFailure)
     $output=@(& $FilePath @Arguments 2>&1)
     $exitCode=$LASTEXITCODE
-    $result=[pscustomobject][ordered]@{file_path=$FilePath;arguments=@($Arguments);exit_code=$exitCode;output=@($output|ForEach-Object {[string]$_})}
-    if(-$AllowFailure -and $exitCode-ne0){throw "Command failed ($exitCode): $FilePath $($Arguments -join ' ') :: $($result.output -join '; ')"}
+    $result=[pscustomobject][ordered]@{
+        file_path=$FilePath
+        arguments=@($Arguments)
+        exit_code=$exitCode
+        output=@($output|ForEach-Object {[string]$_})
+    }
+    if(-not$AllowFailure -and $exitCode-ne0){throw "Command failed ($exitCode): $FilePath $($Arguments -join ' ') :: $($result.output -join '; ')"}
     $result
 }
 
@@ -110,23 +118,27 @@ function Test-AidosRepositoryGatewayPrefixAccess {
     param([Parameter(Mandatory)][string]$Prefix)
     $listener=[Net.HttpListener]::new()
     $listener.Prefixes.Add($Prefix)
-    try{$listener.Start();$listener.Stop();$true}catch [UnauthorizedAccessException]{$false}catch [Net.HttpListenerException]{if($_.Exception.ErrorCode-eq5){$false}else{throw}}finally{$listener.Close()}
+    try{
+        $listener.Start()
+        $listener.Stop()
+        $true
+    }catch [UnauthorizedAccessException]{$false}
+    catch [Net.HttpListenerException]{if($_.Exception.ErrorCode-eq5){$false}else{throw}}
+    finally{$listener.Close()}
 }
 
 function Ensure-AidosRepositoryGatewayUrlAcl {
     param([Parameter(Mandatory)][string]$ExpectedUser,[Parameter(Mandatory)][int]$Port,[switch]$Repair)
     $prefix=Get-AidosRepositoryHandoffUrlPrefix -Port $Port
     if(Test-AidosRepositoryGatewayPrefixAccess -Prefix $prefix){return [pscustomobject][ordered]@{status='ACCESSIBLE';prefix=$prefix;changed=$false}}
-    if(-not(Test-AidosRepositoryHostAdministrator)){
-        $arguments=Get-AidosRepositoryHandoffUrlAclArguments -AuthorizedUser $ExpectedUser -Port $Port
-        throw "HttpListener URL ACL is missing for '$ExpectedUser'. Re-run Install from an elevated PowerShell 7 window, or run: netsh.exe $($arguments -join ' ')"
-    }
+    $arguments=Get-AidosRepositoryHandoffUrlAclArguments -AuthorizedUser $ExpectedUser -Port $Port
+    if(-not(Test-AidosRepositoryHostAdministrator)){throw "HttpListener URL ACL is missing for '$ExpectedUser'. Re-run Install from an elevated PowerShell 7 window, or run: netsh.exe $($arguments -join ' ')"}
     $netsh=Join-Path $env:WINDIR 'System32\netsh.exe'
-    $add=Invoke-AidosRepositoryHostNative -FilePath $netsh -Arguments (Get-AidosRepositoryHandoffUrlAclArguments -AuthorizedUser $ExpectedUser -Port $Port) -AllowFailure
+    $add=Invoke-AidosRepositoryHostNative -FilePath $netsh -Arguments $arguments -AllowFailure
     if($add.exit_code-ne0){
         if(-not$Repair){throw "Unable to add URL ACL without replacing an existing registration. Re-run Install with -RepairUrlAcl after verifying no other service owns '$prefix'. Output: $($add.output -join '; ')"}
         $null=Invoke-AidosRepositoryHostNative -FilePath $netsh -Arguments (Get-AidosRepositoryHandoffUrlAclArguments -AuthorizedUser $ExpectedUser -Port $Port -Delete) -AllowFailure
-        $null=Invoke-AidosRepositoryHostNative -FilePath $netsh -Arguments (Get-AidosRepositoryHandoffUrlAclArguments -AuthorizedUser $ExpectedUser -Port $Port)
+        $null=Invoke-AidosRepositoryHostNative -FilePath $netsh -Arguments $arguments
     }
     if(-not(Test-AidosRepositoryGatewayPrefixAccess -Prefix $prefix)){throw "URL ACL was configured but '$prefix' remains inaccessible."}
     [pscustomobject][ordered]@{status='CONFIGURED';prefix=$prefix;changed=$true}
@@ -136,8 +148,7 @@ function Protect-AidosRepositoryGatewayKey {
     param([Parameter(Mandatory)][string]$KeyPath,[Parameter(Mandatory)][string]$ExpectedUser)
     if(-not(Test-Path -LiteralPath $KeyPath -PathType Leaf)){throw 'Repository handoff gateway key file is missing.'}
     $icacls=Join-Path $env:WINDIR 'System32\icacls.exe'
-    $arguments=@($KeyPath,'/inheritance:r','/grant:r',"${ExpectedUser}:(F)",'SYSTEM:(F)')
-    $result=Invoke-AidosRepositoryHostNative -FilePath $icacls -Arguments $arguments
+    $result=Invoke-AidosRepositoryHostNative -FilePath $icacls -Arguments @($KeyPath,'/inheritance:r','/grant:r',"${ExpectedUser}:(F)",'SYSTEM:(F)')
     [pscustomobject][ordered]@{status='PROTECTED';path=$KeyPath;result=$result}
 }
 
@@ -159,11 +170,17 @@ function Stop-AidosRepositoryHostTask {
     param([int]$TimeoutSeconds=15)
     $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if(-not$task){return}
-    Set-Content -LiteralPath (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind stop) -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM -Force
-    try{Stop-AidosRepositoryHandoffBridge -StateRoot (Read-AidosRepositoryHostConfiguration).bridge_state_root|Out-Null}catch{}
-    try{Stop-AidosRepositoryHandoffGateway -StateRoot (Read-AidosRepositoryHostConfiguration).gateway_state_root|Out-Null}catch{}
+    $stopPath=Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind stop
+    $stopDir=Split-Path -Parent $stopPath
+    if(-not(Test-Path -LiteralPath $stopDir -PathType Container)){New-Item -ItemType Directory -Path $stopDir -Force|Out-Null}
+    Set-Content -LiteralPath $stopPath -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM
+    try{$config=Read-AidosRepositoryHostConfiguration;Stop-AidosRepositoryHandoffBridge -StateRoot ([string]$config.bridge_state_root)|Out-Null;Stop-AidosRepositoryHandoffGateway -StateRoot ([string]$config.gateway_state_root)|Out-Null}catch{}
     $deadline=[DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
-    while([DateTimeOffset]::UtcNow-lt$deadline){$current=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue;if(-not$current-or[string]$current.State-ne'Running'){return};Start-Sleep -Milliseconds 250}
+    while([DateTimeOffset]::UtcNow-lt$deadline){
+        $current=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if(-not$current -or [string]$current.State-ne'Running'){return}
+        Start-Sleep -Milliseconds 250
+    }
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 }
 
@@ -173,16 +190,18 @@ function Retire-AidosClassicTransportTask {
     if(-not$legacy){return [pscustomobject][ordered]@{status='NOT_INSTALLED';task_name=$legacyTaskName}}
     if(-not$Approved){throw "Legacy transport task '$legacyTaskName' is still installed. Re-run Install with -RetireClassicTransport to prevent two transport authorities from running concurrently."}
     $legacyState=Join-Path $env:LOCALAPPDATA 'AIDOS\host-agent'
-    try{Set-Content -LiteralPath (Join-Path $legacyState 'STOP') -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM -Force}catch{}
-    try{Stop-ScheduledTask -TaskName $legacyTaskName -ErrorAction SilentlyContinue}catch{}
+    try{
+        if(-not(Test-Path -LiteralPath $legacyState -PathType Container)){New-Item -ItemType Directory -Path $legacyState -Force|Out-Null}
+        Set-Content -LiteralPath (Join-Path $legacyState 'STOP') -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM
+    }catch{}
+    Stop-ScheduledTask -TaskName $legacyTaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $legacyTaskName -Confirm:$false -ErrorAction Stop
     [pscustomobject][ordered]@{status='RETIRED';task_name=$legacyTaskName;preserved_state_root=$legacyState}
 }
 
 function Register-AidosRepositoryHostTask {
     param([Parameter(Mandatory)][string]$ExpectedUser,[Parameter(Mandatory)][string]$VbsPath)
-    $existing=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    if($existing){Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop}
+    if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop}
     $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
     $action=New-ScheduledTaskAction -Execute $wscript -Argument "`"$VbsPath`""
     $principal=New-ScheduledTaskPrincipal -UserId $ExpectedUser -LogonType Interactive -RunLevel Limited
@@ -200,29 +219,35 @@ function Get-AidosRepositoryTailscaleStatus {
 
 function Set-AidosRepositoryFunnel {
     param([Parameter(Mandatory)][string]$TailscalePath,[int]$LocalPort,[int]$HttpsPort,[switch]$Disable)
-    $arguments=Get-AidosRepositoryHandoffFunnelArguments -LocalPort $LocalPort -PublicPort $HttpsPort -Disable:$Disable
-    Invoke-AidosRepositoryHostNative -FilePath $TailscalePath -Arguments $arguments
+    Invoke-AidosRepositoryHostNative -FilePath $TailscalePath -Arguments (Get-AidosRepositoryHandoffFunnelArguments -LocalPort $LocalPort -PublicPort $HttpsPort -Disable:$Disable)
 }
 
 function Read-AidosRepositoryChildStatus {
     param([Parameter(Mandatory)][string]$Path)
-    if(Test-Path -LiteralPath $Path -PathType Leaf){try{Get-Content -LiteralPath $Path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}catch{[pscustomobject]@{status='INVALID';error=$_.Exception.Message}}}else{$null}
+    if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){return $null}
+    try{Get-Content -LiteralPath $Path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}catch{[pscustomobject]@{status='INVALID';error=$_.Exception.Message}}
 }
 
 function Acquire-AidosRepositoryHostLease {
-    param([Parameter(Mandatory)][string]$Root,[string]$OwnerId=([guid]::NewGuid().ToString()),[switch]$AfterReclaim)
+    param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$OwnerId,[switch]$AfterReclaim)
     if(-not(Test-Path -LiteralPath $Root -PathType Container)){New-Item -ItemType Directory -Path $Root -Force|Out-Null}
     $path=Get-AidosRepositoryHandoffHostPath -StateRoot $Root -Kind lease
     try{
         $stream=[IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
         try{
             $lease=[ordered]@{schema_version='0.1';owner_id=$OwnerId;pid=$PID;process_started_at=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o');started_at=[DateTimeOffset]::UtcNow.ToString('o')}
-            $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($lease|ConvertTo-Json -Compress));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)
+            $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($lease|ConvertTo-Json -Compress))
+            $stream.Write($bytes,0,$bytes.Length)
+            $stream.Flush($true)
         }finally{$stream.Dispose()}
         [pscustomobject]$lease
     }catch [IO.IOException]{
         if($AfterReclaim){throw 'Repository handoff host lease is already owned by another process.'}
-        try{$existing=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$process=Get-Process -Id ([int]$existing.pid) -ErrorAction SilentlyContinue;$alive=$process-and[string]$existing.process_started_at-eq$process.StartTime.ToUniversalTime().ToString('o')}catch{$alive=$true}
+        try{
+            $existing=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
+            $process=Get-Process -Id ([int]$existing.pid) -ErrorAction SilentlyContinue
+            $alive=$null-ne$process -and [string]$existing.process_started_at-eq$process.StartTime.ToUniversalTime().ToString('o')
+        }catch{$alive=$true}
         if($alive){throw 'Repository handoff host lease is already owned by another process.'}
         Remove-Item -LiteralPath $path -Force
         Acquire-AidosRepositoryHostLease -Root $Root -OwnerId $OwnerId -AfterReclaim
@@ -252,32 +277,22 @@ function Start-AidosRepositoryHostSupervisor {
     $config=Read-AidosRepositoryHostConfiguration
     $null=Assert-AidosRepositoryHostAuthorizedSession -ExpectedUser ([string]$config.authorized_user)
     $owner=[guid]::NewGuid().ToString()
-    $lease=Acquire-AidosRepositoryHostLease -Root $StateRoot -OwnerId $owner
+    $null=Acquire-AidosRepositoryHostLease -Root $StateRoot -OwnerId $owner
     $stopPath=Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind stop
     $statusPath=Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind status
     Remove-Item -LiteralPath $stopPath -Force -ErrorAction SilentlyContinue
     $engine=Get-AidosRepositoryHostPowerShellPath
-    $bridge=$null;$gateway=$null
+    $bridge=$null
+    $gateway=$null
     try{
         $bridge=Start-AidosRepositoryChildProcess -PowerShellPath $engine -EntryPoint ([string]$config.entry_point) -ChildCommand StartBridge -Root $StateRoot
         $gateway=Start-AidosRepositoryChildProcess -PowerShellPath $engine -EntryPoint ([string]$config.entry_point) -ChildCommand StartGateway -Root $StateRoot
         while(-not(Test-Path -LiteralPath $stopPath -PathType Leaf)){
             if($bridge.HasExited){throw "Repository handoff bridge child exited with code $($bridge.ExitCode)."}
             if($gateway.HasExited){throw "Repository handoff gateway child exited with code $($gateway.ExitCode)."}
-            $hostStatus=[ordered]@{
-                schema_version='0.1'
-                status='RUNNING'
-                owner_id=$owner
-                pid=$PID
-                authorized_user=[string]$config.authorized_user
-                public_url=[string]$config.public_url
-                bridge_pid=$bridge.Id
-                gateway_pid=$gateway.Id
-                bridge=(Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.bridge_state_root) 'STATUS.json'))
-                gateway=(Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.gateway_state_root) 'STATUS.json'))
-                heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')
-            }
-            Write-AidosRepositoryHostJsonAtomic -Path $statusPath -Value $hostStatus
+            Write-AidosRepositoryHostJsonAtomic -Path $statusPath -Value ([ordered]@{
+                schema_version='0.1';status='RUNNING';owner_id=$owner;pid=$PID;authorized_user=[string]$config.authorized_user;public_url=[string]$config.public_url;bridge_pid=$bridge.Id;gateway_pid=$gateway.Id;bridge=(Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.bridge_state_root) 'STATUS.json'));gateway=(Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.gateway_state_root) 'STATUS.json'));heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')
+            })
             Start-Sleep -Seconds 1
         }
         Write-AidosRepositoryHostJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.1';status='STOPPING';pid=$PID;observed_at=[DateTimeOffset]::UtcNow.ToString('o')})
@@ -293,16 +308,15 @@ function Start-AidosRepositoryHostSupervisor {
             $child.Dispose()
         }
         Release-AidosRepositoryHostLease -Root $StateRoot -OwnerId $owner
-        if(-not(Test-Path -LiteralPath $statusPath -PathType Leaf)-or[string](Read-AidosRepositoryChildStatus -Path $statusPath).status-ne'ERROR'){
-            Write-AidosRepositoryHostJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.1';status='STOPPED';pid=$PID;stopped_at=[DateTimeOffset]::UtcNow.ToString('o')})
-        }
+        $current=Read-AidosRepositoryChildStatus -Path $statusPath
+        if($null-eq$current -or [string]$current.status-ne'ERROR'){Write-AidosRepositoryHostJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.1';status='STOPPED';pid=$PID;stopped_at=[DateTimeOffset]::UtcNow.ToString('o')})}
     }
 }
 
 function Copy-OrReturnAidosRepositoryText {
     param([Parameter(Mandatory)][string]$Text,[switch]$Clipboard)
-    if($Clipboard){Set-Clipboard -Value $Text;[pscustomobject][ordered]@{status='COPIED';character_count=$Text.Length}}
-    else{$Text}
+    if($Clipboard){Set-Clipboard -Value $Text;return [pscustomobject][ordered]@{status='COPIED';character_count=$Text.Length}}
+    $Text
 }
 
 switch($Command){
@@ -313,8 +327,10 @@ switch($Command){
         $legacy=Retire-AidosClassicTransportTask -Approved:$RetireClassicTransport
         $urlAcl=Ensure-AidosRepositoryGatewayUrlAcl -ExpectedUser $AuthorizedUser -Port $GatewayPort -Repair:$RepairUrlAcl
         $tailscalePath=$null
-        if($SkipFunnel){if([string]::IsNullOrWhiteSpace($PublicUrl)){throw 'Install with -SkipFunnel requires an explicit HTTPS PublicUrl.'}}
-        else{
+        $funnel=$null
+        if($SkipFunnel){
+            if([string]::IsNullOrWhiteSpace($PublicUrl)){throw 'Install with -SkipFunnel requires an explicit HTTPS PublicUrl.'}
+        }else{
             $tailscalePath=Get-AidosRepositoryHostTailscalePath
             $tailscaleStatus=Get-AidosRepositoryTailscaleStatus -TailscalePath $tailscalePath
             if([string]::IsNullOrWhiteSpace($PublicUrl)){$PublicUrl=[string]$tailscaleStatus.public_url}
@@ -323,7 +339,7 @@ switch($Command){
         $bridgeState=Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-bridge'
         $gatewayState=Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-gateway'
         $null=Initialize-AidosRepositoryHandoffBridge -RegistryRoot $RegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -AidosRoot $AidosRoot -StateRoot $bridgeState -RecoveryIntervalSeconds $RecoveryIntervalSeconds -MaxProjectsPerTick $MaxProjectsPerTick
-        $gateway=Initialize-AidosRepositoryHandoffGateway -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -StateRoot $gatewayState -BridgeStateRoot $bridgeState -Port $GatewayPort
+        $null=Initialize-AidosRepositoryHandoffGateway -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -StateRoot $gatewayState -BridgeStateRoot $bridgeState -Port $GatewayPort
         $keyPath=Get-AidosRepositoryHandoffGatewayPath -StateRoot $gatewayState -Kind key
         $keyProtection=Protect-AidosRepositoryGatewayKey -KeyPath $keyPath -ExpectedUser $AuthorizedUser
         $configuration=New-AidosRepositoryHandoffHostConfiguration -EntryPoint $self -AidosRoot $AidosRoot -RegistryRoot $RegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -HostStateRoot $StateRoot -BridgeStateRoot $bridgeState -GatewayStateRoot $gatewayState -AuthorizedUser $AuthorizedUser -ProcessName $ProcessName -PublicUrl $PublicUrl -TailscalePath ([string]$tailscalePath) -GatewayPort $GatewayPort -PublicPort $PublicPort -RecoveryIntervalSeconds $RecoveryIntervalSeconds -MaxProjectsPerTick $MaxProjectsPerTick -Push $Push
@@ -332,25 +348,7 @@ switch($Command){
         $task=Register-AidosRepositoryHostTask -ExpectedUser $AuthorizedUser -VbsPath ([string]$files.vbs_path)
         Start-ScheduledTask -TaskName $taskName
         [pscustomobject][ordered]@{
-            status='INSTALLED'
-            task=$task
-            legacy_transport=$legacy
-            authorized_session=$session
-            url_acl=$urlAcl
-            public_url=[string]$configuration.public_url
-            funnel=if($SkipFunnel){[pscustomobject]@{status='SKIPPED_EXTERNAL_HTTPS'}}else{$funnel}
-            openapi_path=[string]$openapi.path
-            instructions_path=[string]$configuration.instructions_path
-            api_key_path=$keyPath
-            api_key_protection=$keyProtection
-            manual_setup=@(
-                'Create or edit one private AIDOS Repository Thinker GPT.',
-                'Paste GPT_INSTRUCTIONS.md into Instructions.',
-                'Create a custom Action from OPENAPI.json.',
-                'Configure API-key authentication as Bearer and paste the value from API_KEY.txt.',
-                'Use a non-Pro model that supports Actions.',
-                'Create, rename and pin one chat per project, then run BindThinker while that chat is active.'
-            )
+            status='INSTALLED';task=$task;legacy_transport=$legacy;authorized_session=$session;url_acl=$urlAcl;public_url=[string]$configuration.public_url;funnel=if($SkipFunnel){[pscustomobject]@{status='SKIPPED_EXTERNAL_HTTPS'}}else{$funnel};openapi_path=[string]$openapi.path;instructions_path=[string]$configuration.instructions_path;api_key_path=$keyPath;api_key_protection=$keyProtection;manual_setup=@('Create or edit one private AIDOS Repository Thinker GPT.','Paste GPT_INSTRUCTIONS.md into Instructions.','Create a custom Action from OPENAPI.json.','Configure API-key authentication as Bearer and paste the value from API_KEY.txt.','Use a non-Pro model that supports Actions.','Create, rename and pin one chat per project, then run BindThinker while that chat is active.')
         }|ConvertTo-Json -Depth 100
     }
     'Start' {Start-AidosRepositoryHostSupervisor}
@@ -358,24 +356,20 @@ switch($Command){
     'StartGateway' {$config=Read-AidosRepositoryHostConfiguration;Start-AidosRepositoryHandoffGateway -StateRoot ([string]$config.gateway_state_root) -Push:([bool]$config.push)}
     'Stop' {
         $config=Read-AidosRepositoryHostConfiguration
-        Set-Content -LiteralPath (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind stop) -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM -Force
+        $stopPath=Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind stop
+        if(-not(Test-Path -LiteralPath $StateRoot -PathType Container)){New-Item -ItemType Directory -Path $StateRoot -Force|Out-Null}
+        Set-Content -LiteralPath $stopPath -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM
         Stop-AidosRepositoryHandoffBridge -StateRoot ([string]$config.bridge_state_root)|Out-Null
         Stop-AidosRepositoryHandoffGateway -StateRoot ([string]$config.gateway_state_root)|Out-Null
         [pscustomobject][ordered]@{status='STOP_REQUESTED';task=(Get-AidosRepositoryHostTaskStatus);state_root=$StateRoot}|ConvertTo-Json -Depth 50
     }
     'Status' {
-        $config=if(Test-Path -LiteralPath (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind config) -PathType Leaf){Read-AidosRepositoryHostConfiguration}else{$null}
+        $config=$null
+        if(Test-Path -LiteralPath (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind config) -PathType Leaf){$config=Read-AidosRepositoryHostConfiguration}
         $funnelStatus=$null
-        if($config-and-not[string]::IsNullOrWhiteSpace([string]$config.tailscale_path)){try{$funnelStatus=Invoke-AidosRepositoryHostNative -FilePath ([string]$config.tailscale_path) -Arguments @('funnel','status','--json') -AllowFailure}catch{$funnelStatus=[pscustomobject]@{exit_code=-1;output=@($_.Exception.Message)}}}
+        if($config -and -not[string]::IsNullOrWhiteSpace([string]$config.tailscale_path)){$funnelStatus=Invoke-AidosRepositoryHostNative -FilePath ([string]$config.tailscale_path) -Arguments @('funnel','status','--json') -AllowFailure}
         [pscustomobject][ordered]@{
-            task=(Get-AidosRepositoryHostTaskStatus)
-            legacy_task=(Get-AidosRepositoryHostTaskStatus -Name $legacyTaskName)
-            host=(Read-AidosRepositoryChildStatus -Path (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind status))
-            config=$config
-            bridge=if($config){Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.bridge_state_root) 'STATUS.json')}else{$null}
-            gateway=if($config){Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.gateway_state_root) 'STATUS.json')}else{$null}
-            funnel=$funnelStatus
-            state_root=$StateRoot
+            task=(Get-AidosRepositoryHostTaskStatus);legacy_task=(Get-AidosRepositoryHostTaskStatus -Name $legacyTaskName);host=(Read-AidosRepositoryChildStatus -Path (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind status));config=$config;bridge=if($config){Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.bridge_state_root) 'STATUS.json')}else{$null};gateway=if($config){Read-AidosRepositoryChildStatus -Path (Join-Path ([string]$config.gateway_state_root) 'STATUS.json')}else{$null};funnel=$funnelStatus;state_root=$StateRoot
         }|ConvertTo-Json -Depth 100
     }
     'BindThinker' {
@@ -391,7 +385,7 @@ switch($Command){
         Remove-AidosRepositoryThinkerBinding -StateRoot ([string]$config.bridge_state_root) -ProjectId $ProjectId|ConvertTo-Json -Depth 20
     }
     'ResetThinkerTrigger' {
-        if([string]::IsNullOrWhiteSpace($ProjectId)-or[string]::IsNullOrWhiteSpace($HandoffId)){throw 'ResetThinkerTrigger requires ProjectId and HandoffId.'}
+        if([string]::IsNullOrWhiteSpace($ProjectId) -or [string]::IsNullOrWhiteSpace($HandoffId)){throw 'ResetThinkerTrigger requires ProjectId and HandoffId.'}
         $config=Read-AidosRepositoryHostConfiguration
         Reset-AidosRepositoryThinkerTrigger -StateRoot ([string]$config.bridge_state_root) -ProjectId $ProjectId -HandoffId $HandoffId|ConvertTo-Json -Depth 20
     }
@@ -404,41 +398,33 @@ switch($Command){
         Start-ScheduledTask -TaskName $taskName
         [pscustomobject][ordered]@{status='ROTATED';api_key_path=$keyPath;protection=$protection;required_action='Update Bearer API key in the private GPT Action.'}|ConvertTo-Json -Depth 50
     }
-    'ShowApiKey' {
-        $config=Read-AidosRepositoryHostConfiguration
-        $path=Get-AidosRepositoryHandoffGatewayPath -StateRoot ([string]$config.gateway_state_root) -Kind key
-        $text=(Get-Content -LiteralPath $path -Raw -Encoding ASCII).Trim()
-        Copy-OrReturnAidosRepositoryText -Text $text -Clipboard:$CopyToClipboard
-    }
-    'ShowOpenApi' {
-        $config=Read-AidosRepositoryHostConfiguration
-        $text=Get-Content -LiteralPath ([string]$config.openapi_path) -Raw -Encoding UTF8
-        Copy-OrReturnAidosRepositoryText -Text $text -Clipboard:$CopyToClipboard
-    }
-    'ShowInstructions' {
-        $config=Read-AidosRepositoryHostConfiguration
-        $text=Get-Content -LiteralPath ([string]$config.instructions_path) -Raw -Encoding UTF8
-        Copy-OrReturnAidosRepositoryText -Text $text -Clipboard:$CopyToClipboard
-    }
+    'ShowApiKey' {$config=Read-AidosRepositoryHostConfiguration;$path=Get-AidosRepositoryHandoffGatewayPath -StateRoot ([string]$config.gateway_state_root) -Kind key;Copy-OrReturnAidosRepositoryText -Text ((Get-Content -LiteralPath $path -Raw -Encoding ASCII).Trim()) -Clipboard:$CopyToClipboard}
+    'ShowOpenApi' {$config=Read-AidosRepositoryHostConfiguration;Copy-OrReturnAidosRepositoryText -Text (Get-Content -LiteralPath ([string]$config.openapi_path) -Raw -Encoding UTF8) -Clipboard:$CopyToClipboard}
+    'ShowInstructions' {$config=Read-AidosRepositoryHostConfiguration;Copy-OrReturnAidosRepositoryText -Text (Get-Content -LiteralPath ([string]$config.instructions_path) -Raw -Encoding UTF8) -Clipboard:$CopyToClipboard}
     'FunnelStatus' {
         $config=Read-AidosRepositoryHostConfiguration
         if([string]::IsNullOrWhiteSpace([string]$config.tailscale_path)){throw 'This installation does not manage Tailscale Funnel.'}
         Invoke-AidosRepositoryHostNative -FilePath ([string]$config.tailscale_path) -Arguments @('funnel','status','--json') -AllowFailure|ConvertTo-Json -Depth 50
     }
-    'Tick' {
-        $config=Read-AidosRepositoryHostConfiguration
-        Invoke-AidosRepositoryHandoffBridgeTick -RegistryRoot ([string]$config.registry_root) -StateRoot ([string]$config.bridge_state_root) -BuilderRoot ([string]$config.builder_root) -ContractsRoot ([string]$config.contracts_root) -AidosRoot ([string]$config.aidos_root) -MaxProjects ([int]$config.max_projects_per_tick) -Push:([bool]$config.push)|ConvertTo-Json -Depth 100
-    }
+    'Tick' {$config=Read-AidosRepositoryHostConfiguration;Invoke-AidosRepositoryHandoffBridgeTick -RegistryRoot ([string]$config.registry_root) -StateRoot ([string]$config.bridge_state_root) -BuilderRoot ([string]$config.builder_root) -ContractsRoot ([string]$config.contracts_root) -AidosRoot ([string]$config.aidos_root) -MaxProjects ([int]$config.max_projects_per_tick) -Push:([bool]$config.push)|ConvertTo-Json -Depth 100}
     'Uninstall' {
-        $config=if(Test-Path -LiteralPath (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind config) -PathType Leaf){Read-AidosRepositoryHostConfiguration}else{$null}
+        $config=$null
+        if(Test-Path -LiteralPath (Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind config) -PathType Leaf){$config=Read-AidosRepositoryHostConfiguration}
         if($config){Stop-AidosRepositoryHostTask}
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         $funnel=$null
-        if($config-and-not$KeepFunnel-and-not[string]::IsNullOrWhiteSpace([string]$config.tailscale_path)){try{$funnel=Set-AidosRepositoryFunnel -TailscalePath ([string]$config.tailscale_path) -LocalPort ([int]$config.gateway_port) -HttpsPort ([int]$config.public_port) -Disable}catch{$funnel=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}}
-        $removed=@()
-        if($RemoveState-and$config){
-            foreach($path in @([string]$config.bridge_state_root,[string]$config.gateway_state_root,$StateRoot)|Select-Object -Unique){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force;$removed+=$path}}
+        if($config -and -not$KeepFunnel -and -not[string]::IsNullOrWhiteSpace([string]$config.tailscale_path)){
+            try{$funnel=Set-AidosRepositoryFunnel -TailscalePath ([string]$config.tailscale_path) -LocalPort ([int]$config.gateway_port) -HttpsPort ([int]$config.public_port) -Disable}catch{$funnel=[pscustomobject]@{status='ERROR';error=$_.Exception.Message}}
         }
-        [pscustomobject][ordered]@{status='UNINSTALLED';task_name=$taskName;funnel=$funnel;removed_state_roots=$removed;preserved_state=if($RemoveState){@()}else{@($StateRoot,if($config){[string]$config.bridge_state_root},if($config){[string]$config.gateway_state_root})}}|ConvertTo-Json -Depth 50
+        $removed=@()
+        $preserved=@()
+        if($config){$preserved=@($StateRoot,[string]$config.bridge_state_root,[string]$config.gateway_state_root)|Select-Object -Unique}else{$preserved=@($StateRoot)}
+        if($RemoveState){
+            foreach($path in @($preserved)){
+                if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force;$removed+=$path}
+            }
+            $preserved=@()
+        }
+        [pscustomobject][ordered]@{status='UNINSTALLED';task_name=$taskName;funnel=$funnel;removed_state_roots=$removed;preserved_state=$preserved}|ConvertTo-Json -Depth 50
     }
 }
