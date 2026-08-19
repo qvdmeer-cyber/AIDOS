@@ -30,7 +30,7 @@ function Write-AidosRepositoryHandoffBridgeJsonAtomic {
     $tmp="$Path.$([guid]::NewGuid().ToString('N')).tmp"
     try{
         $Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
-        Move-Item -LiteralPath $tmp -Destination $Path -Force
+        [IO.File]::Move($tmp,$Path,$true)
     }finally{
         if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}
     }
