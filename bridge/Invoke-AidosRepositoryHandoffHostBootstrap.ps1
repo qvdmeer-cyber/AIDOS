@@ -35,13 +35,13 @@ $sessionModule=Join-Path $PSScriptRoot 'AidosWindowsSession.psm1'
 if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $original"}
 if(-not(Test-Path -LiteralPath $sessionModule -PathType Leaf)){throw "Windows session module is unavailable: $sessionModule"}
 
-# Script-scoped functions in the host entrypoint must be able to resolve the
-# interactive-session commands both during an operator invocation and later in
-# the scheduled-task process. Import them into the runspace's global scope
-# before entering the original host script.
+# The canonical host defines its command helpers in script scope. Dot-source it
+# into this bootstrap scope after globally importing the session commands, so
+# both operator invocations and later scheduled-task runs resolve the exported
+# Windows-session functions deterministically.
 Import-Module $sessionModule -Force -Global -DisableNameChecking
 
-$output=& $original @PSBoundParameters
+$output=. $original @PSBoundParameters
 
 if($Command-eq'Install'){
     $resolvedStateRoot=if([string]::IsNullOrWhiteSpace($StateRoot)){
