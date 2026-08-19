@@ -38,6 +38,21 @@ function Get-AidosRepositoryHandoffHostPath {
     Join-Path ([IO.Path]::GetFullPath($StateRoot)) $names[$Kind]
 }
 
+function Write-AidosRepositoryHandoffInstallationJsonAtomic {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)]$Value)
+    $full=[IO.Path]::GetFullPath($Path)
+    $dir=Split-Path -Parent $full
+    if(-not(Test-Path -LiteralPath $dir -PathType Container)){New-Item -ItemType Directory -Path $dir -Force|Out-Null}
+    $tmp="$full.$([guid]::NewGuid().ToString('N')).tmp"
+    try{
+        $Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
+        Move-Item -LiteralPath $tmp -Destination $full -Force
+    }finally{
+        if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}
+    }
+}
+
 function ConvertFrom-AidosTailscaleStatusJson {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Json)
@@ -86,6 +101,24 @@ function Get-AidosRepositoryHandoffUrlAclArguments {
     @('http','add','urlacl',"url=$prefix","user=$AuthorizedUser",'listen=yes','delegate=no')
 }
 
+function Resolve-AidosRepositoryHandoffPublicUrl {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$PublicUrl,
+        [ValidateSet(443,8443,10000)][int]$PublicPort=443
+    )
+    $uri=$null
+    if(-not[Uri]::TryCreate($PublicUrl.Trim(),[UriKind]::Absolute,[ref]$uri) -or -not[string]::Equals($uri.Scheme,'https',[StringComparison]::OrdinalIgnoreCase)){throw 'Repository handoff host PublicUrl must be an absolute HTTPS URL.'}
+    if(-not[string]::IsNullOrWhiteSpace($uri.UserInfo) -or -not[string]::IsNullOrWhiteSpace($uri.Query) -or -not[string]::IsNullOrWhiteSpace($uri.Fragment)){throw 'Repository handoff host PublicUrl may not contain user information, a query, or a fragment.'}
+    if($uri.AbsolutePath -notin @('','/')){throw 'Repository handoff host PublicUrl must point to the HTTPS origin root.'}
+    $builder=[UriBuilder]::new($uri)
+    $builder.Path=''
+    $builder.Query=''
+    $builder.Fragment=''
+    $builder.Port=if($PublicPort-eq443){-1}else{$PublicPort}
+    $builder.Uri.AbsoluteUri.TrimEnd('/')
+}
+
 function New-AidosRepositoryHandoffHostConfiguration {
     [CmdletBinding()]
     param(
@@ -107,13 +140,10 @@ function New-AidosRepositoryHandoffHostConfiguration {
         [int]$MaxProjectsPerTick=6,
         [bool]$Push=$true
     )
-    $publicUri=$null
-    if(-not[Uri]::TryCreate($PublicUrl,[UriKind]::Absolute,[ref]$publicUri)-or-not[string]::Equals($publicUri.Scheme,'https',[StringComparison]::OrdinalIgnoreCase)){throw 'Repository handoff host PublicUrl must be an absolute HTTPS URL.'}
-    if(-not[string]::IsNullOrWhiteSpace($publicUri.UserInfo) -or -not[string]::IsNullOrWhiteSpace($publicUri.Query) -or -not[string]::IsNullOrWhiteSpace($publicUri.Fragment)){throw 'Repository handoff host PublicUrl may not contain user information, a query, or a fragment.'}
     if([string]::IsNullOrWhiteSpace($AuthorizedUser)){throw 'Repository handoff host requires AuthorizedUser.'}
     if([string]::IsNullOrWhiteSpace($ProcessName)){throw 'Repository handoff host requires ProcessName.'}
     [pscustomobject][ordered]@{
-        schema_version='0.1'
+        schema_version='0.2'
         entry_point=[IO.Path]::GetFullPath($EntryPoint)
         aidos_root=[IO.Path]::GetFullPath($AidosRoot)
         registry_root=[IO.Path]::GetFullPath($RegistryRoot)
@@ -124,7 +154,7 @@ function New-AidosRepositoryHandoffHostConfiguration {
         gateway_state_root=[IO.Path]::GetFullPath($GatewayStateRoot)
         authorized_user=$AuthorizedUser
         process_name=$ProcessName
-        public_url=$publicUri.AbsoluteUri.TrimEnd('/')
+        public_url=Resolve-AidosRepositoryHandoffPublicUrl -PublicUrl $PublicUrl -PublicPort $PublicPort
         tailscale_path=if([string]::IsNullOrWhiteSpace($TailscalePath)){$null}else{[IO.Path]::GetFullPath($TailscalePath)}
         gateway_port=$GatewayPort
         public_port=$PublicPort
@@ -233,6 +263,21 @@ On any mismatch, missing source, action error, ambiguous instruction, unsupporte
 '@
 }
 
+function Sync-AidosRepositoryHandoffBridgeHostConfiguration {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Configuration)
+    $path=Join-Path ([string]$Configuration.bridge_state_root) 'CONFIG.json'
+    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){return [pscustomobject][ordered]@{status='BRIDGE_CONFIG_NOT_FOUND';path=$path}}
+    $existing=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+    $updated=[ordered]@{}
+    foreach($property in $existing.PSObject.Properties){$updated[$property.Name]=$property.Value}
+    $updated.schema_version='0.3'
+    $updated.process_name=[string]$Configuration.process_name
+    $updated.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    Write-AidosRepositoryHandoffInstallationJsonAtomic -Path $path -Value $updated
+    [pscustomobject][ordered]@{status='SYNCHRONIZED';path=$path;process_name=[string]$Configuration.process_name}
+}
+
 function Write-AidosRepositoryHandoffHostFiles {
     [CmdletBinding()]
     param(
@@ -246,11 +291,12 @@ function Write-AidosRepositoryHandoffHostFiles {
     $vbsPath=Get-AidosRepositoryHandoffHostPath -StateRoot $root -Kind vbs
     $enginePath=Get-AidosRepositoryHandoffHostPath -StateRoot $root -Kind engine
     $instructionsPath=Get-AidosRepositoryHandoffHostPath -StateRoot $root -Kind instructions
-    $Configuration|ConvertTo-Json -Depth 50|Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
+    Write-AidosRepositoryHandoffInstallationJsonAtomic -Path $configPath -Value $Configuration
     New-AidosRepositoryHandoffLauncherText|Set-Content -LiteralPath $launcherPath -Encoding utf8NoBOM
     New-AidosRepositoryHandoffVbsText|Set-Content -LiteralPath $vbsPath -Encoding ascii
     Set-Content -LiteralPath $enginePath -Value ([IO.Path]::GetFullPath($PowerShellPath)) -Encoding utf8NoBOM -NoNewline
     New-AidosRepositoryThinkerGptInstructions|Set-Content -LiteralPath $instructionsPath -Encoding utf8NoBOM
+    $bridgeConfiguration=Sync-AidosRepositoryHandoffBridgeHostConfiguration -Configuration $Configuration
     [pscustomobject][ordered]@{
         status='WRITTEN'
         config_path=$configPath
@@ -258,7 +304,8 @@ function Write-AidosRepositoryHandoffHostFiles {
         vbs_path=$vbsPath
         engine_path=$enginePath
         instructions_path=$instructionsPath
+        bridge_configuration=$bridgeConfiguration
     }
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffHostDefaultStateRoot,Get-AidosRepositoryHandoffHostTaskName,Get-AidosRepositoryHandoffLegacyTaskName,Get-AidosRepositoryHandoffHostPath,ConvertFrom-AidosTailscaleStatusJson,Get-AidosRepositoryHandoffFunnelArguments,Get-AidosRepositoryHandoffUrlPrefix,Get-AidosRepositoryHandoffUrlAclArguments,New-AidosRepositoryHandoffHostConfiguration,New-AidosRepositoryHandoffLauncherText,New-AidosRepositoryHandoffVbsText,New-AidosRepositoryThinkerGptInstructions,Write-AidosRepositoryHandoffHostFiles
+Export-ModuleMember -Function Get-AidosRepositoryHandoffHostDefaultStateRoot,Get-AidosRepositoryHandoffHostTaskName,Get-AidosRepositoryHandoffLegacyTaskName,Get-AidosRepositoryHandoffHostPath,Write-AidosRepositoryHandoffInstallationJsonAtomic,ConvertFrom-AidosTailscaleStatusJson,Get-AidosRepositoryHandoffFunnelArguments,Get-AidosRepositoryHandoffUrlPrefix,Get-AidosRepositoryHandoffUrlAclArguments,Resolve-AidosRepositoryHandoffPublicUrl,New-AidosRepositoryHandoffHostConfiguration,New-AidosRepositoryHandoffLauncherText,New-AidosRepositoryHandoffVbsText,New-AidosRepositoryThinkerGptInstructions,Sync-AidosRepositoryHandoffBridgeHostConfiguration,Write-AidosRepositoryHandoffHostFiles
