@@ -43,7 +43,8 @@ function ConvertFrom-AidosTailscaleStatusJson {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Json)
     if([string]::IsNullOrWhiteSpace($Json)){throw 'Tailscale status JSON is empty.'}
     try{$status=$Json|ConvertFrom-Json -Depth 100}catch{throw "Tailscale status JSON is invalid: $($_.Exception.Message)"}
-    if($null-eq$status.Self){throw 'Tailscale status JSON has no Self record.'}
+    if(-not$status.PSObject.Properties['Self'] -or $null-eq$status.Self){throw 'Tailscale status JSON has no Self record.'}
+    if(-not$status.Self.PSObject.Properties['DNSName']){throw 'Tailscale status JSON has no Self.DNSName.'}
     $dnsName=[string]$status.Self.DNSName
     if([string]::IsNullOrWhiteSpace($dnsName)){throw 'Tailscale status JSON has no Self.DNSName.'}
     $dnsName=$dnsName.Trim().TrimEnd('.')
@@ -99,7 +100,7 @@ function New-AidosRepositoryHandoffHostConfiguration {
         [Parameter(Mandatory)][string]$AuthorizedUser,
         [Parameter(Mandatory)][string]$ProcessName,
         [Parameter(Mandatory)][string]$PublicUrl,
-        [Parameter(Mandatory)][string]$TailscalePath,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$TailscalePath,
         [int]$GatewayPort=47831,
         [ValidateSet(443,8443,10000)][int]$PublicPort=443,
         [int]$RecoveryIntervalSeconds=30,
@@ -108,6 +109,7 @@ function New-AidosRepositoryHandoffHostConfiguration {
     )
     $publicUri=$null
     if(-not[Uri]::TryCreate($PublicUrl,[UriKind]::Absolute,[ref]$publicUri)-or-not[string]::Equals($publicUri.Scheme,'https',[StringComparison]::OrdinalIgnoreCase)){throw 'Repository handoff host PublicUrl must be an absolute HTTPS URL.'}
+    if(-not[string]::IsNullOrWhiteSpace($publicUri.UserInfo) -or -not[string]::IsNullOrWhiteSpace($publicUri.Query) -or -not[string]::IsNullOrWhiteSpace($publicUri.Fragment)){throw 'Repository handoff host PublicUrl may not contain user information, a query, or a fragment.'}
     if([string]::IsNullOrWhiteSpace($AuthorizedUser)){throw 'Repository handoff host requires AuthorizedUser.'}
     if([string]::IsNullOrWhiteSpace($ProcessName)){throw 'Repository handoff host requires ProcessName.'}
     [pscustomobject][ordered]@{
