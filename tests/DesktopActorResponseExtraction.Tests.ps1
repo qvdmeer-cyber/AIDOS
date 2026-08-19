@@ -54,6 +54,21 @@ $fragments=@(
     $response1.Substring($splitAt2)
 )
 $selectedSplit=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts $fragments -Assignment $assignmentOnly
+if($selectedSplit-ne$response1){
+    $compact=[string]::Join('',[string[]]$fragments)
+    $compactCandidates=@(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $compact)
+    $directAssignmentOnly=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($response1) -Assignment $assignmentOnly
+    $directBound=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($response1) -Assignment $bound
+    $compactAssignmentOnly=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($compact) -Assignment $assignmentOnly
+    $selectedType=if($null-eq$selectedSplit){'<null>'}else{$selectedSplit.GetType().FullName}
+    $selectedLength=if($null-eq$selectedSplit){-1}else{([string]$selectedSplit).Length}
+    $selectedSha=if($null-eq$selectedSplit){'<null>'}else{[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$selectedSplit))).ToLowerInvariant()}
+    $expectedSha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($response1))).ToLowerInvariant()
+    $lastCandidateEquals=($compactCandidates.Count-gt0 -and $compactCandidates[-1]-eq$response1)
+    Write-Host "DIAG selected_type=$selectedType selected_length=$selectedLength expected_length=$($response1.Length) selected_sha=$selectedSha expected_sha=$expectedSha"
+    Write-Host "DIAG direct_assignment_only_equal=$($directAssignmentOnly-eq$response1) direct_bound_equal=$($directBound-eq$response1) compact_assignment_only_equal=$($compactAssignmentOnly-eq$response1)"
+    Write-Host "DIAG compact_length=$($compact.Length) candidate_count=$($compactCandidates.Count) last_candidate_equal=$lastCandidateEquals fragment_lengths=$((@($fragments|ForEach-Object {$_.Length}) -join ','))"
+}
 Assert-ActorResponse ($selectedSplit-eq$response1) 'response selector reconstructs a JSON response split across adjacent UIA text controls'
 
 $templateOnly=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($template) -Assignment $assignmentOnly
