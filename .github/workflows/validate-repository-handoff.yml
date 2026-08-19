@@ -31,6 +31,7 @@ jobs:
             'tests/RepositoryHandoffOpenApi.Tests.ps1',
             'tests/RepositoryHandoffInstallation.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
+            'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
             'tests/RepositoryThinkerBinding.Tests.ps1',
             'tests/RepositoryHandoffBridge.Tests.ps1'
@@ -56,6 +57,9 @@ jobs:
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1
+      - name: Guarded Worker runtime integration
+        shell: pwsh
+        run: ./tests/RepositoryWorkerRuntimeIntegration.Tests.ps1
       - name: Repository handoff gateway
         shell: pwsh
         run: ./tests/RepositoryHandoffGateway.Tests.ps1
