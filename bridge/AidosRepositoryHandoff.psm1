@@ -9,19 +9,16 @@ $script:AidosRepositoryHandoffEnd='<!-- AIDOS_HANDOFF_V1_END -->'
 function Get-AidosRepositoryHandoffRelativePath {
     '.aidos/HANDOFF.md'
 }
-
 function Get-AidosRepositoryHandoffPath {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot)
     Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) (Get-AidosRepositoryHandoffRelativePath)
 }
-
 function Get-AidosRepositoryHandoffTextSha256 {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Text))).ToLowerInvariant()
 }
-
 function Test-AidosRepositoryRelativePath {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$FieldName)
@@ -32,14 +29,11 @@ function Test-AidosRepositoryRelativePath {
     if([string]::IsNullOrWhiteSpace($value)){throw "Repository handoff requires '$FieldName'."}
     $value
 }
-
 function Test-AidosRepositoryHandoffBinding {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Binding)
     if($null-eq$Binding){throw 'Repository handoff requires binding.'}
-    foreach($name in @('project_state','definition_id','definition_version','execution_id','revision','review_id')){
-        if(-not$Binding.PSObject.Properties[$name]){throw "Repository handoff binding is missing '$name'."}
-    }
+    foreach($name in @('project_state','definition_id','definition_version','execution_id','revision','review_id')){if(-not$Binding.PSObject.Properties[$name]){throw "Repository handoff binding is missing '$name'."}}
     [pscustomobject][ordered]@{
         project_state=if($null-eq$Binding.project_state){$null}else{[string]$Binding.project_state}
         definition_id=if($null-eq$Binding.definition_id){$null}else{[string]$Binding.definition_id}
@@ -49,26 +43,20 @@ function Test-AidosRepositoryHandoffBinding {
         review_id=if($null-eq$Binding.review_id){$null}else{[string]$Binding.review_id}
     }
 }
-
 function Test-AidosRepositoryHandoffMetadata {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Metadata,[string]$ExpectedProjectId)
-    foreach($name in @('schema_version','envelope_type','handoff_id','project_id','kind','from_actor','to_actor','status','parent_handoff_id','created_at','action','payload_ref','payload_sha256','binding','source_refs')){
-        if(-not$Metadata.PSObject.Properties[$name]){throw "Repository handoff metadata is missing '$name'."}
-    }
+    foreach($name in @('schema_version','envelope_type','handoff_id','project_id','kind','from_actor','to_actor','status','parent_handoff_id','created_at','action','payload_ref','payload_sha256','binding','source_refs')){if(-not$Metadata.PSObject.Properties[$name]){throw "Repository handoff metadata is missing '$name'."}}
     if([string]$Metadata.schema_version-ne'0.1'){throw "Unsupported repository handoff schema_version '$($Metadata.schema_version)'."}
     if([string]$Metadata.envelope_type-ne'AIDOS_REPOSITORY_HANDOFF'){throw 'Repository handoff envelope_type mismatch.'}
-    $handoffId=[string]$Metadata.handoff_id
-    $parsedId=[guid]::Empty
+    $handoffId=[string]$Metadata.handoff_id;$parsedId=[guid]::Empty
     if(-not[guid]::TryParse($handoffId,[ref]$parsedId)){throw 'Repository handoff_id must be a UUID.'}
     $projectId=[string]$Metadata.project_id
     if([string]::IsNullOrWhiteSpace($projectId)){throw 'Repository handoff requires project_id.'}
     if(-not[string]::IsNullOrWhiteSpace($ExpectedProjectId) -and -not[string]::Equals($projectId,$ExpectedProjectId,[StringComparison]::Ordinal)){throw "Repository handoff project_id '$projectId' does not match '$ExpectedProjectId'."}
     $kind=[string]$Metadata.kind
     if($kind-notin@('ASSIGNMENT','RESULT')){throw "Repository handoff kind '$kind' is invalid."}
-    $fromActor=[string]$Metadata.from_actor
-    $toActor=[string]$Metadata.to_actor
-    $actors=@('CORE','THINKER','WORKER','HUMAN')
+    $fromActor=[string]$Metadata.from_actor;$toActor=[string]$Metadata.to_actor;$actors=@('CORE','THINKER','WORKER','HUMAN')
     if($fromActor-notin$actors){throw "Repository handoff from_actor '$fromActor' is invalid."}
     if($toActor-notin$actors){throw "Repository handoff to_actor '$toActor' is invalid."}
     if([string]$Metadata.status-ne'READY'){throw "Repository handoff status must be READY, found '$($Metadata.status)'."}
@@ -81,8 +69,7 @@ function Test-AidosRepositoryHandoffMetadata {
     }
     $parent=$null
     if($null-ne$Metadata.parent_handoff_id -and -not[string]::IsNullOrWhiteSpace([string]$Metadata.parent_handoff_id)){
-        $parent=[string]$Metadata.parent_handoff_id
-        $parsedParent=[guid]::Empty
+        $parent=[string]$Metadata.parent_handoff_id;$parsedParent=[guid]::Empty
         if(-not[guid]::TryParse($parent,[ref]$parsedParent)){throw 'Repository parent_handoff_id must be null or a UUID.'}
         if([string]::Equals($parent,$handoffId,[StringComparison]::OrdinalIgnoreCase)){throw 'Repository handoff may not parent itself.'}
     }
@@ -98,34 +85,12 @@ function Test-AidosRepositoryHandoffMetadata {
         $payloadSha=$payloadSha.ToLowerInvariant()
     }
     $binding=Test-AidosRepositoryHandoffBinding -Binding $Metadata.binding
-    $sourceRefs=@()
-    foreach($sourceRef in @($Metadata.source_refs)){$sourceRefs+=Test-AidosRepositoryRelativePath -Path ([string]$sourceRef) -FieldName 'source_refs'}
-    [pscustomobject][ordered]@{
-        schema_version='0.1'
-        envelope_type='AIDOS_REPOSITORY_HANDOFF'
-        handoff_id=$handoffId
-        project_id=$projectId
-        kind=$kind
-        from_actor=$fromActor
-        to_actor=$toActor
-        status='READY'
-        parent_handoff_id=$parent
-        created_at=$created.ToUniversalTime().ToString('o')
-        action=$action
-        payload_ref=$payloadRef
-        payload_sha256=$payloadSha
-        binding=$binding
-        source_refs=@($sourceRefs)
-    }
+    $sourceRefs=@();foreach($sourceRef in @($Metadata.source_refs)){$sourceRefs+=Test-AidosRepositoryRelativePath -Path ([string]$sourceRef) -FieldName 'source_refs'}
+    [pscustomobject][ordered]@{schema_version='0.1';envelope_type='AIDOS_REPOSITORY_HANDOFF';handoff_id=$handoffId;project_id=$projectId;kind=$kind;from_actor=$fromActor;to_actor=$toActor;status='READY';parent_handoff_id=$parent;created_at=$created.ToUniversalTime().ToString('o');action=$action;payload_ref=$payloadRef;payload_sha256=$payloadSha;binding=$binding;source_refs=@($sourceRefs)}
 }
-
 function ConvertFrom-AidosRepositoryHandoffText {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
-        [string]$ExpectedProjectId,
-        [int]$MaximumBytes=1048576
-    )
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text,[string]$ExpectedProjectId,[int]$MaximumBytes=1048576)
     $bytes=[Text.Encoding]::UTF8.GetByteCount($Text)
     if($bytes-gt$MaximumBytes){throw "Repository HANDOFF.md exceeds the $MaximumBytes byte limit."}
     $begin=$Text.IndexOf($script:AidosRepositoryHandoffBegin,[StringComparison]::Ordinal)
@@ -141,15 +106,8 @@ function ConvertFrom-AidosRepositoryHandoffText {
     $metadata=Test-AidosRepositoryHandoffMetadata -Metadata $raw -ExpectedProjectId $ExpectedProjectId
     $bodyStart=$end+$script:AidosRepositoryHandoffEnd.Length
     $body=if($bodyStart-lt$Text.Length){$Text.Substring($bodyStart).TrimStart("`r","`n")}else{''}
-    [pscustomobject][ordered]@{
-        metadata=$metadata
-        body=$body
-        text=$Text
-        text_sha256=Get-AidosRepositoryHandoffTextSha256 -Text $Text
-        byte_length=$bytes
-    }
+    [pscustomobject][ordered]@{metadata=$metadata;body=$body;text=$Text;text_sha256=Get-AidosRepositoryHandoffTextSha256 -Text $Text;byte_length=$bytes}
 }
-
 function Read-AidosRepositoryHandoff {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[string]$ExpectedProjectId)
@@ -160,45 +118,27 @@ function Read-AidosRepositoryHandoff {
     $parsed|Add-Member -NotePropertyName path -NotePropertyValue $path -Force
     $parsed
 }
-
 function New-AidosRepositoryHandoffText {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]$Metadata,
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Body
-    )
+    param([Parameter(Mandatory)]$Metadata,[Parameter(Mandatory)][AllowEmptyString()][string]$Body)
     $validated=Test-AidosRepositoryHandoffMetadata -Metadata $Metadata
     $json=$validated|ConvertTo-Json -Depth 30
-    @(
-        $script:AidosRepositoryHandoffBegin
-        $json
-        $script:AidosRepositoryHandoffEnd
-        ''
-        $Body.TrimEnd()
-        ''
-    ) -join "`n"
+    @($script:AidosRepositoryHandoffBegin,$json,$script:AidosRepositoryHandoffEnd,'',$Body.TrimEnd(),'') -join "`n"
 }
-
 function Write-AidosRepositoryHandoff {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$ProjectRoot,
-        [Parameter(Mandatory)]$Metadata,
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Body,
-        [string]$ExpectedParentHandoffId
-    )
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$Metadata,[Parameter(Mandatory)][AllowEmptyString()][string]$Body,[string]$ExpectedParentHandoffId)
     $root=Resolve-AidosFileSystemPath $ProjectRoot
     $path=Get-AidosRepositoryHandoffPath -ProjectRoot $root
     $existing=Read-AidosRepositoryHandoff -ProjectRoot $root
     if($existing -and -not[string]::IsNullOrWhiteSpace($ExpectedParentHandoffId) -and -not[string]::Equals([string]$existing.metadata.handoff_id,$ExpectedParentHandoffId,[StringComparison]::OrdinalIgnoreCase)){throw 'Repository handoff parent changed before write.'}
-    if($existing -and $null-eq$Metadata.parent_handoff_id){$Metadata.parent_handoff_id=[string]$existing.metadata.handoff_id}
+    if($existing -and [string]::IsNullOrWhiteSpace([string]$Metadata.parent_handoff_id)){$Metadata.parent_handoff_id=[string]$existing.metadata.handoff_id}
     $text=New-AidosRepositoryHandoffText -Metadata $Metadata -Body $Body
     $dir=Split-Path -Parent $path
     if(-not(Test-Path -LiteralPath $dir -PathType Container)){New-Item -ItemType Directory -Path $dir -Force|Out-Null}
     Set-Content -LiteralPath $path -Value $text -Encoding utf8NoBOM -NoNewline
     ConvertFrom-AidosRepositoryHandoffText -Text $text -ExpectedProjectId ([string]$Metadata.project_id)
 }
-
 function Test-AidosRepositoryHandoffTransition {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Previous,[Parameter(Mandatory)]$Next)
