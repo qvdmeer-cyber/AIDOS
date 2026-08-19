@@ -36,7 +36,9 @@ function Get-AidosPendingRuntimeActorAssignments {
             $terminal=$false
             if(Test-Path -LiteralPath $transportPath -PathType Leaf){
                 $transport=Get-Content -LiteralPath $transportPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
-                $terminal=[string]$transport.status -in @('CONSUMED','FAILED','ABANDONED')
+                # COMPLETED means an actor result has already been durably saved. It is
+                # no longer dispatchable even though Core may not have consumed it yet.
+                $terminal=[string]$transport.status -in @('COMPLETED','CONSUMED','FAILED','ABANDONED')
             }
             if(-not$terminal){$record}
         }
