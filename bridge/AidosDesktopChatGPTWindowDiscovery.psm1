@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 # Stable module entrypoint. The base implementation is preserved separately so
 # live ChatGPT Classic actor-message range recovery can extend response capture
 # without weakening the existing assignment-bound JSON selector.
-. (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.Base.psm1')
+. (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.Base.ps1')
 
 function Select-AidosDesktopChatGPTResolvedActorResponseFromHierarchyTexts {
     [CmdletBinding()]
