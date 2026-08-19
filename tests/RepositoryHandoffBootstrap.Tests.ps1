@@ -8,10 +8,12 @@ $bootstrapPath=Join-Path $root 'bridge/Invoke-AidosRepositoryHandoffHostBootstra
 $hostPath=Join-Path $root 'bridge/Invoke-AidosRepositoryHandoffHost.ps1'
 $bridgePath=Join-Path $root 'bridge/AidosRepositoryHandoffBridge.psm1'
 $handoffPath=Join-Path $root 'bridge/AidosRepositoryHandoff.psm1'
+$gatewayPath=Join-Path $root 'bridge/AidosRepositoryHandoffGateway.psm1'
 $text=Get-Content -LiteralPath $bootstrapPath -Raw -Encoding UTF8
 $hostText=Get-Content -LiteralPath $hostPath -Raw -Encoding UTF8
 $bridgeText=Get-Content -LiteralPath $bridgePath -Raw -Encoding UTF8
 $handoffText=Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8
+$gatewayText=Get-Content -LiteralPath $gatewayPath -Raw -Encoding UTF8
 
 $script:passed=0
 function Assert-Bootstrap([bool]$Condition,[string]$Message){
@@ -22,10 +24,12 @@ function Assert-Bootstrap([bool]$Condition,[string]$Message){
 Assert-Bootstrap ($text.Contains("`$runtimeHost=Join-Path `$PSScriptRoot ('Invoke-AidosRepositoryHandoffHost.runtime.'")) 'bootstrap materializes a temporary runtime host'
 Assert-Bootstrap ($text.Contains("`$runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.'")) 'bootstrap materializes a temporary runtime bridge'
 Assert-Bootstrap ($text.Contains("`$runtimeHandoffName='AidosRepositoryHandoff.runtime.'")) 'bootstrap materializes a temporary runtime handoff module'
+Assert-Bootstrap ($text.Contains("`$runtimeGatewayName='AidosRepositoryHandoffGateway.runtime.'")) 'bootstrap materializes a temporary runtime gateway module'
 Assert-Bootstrap ($text.Contains("`$script:AidosWindowsSessionModule=Import-Module")) 'runtime host stores the imported Windows-session module object'
 Assert-Bootstrap ($text.Contains("`$updated.entry_point=`$PSCommandPath")) 'successful install persists bootstrap as scheduled-task entrypoint'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeBridge){Remove-Item -LiteralPath `$runtimeBridge -Force}")) 'temporary runtime bridge is removed'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeHandoff){Remove-Item -LiteralPath `$runtimeHandoff -Force}")) 'temporary runtime handoff module is removed'
+Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeGateway){Remove-Item -LiteralPath `$runtimeGateway -Force}")) 'temporary runtime gateway module is removed'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeHost){Remove-Item -LiteralPath `$runtimeHost -Force}")) 'temporary runtime host is removed'
 
 $handoffTarget=@'
@@ -64,6 +68,18 @@ $handoffErrors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($handoffRuntime,[ref]$handoffTokens,[ref]$handoffErrors)
 Assert-Bootstrap (@($handoffErrors).Count-eq0) ('runtime handoff parses: '+(@($handoffErrors|ForEach-Object Message)-join'; '))
 
+$gatewayTarget='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$status.heartbeat_at=[DateTimeOffset]::UtcNow.ToString(''o'');Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
+Assert-Bootstrap ([regex]::Matches($gatewayText,[regex]::Escape($gatewayTarget)).Count-eq1) 'canonical gateway has one StrictMode-sensitive heartbeat assignment'
+$gatewayReplacement='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$heartbeat=[DateTimeOffset]::UtcNow.ToString(''o'');if([string]$status.status-ne''RUNNING'' -or [int]$status.pid-ne$PID){$status=[pscustomobject][ordered]@{schema_version=''0.2'';status=''RUNNING'';pid=$PID;listen_prefix=[string]$config.listen_prefix;started_at=$heartbeat;heartbeat_at=$heartbeat}}else{$status|Add-Member -NotePropertyName heartbeat_at -NotePropertyValue $heartbeat -Force};Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
+$gatewayRuntime=$gatewayText.Replace($gatewayTarget,$gatewayReplacement)
+Assert-Bootstrap (-not$gatewayRuntime.Contains('$status.heartbeat_at=')) 'runtime gateway removes direct StrictMode heartbeat assignment'
+Assert-Bootstrap ($gatewayRuntime.Contains("if([string]`$status.status-ne'RUNNING' -or [int]`$status.pid-ne`$PID)")) 'runtime gateway repairs stale terminal status from a prior instance'
+Assert-Bootstrap ($gatewayRuntime.Contains('Add-Member -NotePropertyName heartbeat_at')) 'runtime gateway can add a missing heartbeat property idempotently'
+$gatewayTokens=$null
+$gatewayErrors=$null
+[void][System.Management.Automation.Language.Parser]::ParseInput($gatewayRuntime,[ref]$gatewayTokens,[ref]$gatewayErrors)
+Assert-Bootstrap (@($gatewayErrors).Count-eq0) ('runtime gateway parses: '+(@($gatewayErrors|ForEach-Object Message)-join'; '))
+
 $runtimeHandoffName='AidosRepositoryHandoff.runtime.test.psm1'
 $bridgeRuntime=$bridgeText
 $bridgeTransforms=[ordered]@{
@@ -87,9 +103,11 @@ $bridgeErrors=$null
 Assert-Bootstrap (@($bridgeErrors).Count-eq0) ('runtime bridge parses: '+(@($bridgeErrors|ForEach-Object Message)-join'; '))
 
 $runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.test.psm1'
+$runtimeGatewayName='AidosRepositoryHandoffGateway.runtime.test.psm1'
 $hostReplacements=[ordered]@{
     "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking" = "`$script:AidosWindowsSessionModule=Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -Force -PassThru -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoffBridge.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeBridgeName') -Force -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoffGateway.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeGatewayName') -Force -DisableNameChecking"
     '$snapshot=Get-AidosInteractiveSessionSnapshot' = '$snapshot=& $script:AidosWindowsSessionModule { Get-AidosInteractiveSessionSnapshot }'
     '$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser' = '$authorization=& $script:AidosWindowsSessionModule { param($Snapshot,$AuthorizedUser) Test-AidosAuthorizedInteractiveSession -Snapshot $Snapshot -AuthorizedUser $AuthorizedUser } $snapshot $ExpectedUser'
 }
@@ -100,6 +118,7 @@ foreach($pair in $hostReplacements.GetEnumerator()){
     $runtimeHost=$runtimeHost.Replace([string]$pair.Key,[string]$pair.Value)
 }
 Assert-Bootstrap ($runtimeHost.Contains($runtimeBridgeName)) 'runtime host imports corrected runtime bridge'
+Assert-Bootstrap ($runtimeHost.Contains($runtimeGatewayName)) 'runtime host imports restart-safe runtime gateway'
 $tokens=$null
 $errors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($runtimeHost,[ref]$tokens,[ref]$errors)
