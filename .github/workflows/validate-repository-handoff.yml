@@ -15,10 +15,17 @@ jobs:
         run: |
           $paths = @(
             'bridge/AidosRepositoryHandoff.psm1',
+            'bridge/AidosRepositoryHandoffSignal.psm1',
+            'bridge/AidosRepositoryHandoffPersistence.psm1',
             'bridge/AidosRepositoryActorHandoff.psm1',
+            'bridge/AidosRepositoryWorkerHandoff.psm1',
+            'bridge/AidosRepositoryReviewHandoff.psm1',
             'bridge/AidosRepositoryHandoffGateway.psm1',
             'bridge/AidosRepositoryThinkerBinding.psm1',
+            'bridge/AidosRepositoryHandoffBridge.psm1',
             'tests/RepositoryHandoff.Tests.ps1',
+            'tests/RepositoryHandoffPersistence.Tests.ps1',
+            'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
             'tests/RepositoryThinkerBinding.Tests.ps1'
           )
@@ -31,6 +38,12 @@ jobs:
       - name: Repository handoff contract
         shell: pwsh
         run: ./tests/RepositoryHandoff.Tests.ps1
+      - name: Scoped repository handoff persistence
+        shell: pwsh
+        run: ./tests/RepositoryHandoffPersistence.Tests.ps1
+      - name: Repository Worker handoff
+        shell: pwsh
+        run: ./tests/RepositoryWorkerHandoff.Tests.ps1
       - name: Repository handoff gateway
         shell: pwsh
         run: ./tests/RepositoryHandoffGateway.Tests.ps1
