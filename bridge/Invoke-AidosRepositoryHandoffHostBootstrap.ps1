@@ -33,23 +33,21 @@ if(-not$IsWindows){throw 'The AIDOS repository handoff host bootstrap must run w
 $original=Join-Path $PSScriptRoot 'Invoke-AidosRepositoryHandoffHost.ps1'
 $bridgeOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoffBridge.psm1'
 $handoffOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1'
+$actorHandoffOriginal=Join-Path $PSScriptRoot 'AidosRepositoryActorHandoff.psm1'
 $gatewayOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoffGateway.psm1'
 if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $original"}
 if(-not(Test-Path -LiteralPath $bridgeOriginal -PathType Leaf)){throw "Repository handoff bridge module is unavailable: $bridgeOriginal"}
 if(-not(Test-Path -LiteralPath $handoffOriginal -PathType Leaf)){throw "Repository handoff module is unavailable: $handoffOriginal"}
+if(-not(Test-Path -LiteralPath $actorHandoffOriginal -PathType Leaf)){throw "Repository actor handoff module is unavailable: $actorHandoffOriginal"}
 if(-not(Test-Path -LiteralPath $gatewayOriginal -PathType Leaf)){throw "Repository handoff gateway module is unavailable: $gatewayOriginal"}
 
 # The operator machine has proven that both unqualified command lookup and
 # module-qualified lookup are unreliable for modules loaded from this UNC/WSL
 # path. Materialize temporary runtime copies beside the canonical modules.
 #
-# Live Windows/WSL startup has also exposed provider-specific integration
-# differences. The WSL Plan 9 provider marks ordinary repository items with
-# ReparsePoint, so raw FileAttributes cannot by itself identify a link on a
-# \\wsl.localhost\... path. For those paths, use the explicit PowerShell
-# LinkType/LinkTarget metadata; on normal Windows paths retain the conservative
-# ReparsePoint check. This keeps actual links blocked without rejecting every
-# ordinary WSL-backed repository file.
+# The Windows WSL provider marks ordinary repository items with ReparsePoint.
+# Use explicit LinkType/LinkTarget metadata for WSL provider paths while keeping
+# the conservative ReparsePoint check on normal Windows paths.
 $handoffSource=Get-Content -LiteralPath $handoffOriginal -Raw -Encoding UTF8
 $handoffTarget=@'
 function Test-AidosRepositoryPathItemIsLink {
@@ -86,47 +84,51 @@ $runtimeHandoffName='AidosRepositoryHandoff.runtime.'+[guid]::NewGuid().ToString
 $runtimeHandoff=Join-Path $PSScriptRoot $runtimeHandoffName
 $runtimeHandoffBytes=[Text.UTF8Encoding]::new($false).GetBytes($handoffSource)
 $runtimeHandoffStream=[IO.FileStream]::new($runtimeHandoff,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try{
-    $runtimeHandoffStream.Write($runtimeHandoffBytes,0,$runtimeHandoffBytes.Length)
-    $runtimeHandoffStream.Flush($true)
-}finally{
-    $runtimeHandoffStream.Dispose()
-}
+try{$runtimeHandoffStream.Write($runtimeHandoffBytes,0,$runtimeHandoffBytes.Length);$runtimeHandoffStream.Flush($true)}finally{$runtimeHandoffStream.Dispose()}
+
+# Actor publication imports its own handoff module. Route that nested dependency
+# through the same WSL-safe runtime handoff module or it bypasses the validator
+# used directly by the bridge.
+$actorHandoffSource=Get-Content -LiteralPath $actorHandoffOriginal -Raw -Encoding UTF8
+$actorHandoffTarget="Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking"
+$actorHandoffReplacement="Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
+$actorHandoffMatches=[regex]::Matches($actorHandoffSource,[regex]::Escape($actorHandoffTarget)).Count
+if($actorHandoffMatches-ne1){throw "Repository host bootstrap expected exactly one actor-handoff dependency match; found $actorHandoffMatches."}
+$actorHandoffSource=$actorHandoffSource.Replace($actorHandoffTarget,$actorHandoffReplacement)
+$runtimeActorHandoffName='AidosRepositoryActorHandoff.runtime.'+[guid]::NewGuid().ToString('N')+'.psm1'
+$runtimeActorHandoff=Join-Path $PSScriptRoot $runtimeActorHandoffName
+$runtimeActorHandoffBytes=[Text.UTF8Encoding]::new($false).GetBytes($actorHandoffSource)
+$runtimeActorHandoffStream=[IO.FileStream]::new($runtimeActorHandoff,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+try{$runtimeActorHandoffStream.Write($runtimeActorHandoffBytes,0,$runtimeActorHandoffBytes.Length);$runtimeActorHandoffStream.Flush($true)}finally{$runtimeActorHandoffStream.Dispose()}
 
 # A previous gateway instance may publish terminal STOPPED state after a new
-# instance has already started. Under StrictMode that stale object has no
-# heartbeat_at property, so direct property assignment crashes the new gateway.
-# Make heartbeat refresh reconstruct the running state whenever the status file
-# does not belong to the current live instance.
+# instance has already started. Also route gateway path validation through the
+# same WSL-safe handoff runtime module.
 $gatewaySource=Get-Content -LiteralPath $gatewayOriginal -Raw -Encoding UTF8
+$gatewayHandoffTarget="Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking"
+$gatewayHandoffReplacement="Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
+$gatewayHandoffMatches=[regex]::Matches($gatewaySource,[regex]::Escape($gatewayHandoffTarget)).Count
+if($gatewayHandoffMatches-ne1){throw "Repository host bootstrap expected exactly one gateway handoff dependency match; found $gatewayHandoffMatches."}
+$gatewaySource=$gatewaySource.Replace($gatewayHandoffTarget,$gatewayHandoffReplacement)
 $gatewayTarget='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$status.heartbeat_at=[DateTimeOffset]::UtcNow.ToString(''o'');Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
 $gatewayReplacement='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$heartbeat=[DateTimeOffset]::UtcNow.ToString(''o'');if([string]$status.status-ne''RUNNING'' -or [int]$status.pid-ne$PID){$status=[pscustomobject][ordered]@{schema_version=''0.2'';status=''RUNNING'';pid=$PID;listen_prefix=[string]$config.listen_prefix;started_at=$heartbeat;heartbeat_at=$heartbeat}}else{$status|Add-Member -NotePropertyName heartbeat_at -NotePropertyValue $heartbeat -Force};Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
 $gatewayMatches=[regex]::Matches($gatewaySource,[regex]::Escape($gatewayTarget)).Count
 if($gatewayMatches-ne1){throw "Repository host bootstrap expected exactly one gateway heartbeat source match; found $gatewayMatches."}
 $gatewaySource=$gatewaySource.Replace($gatewayTarget,$gatewayReplacement)
-
 $runtimeGatewayName='AidosRepositoryHandoffGateway.runtime.'+[guid]::NewGuid().ToString('N')+'.psm1'
 $runtimeGateway=Join-Path $PSScriptRoot $runtimeGatewayName
 $runtimeGatewayBytes=[Text.UTF8Encoding]::new($false).GetBytes($gatewaySource)
 $runtimeGatewayStream=[IO.FileStream]::new($runtimeGateway,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try{
-    $runtimeGatewayStream.Write($runtimeGatewayBytes,0,$runtimeGatewayBytes.Length)
-    $runtimeGatewayStream.Flush($true)
-}finally{
-    $runtimeGatewayStream.Dispose()
-}
+try{$runtimeGatewayStream.Write($runtimeGatewayBytes,0,$runtimeGatewayBytes.Length);$runtimeGatewayStream.Flush($true)}finally{$runtimeGatewayStream.Dispose()}
 
-# Pending runtime actor enumeration returns raw RUNTIME_ACTOR_ASSIGNMENT
-# records rather than wrappers, the compact Where-Object property syntax is
-# parsed incorrectly by the operator PowerShell version, and the runtime
-# manager's exported command is not visible from the nested bridge closure when
-# imported only into module-local scope. Correct those exact runtime boundaries.
+# Correct the remaining bridge-specific runtime boundaries.
 $bridgeSource=Get-Content -LiteralPath $bridgeOriginal -Raw -Encoding UTF8
 $bridgeReplacements=[ordered]@{
     '$assignment=$pending.assignment' = '$assignment=$pending'
     "Where-Object status -eq'ERROR'" = "Where-Object { `$_.status -eq 'ERROR' }"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeActorHandoffName') -Force -DisableNameChecking"
 }
 foreach($pair in $bridgeReplacements.GetEnumerator()){
     $matches=[regex]::Matches($bridgeSource,[regex]::Escape([string]$pair.Key)).Count
@@ -134,17 +136,11 @@ foreach($pair in $bridgeReplacements.GetEnumerator()){
     if($matches-ne$expected){throw "Repository host bootstrap expected $expected bridge source match(es) for: $($pair.Key); found $matches."}
     $bridgeSource=$bridgeSource.Replace([string]$pair.Key,[string]$pair.Value)
 }
-
 $runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.'+[guid]::NewGuid().ToString('N')+'.psm1'
 $runtimeBridge=Join-Path $PSScriptRoot $runtimeBridgeName
 $runtimeBridgeBytes=[Text.UTF8Encoding]::new($false).GetBytes($bridgeSource)
 $runtimeBridgeStream=[IO.FileStream]::new($runtimeBridge,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try{
-    $runtimeBridgeStream.Write($runtimeBridgeBytes,0,$runtimeBridgeBytes.Length)
-    $runtimeBridgeStream.Flush($true)
-}finally{
-    $runtimeBridgeStream.Dispose()
-}
+try{$runtimeBridgeStream.Write($runtimeBridgeBytes,0,$runtimeBridgeBytes.Length);$runtimeBridgeStream.Flush($true)}finally{$runtimeBridgeStream.Dispose()}
 
 $source=Get-Content -LiteralPath $original -Raw -Encoding UTF8
 $replacements=[ordered]@{
@@ -163,57 +159,31 @@ foreach($pair in $replacements.GetEnumerator()){
 $runtimeHost=Join-Path $PSScriptRoot ('Invoke-AidosRepositoryHandoffHost.runtime.'+[guid]::NewGuid().ToString('N')+'.ps1')
 $runtimeBytes=[Text.UTF8Encoding]::new($false).GetBytes($source)
 $runtimeStream=[IO.FileStream]::new($runtimeHost,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try{
-    $runtimeStream.Write($runtimeBytes,0,$runtimeBytes.Length)
-    $runtimeStream.Flush($true)
-}finally{
-    $runtimeStream.Dispose()
-}
+try{$runtimeStream.Write($runtimeBytes,0,$runtimeBytes.Length);$runtimeStream.Flush($true)}finally{$runtimeStream.Dispose()}
 
 try{
     $output=& $runtimeHost @PSBoundParameters
-
     if($Command-eq'Install'){
-        $resolvedStateRoot=if([string]::IsNullOrWhiteSpace($StateRoot)){
-            Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-host'
-        }else{
-            [IO.Path]::GetFullPath($StateRoot)
-        }
+        $resolvedStateRoot=if([string]::IsNullOrWhiteSpace($StateRoot)){Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-host'}else{[IO.Path]::GetFullPath($StateRoot)}
         $configPath=Join-Path $resolvedStateRoot 'CONFIG.json'
-        if(-not(Test-Path -LiteralPath $configPath -PathType Leaf)){
-            throw 'Repository handoff host installation completed without durable CONFIG.json.'
-        }
-
-        # The canonical installer initially persists its own runtime path and
-        # starts the task. Stop that task while the temporary runtime copies
-        # still exist, atomically replace the durable entrypoint with this
-        # bootstrap, then restart. Every later host/bridge/gateway command
-        # therefore passes through the same runtime materialization.
+        if(-not(Test-Path -LiteralPath $configPath -PathType Leaf)){throw 'Repository handoff host installation completed without durable CONFIG.json.'}
         $taskName='AIDOS Repository Handoff Host'
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-
         $config=Get-Content -LiteralPath $configPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
         $updated=[ordered]@{}
         foreach($property in $config.PSObject.Properties){$updated[$property.Name]=$property.Value}
         $updated.entry_point=$PSCommandPath
         $updated.bootstrap_entry_point=$PSCommandPath
         $updated.bootstrap_updated_at=[DateTimeOffset]::UtcNow.ToString('o')
-
         $temporary="$configPath.$([guid]::NewGuid().ToString('N')).tmp"
-        try{
-            $updated|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $temporary -Encoding utf8NoBOM
-            Move-Item -LiteralPath $temporary -Destination $configPath -Force
-        }finally{
-            if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force}
-        }
-
+        try{$updated|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $temporary -Encoding utf8NoBOM;Move-Item -LiteralPath $temporary -Destination $configPath -Force}finally{if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force}}
         Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
     }
-
     $output
 }finally{
     if(Test-Path -LiteralPath $runtimeHost){Remove-Item -LiteralPath $runtimeHost -Force}
     if(Test-Path -LiteralPath $runtimeBridge){Remove-Item -LiteralPath $runtimeBridge -Force}
+    if(Test-Path -LiteralPath $runtimeActorHandoff){Remove-Item -LiteralPath $runtimeActorHandoff -Force}
     if(Test-Path -LiteralPath $runtimeHandoff){Remove-Item -LiteralPath $runtimeHandoff -Force}
     if(Test-Path -LiteralPath $runtimeGateway){Remove-Item -LiteralPath $runtimeGateway -Force}
 }
