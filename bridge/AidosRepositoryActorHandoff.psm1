@@ -33,7 +33,9 @@ function Get-AidosRepositoryActorSourceRefs {
         return @($documents|ForEach-Object {[string]$_.path}|Where-Object {-not[string]::IsNullOrWhiteSpace($_)}|Select-Object -Unique)
     }
     $refs=[System.Collections.Generic.List[string]]::new()
-    foreach($relative in @('.aidos/PROJECT.json','.aidos/STATE.json','AGENTS.md')){if(Test-Path -LiteralPath (Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) $relative) -PathType Leaf){$refs.Add($relative)}}
+    foreach($relative in @('.aidos/PROJECT.json','.aidos/STATE.json','AGENTS.md')){
+        if(Test-Path -LiteralPath (Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) $relative) -PathType Leaf){$refs.Add($relative)}
+    }
     $definitionId=[string]$assignment.binding.definition_id
     if(-not[string]::IsNullOrWhiteSpace($definitionId) -and $null-ne$assignment.binding.definition_version){
         $definitionRef=('.aidos/definitions/{0}/v{1}/DEFINITION.json' -f $definitionId,[int]$assignment.binding.definition_version)
@@ -122,13 +124,7 @@ function Publish-AidosRuntimeActorRepositoryHandoff {
 function Resolve-AidosRepositoryHandoffPayloadPath {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$RelativePath)
-    $root=Resolve-AidosFileSystemPath $ProjectRoot
-    $relative=Test-AidosRepositoryRelativePath -Path $RelativePath -FieldName 'payload_ref'
-    $path=[IO.Path]::GetFullPath((Join-Path $root $relative))
-    $comparison=if([OperatingSystem]::IsWindows()){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
-    $prefix=$root.TrimEnd([IO.Path]::DirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
-    if(-not$path.StartsWith($prefix,$comparison)){throw 'Repository handoff payload escapes project root.'}
-    $path
+    Resolve-AidosRepositoryContainedPath -BaseRoot $ProjectRoot -RelativePath $RelativePath -FieldName 'payload_ref' -RequireLeaf
 }
 function Import-AidosRepositoryActorResultHandoff {
     [CmdletBinding()]
@@ -137,7 +133,6 @@ function Import-AidosRepositoryActorResultHandoff {
     $handoff=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId ([string]$Project.project_id)
     if($null-eq$handoff -or [string]$handoff.metadata.kind-ne'RESULT'){return [pscustomobject][ordered]@{status='NO_RESULT_HANDOFF'}}
     $path=Resolve-AidosRepositoryHandoffPayloadPath -ProjectRoot $root -RelativePath ([string]$handoff.metadata.payload_ref)
-    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){throw 'Repository result handoff payload is missing.'}
     $sha=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
     if([string]$handoff.metadata.payload_sha256-ne$sha){throw 'Repository result handoff payload SHA-256 mismatch.'}
     try{$result=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}catch{throw "Repository result payload is invalid JSON: $($_.Exception.Message)"}
