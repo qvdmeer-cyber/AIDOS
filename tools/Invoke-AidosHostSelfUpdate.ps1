@@ -33,13 +33,30 @@ function Convert-WslPathToUnc([Parameter(Mandatory)][string]$Path){
 }
 function Invoke-HostCoreValidation([Parameter(Mandatory)][string]$CandidateWslPath){
     $candidateUnc=Convert-WslPathToUnc $CandidateWslPath
-    $validator=Join-Path $candidateUnc 'tools\Test-AidosCorePortable.ps1'
-    if(-not(Test-Path -LiteralPath $validator -PathType Leaf)){throw "Candidate Core validator is unavailable: $validator"}
+    $sourceValidator=Join-Path $candidateUnc 'tools\Test-AidosCorePortable.ps1'
+    if(-not(Test-Path -LiteralPath $sourceValidator -PathType Leaf)){throw "Candidate Core validator is unavailable: $sourceValidator"}
     $engine=Join-Path $PSHOME 'pwsh.exe'
     if(-not(Test-Path -LiteralPath $engine -PathType Leaf)){throw 'Windows PowerShell 7 engine is unavailable for candidate validation.'}
-    $output=@(& $engine -NoLogo -NoProfile -ExecutionPolicy Bypass -File $validator -RepoRoot $candidateUnc 2>&1)
-    $code=$LASTEXITCODE
-    [pscustomobject]@{exit_code=$code;output=@($output|ForEach-Object {[string]$_});candidate_root=$candidateUnc;engine=$engine}
+
+    # Windows treats \\wsl.localhost paths as a network security zone and may
+    # display an interactive Open File warning when PowerShell modules/scripts
+    # are executed from that UNC surface. Candidate identity remains bound by
+    # the Git worktree SHA; validation executes an ephemeral local mirror so the
+    # unattended watchdog never depends on an interactive security prompt.
+    $validationParent=Join-Path ([IO.Path]::GetTempPath()) 'AIDOS-core-validation'
+    if(-not(Test-Path -LiteralPath $validationParent -PathType Container)){New-Item -ItemType Directory -Path $validationParent -Force|Out-Null}
+    $validationRoot=Join-Path $validationParent ([guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $validationRoot -Force|Out-Null
+    try {
+        Get-ChildItem -LiteralPath $candidateUnc -Force|Copy-Item -Destination $validationRoot -Recurse -Force
+        $validator=Join-Path $validationRoot 'tools\Test-AidosCorePortable.ps1'
+        if(-not(Test-Path -LiteralPath $validator -PathType Leaf)){throw "Localized candidate Core validator is unavailable: $validator"}
+        $output=@(& $engine -NoLogo -NoProfile -ExecutionPolicy Bypass -File $validator -RepoRoot $validationRoot 2>&1)
+        $code=$LASTEXITCODE
+        [pscustomobject]@{exit_code=$code;output=@($output|ForEach-Object {[string]$_});candidate_root=$candidateUnc;validation_root=$validationRoot;engine=$engine}
+    } finally {
+        if(Test-Path -LiteralPath $validationRoot){Remove-Item -LiteralPath $validationRoot -Recurse -Force}
+    }
 }
 function Clear-AidosValidationWorktree {
     param(
