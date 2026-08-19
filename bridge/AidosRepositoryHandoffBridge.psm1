@@ -44,19 +44,22 @@ function Initialize-AidosRepositoryHandoffBridge {
         [string]$ContractsRoot,
         [string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),
         [string]$StateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),
+        [string]$ProcessName='ChatGPT Classic',
         [int]$RecoveryIntervalSeconds=30,
         [int]$MaxProjectsPerTick=6
     )
     if($RecoveryIntervalSeconds-lt5){throw 'Repository handoff bridge recovery interval must be at least 5 seconds.'}
     if($MaxProjectsPerTick-lt1){throw 'Repository handoff bridge MaxProjectsPerTick must be at least 1.'}
+    if([string]::IsNullOrWhiteSpace($ProcessName)){throw 'Repository handoff bridge ProcessName is required.'}
     $state=[IO.Path]::GetFullPath($StateRoot)
     $config=[pscustomobject][ordered]@{
-        schema_version='0.2'
+        schema_version='0.3'
         registry_root=[IO.Path]::GetFullPath($RegistryRoot)
         builder_root=if([string]::IsNullOrWhiteSpace($BuilderRoot)){$null}else{[IO.Path]::GetFullPath($BuilderRoot)}
         contracts_root=if([string]::IsNullOrWhiteSpace($ContractsRoot)){$null}else{[IO.Path]::GetFullPath($ContractsRoot)}
         aidos_root=[IO.Path]::GetFullPath($AidosRoot)
         state_root=$state
+        process_name=$ProcessName
         recovery_interval_seconds=$RecoveryIntervalSeconds
         max_projects_per_tick=$MaxProjectsPerTick
         configured_at=[DateTimeOffset]::UtcNow.ToString('o')
@@ -98,6 +101,7 @@ function Publish-AidosPendingRepositoryActorHandoffs {
     param(
         [Parameter(Mandatory)][string]$RegistryRoot,
         [Parameter(Mandatory)][string]$StateRoot,
+        [string]$ProcessName='ChatGPT Classic',
         [int]$MaxItems=20,
         [switch]$Push,
         [scriptblock]$ThinkerTrigger
@@ -117,9 +121,9 @@ function Publish-AidosPendingRepositoryActorHandoffs {
                 $trigger=if($null-eq$handoff -or [string]$handoff.metadata.kind-ne'ASSIGNMENT' -or [string]$handoff.metadata.to_actor-ne'THINKER'){
                     $null
                 }elseif($ThinkerTrigger){
-                    & $ThinkerTrigger $StateRoot $handoff
+                    & $ThinkerTrigger $StateRoot $handoff $ProcessName
                 }else{
-                    Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff
+                    Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName
                 }
                 $results.Add([pscustomobject][ordered]@{
                     project_id=[string]$project.project_id
@@ -151,6 +155,7 @@ function Invoke-AidosCurrentRepositoryThinkerTriggers {
     param(
         [Parameter(Mandatory)][string]$RegistryRoot,
         [Parameter(Mandatory)][string]$StateRoot,
+        [string]$ProcessName='ChatGPT Classic',
         [int]$MaxItems=20,
         [scriptblock]$ThinkerTrigger
     )
@@ -161,7 +166,7 @@ function Invoke-AidosCurrentRepositoryThinkerTriggers {
         try{
             $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
             if($null-eq$handoff -or [string]$handoff.metadata.kind-ne'ASSIGNMENT' -or [string]$handoff.metadata.to_actor-ne'THINKER'){continue}
-            $trigger=if($ThinkerTrigger){& $ThinkerTrigger $StateRoot $handoff}else{Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff}
+            $trigger=if($ThinkerTrigger){& $ThinkerTrigger $StateRoot $handoff $ProcessName}else{Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName}
             $results.Add([pscustomobject][ordered]@{
                 project_id=[string]$project.project_id
                 handoff_id=[string]$handoff.metadata.handoff_id
@@ -189,6 +194,7 @@ function Invoke-AidosRepositoryHandoffBridgeTick {
         [string]$BuilderRoot,
         [string]$ContractsRoot,
         [string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),
+        [string]$ProcessName='ChatGPT Classic',
         [int]$MaxProjects=6,
         [switch]$Push,
         [scriptblock]$CodexInvoker,
@@ -206,11 +212,14 @@ function Invoke-AidosRepositoryHandoffBridgeTick {
     }.GetNewClosure()
     $runtimeAdapter={
         param($RuntimeRegistryRoot,$RuntimeMaxProjects,$RuntimePush)
-        if($RuntimeManager){
+        $manager=if($RuntimeManager){
             & $RuntimeManager $RuntimeRegistryRoot $RuntimeMaxProjects $RuntimePush $workerInvoker $reviewPublisher
         }else{
             Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $RuntimeRegistryRoot -MaxProjects $RuntimeMaxProjects -Push:$RuntimePush -ContractsRoot $ContractsRoot -AidosRoot $AidosRoot -WorkerInvoker $workerInvoker -ReviewPublisher $reviewPublisher
         }
+        $finalization=Invoke-AidosRepositoryWorkerFinalizationFromManagerResult -RegistryRoot $RuntimeRegistryRoot -ManagerResult $manager -Push:$RuntimePush
+        $manager|Add-Member -NotePropertyName repository_worker_finalization -NotePropertyValue $finalization -Force
+        $manager
     }.GetNewClosure()
 
     $preparation=if($PreparationDispatcher){
@@ -219,12 +228,13 @@ function Invoke-AidosRepositoryHandoffBridgeTick {
         Invoke-AidosPreparationDispatcherTick -RegistryRoot $RegistryRoot -BuilderRoot $BuilderRoot -ContractsRoot $ContractsRoot -MaxItems $MaxProjects -Push:$Push -DeferActorTransport -RuntimeProjectManager $runtimeAdapter
     }
     $manager=if($preparation -and $preparation.PSObject.Properties['runtime_result']){$preparation.runtime_result}else{$null}
-    $published=Publish-AidosPendingRepositoryActorHandoffs -RegistryRoot $RegistryRoot -StateRoot $StateRoot -MaxItems ($MaxProjects*4) -Push:$Push -ThinkerTrigger $ThinkerTrigger
-    $triggers=Invoke-AidosCurrentRepositoryThinkerTriggers -RegistryRoot $RegistryRoot -StateRoot $StateRoot -MaxItems ($MaxProjects*2) -ThinkerTrigger $ThinkerTrigger
+    $published=Publish-AidosPendingRepositoryActorHandoffs -RegistryRoot $RegistryRoot -StateRoot $StateRoot -ProcessName $ProcessName -MaxItems ($MaxProjects*4) -Push:$Push -ThinkerTrigger $ThinkerTrigger
+    $triggers=Invoke-AidosCurrentRepositoryThinkerTriggers -RegistryRoot $RegistryRoot -StateRoot $StateRoot -ProcessName $ProcessName -MaxItems ($MaxProjects*2) -ThinkerTrigger $ThinkerTrigger
     $managerError=$manager -and [string]$manager.status-eq'ERROR'
-    $didWork=([string]$preparation.status-eq'PROCESSED' -or ($manager -and [string]$manager.status-eq'ACTIONABLE') -or [int]$published.processed-gt0 -or [int]$triggers.processed-gt0)
+    $workerFinalized=$manager -and $manager.PSObject.Properties['repository_worker_finalization'] -and [int]$manager.repository_worker_finalization.processed-gt0
+    $didWork=([string]$preparation.status-eq'PROCESSED' -or ($manager -and [string]$manager.status-eq'ACTIONABLE') -or $workerFinalized -or [int]$published.processed-gt0 -or [int]$triggers.processed-gt0)
     [pscustomobject][ordered]@{
-        schema_version='0.2'
+        schema_version='0.3'
         observed_at=[DateTimeOffset]::UtcNow.ToString('o')
         preparation=$preparation
         manager=$manager
@@ -249,9 +259,9 @@ function Start-AidosRepositoryHandoffBridge {
     try{
         while(-not(Test-Path -LiteralPath $stopPath -PathType Leaf)){
             $started=[DateTimeOffset]::UtcNow
-            $tick=Invoke-AidosRepositoryHandoffBridgeTick -RegistryRoot ([string]$config.registry_root) -StateRoot ([string]$config.state_root) -BuilderRoot ([string]$config.builder_root) -ContractsRoot ([string]$config.contracts_root) -AidosRoot ([string]$config.aidos_root) -MaxProjects ([int]$config.max_projects_per_tick) -Push:$Push
+            $tick=Invoke-AidosRepositoryHandoffBridgeTick -RegistryRoot ([string]$config.registry_root) -StateRoot ([string]$config.state_root) -BuilderRoot ([string]$config.builder_root) -ContractsRoot ([string]$config.contracts_root) -AidosRoot ([string]$config.aidos_root) -ProcessName ([string]$config.process_name) -MaxProjects ([int]$config.max_projects_per_tick) -Push:$Push
             Write-AidosRepositoryHandoffBridgeJsonAtomic -Path $statusPath -Value ([ordered]@{
-                schema_version='0.2'
+                schema_version='0.3'
                 status='RUNNING'
                 pid=$PID
                 heartbeat_at=[DateTimeOffset]::UtcNow.ToString('o')
@@ -266,9 +276,9 @@ function Start-AidosRepositoryHandoffBridge {
                 }
             }
         }
-        Write-AidosRepositoryHandoffBridgeJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.2';status='STOPPED';pid=$PID;stopped_at=[DateTimeOffset]::UtcNow.ToString('o')})
+        Write-AidosRepositoryHandoffBridgeJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.3';status='STOPPED';pid=$PID;stopped_at=[DateTimeOffset]::UtcNow.ToString('o')})
     }catch{
-        Write-AidosRepositoryHandoffBridgeJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.2';status='ERROR';pid=$PID;observed_at=[DateTimeOffset]::UtcNow.ToString('o');error=$_.Exception.Message})
+        Write-AidosRepositoryHandoffBridgeJsonAtomic -Path $statusPath -Value ([ordered]@{schema_version='0.3';status='ERROR';pid=$PID;observed_at=[DateTimeOffset]::UtcNow.ToString('o');error=$_.Exception.Message})
         throw
     }
 }
