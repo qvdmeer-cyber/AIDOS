@@ -28,37 +28,17 @@ try{
     $executionId='EXEC-RUNTIME-1'
     $revision=1
     $executionDir=Join-Path $repo ".aidos/executions/$executionId/revision-$revision"
-    foreach($directory in @('.aidos/events','.aidos/runtime/worker-dispatch',$executionDir)){New-Item -ItemType Directory -Path (Join-Path $repo $directory) -Force|Out-Null}
+    New-Item -ItemType Directory -Path (Join-Path $repo '.aidos/events'),(Join-Path $repo '.aidos/runtime/worker-dispatch'),$executionDir -Force|Out-Null
     [ordered]@{
-        schema_version='0.1'
-        project_id='WORKER-RUNTIME'
-        project_mode='NEW_PROJECT'
-        repository='https://github.com/example/worker-runtime.git'
-        official_root=$repo
+        schema_version='0.1';project_id='WORKER-RUNTIME';project_mode='NEW_PROJECT';repository='https://github.com/example/worker-runtime.git';official_root=$repo
         git_runtime=[ordered]@{kind='NATIVE';project_root=$repo;git_path=$script:GitExecutable}
     }|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $repo '.aidos/PROJECT.json') -Encoding utf8NoBOM
     [ordered]@{
-        schema_version='0.1'
-        project_id='WORKER-RUNTIME'
-        state='TASK_READY'
-        definition_id='DEF-1'
-        definition_version=1
-        execution_id=$executionId
-        revision=$revision
-        codex_session_id=$null
-        review_id=$null
-        lease_id=$null
-        terminal_result=$null
-        git_head=$null
-        validation_result=$null
-        updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        schema_version='0.1';project_id='WORKER-RUNTIME';state='TASK_READY';definition_id='DEF-1';definition_version=1;execution_id=$executionId;revision=$revision
+        codex_session_id=$null;review_id=$null;lease_id=$null;terminal_result=$null;git_head=$null;validation_result=$null;updated_at=[DateTimeOffset]::UtcNow.ToString('o')
     }|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $repo '.aidos/STATE.json') -Encoding utf8NoBOM
     $execution=[ordered]@{
-        schema_version='0.1'
-        project_id='WORKER-RUNTIME'
-        execution_id=$executionId
-        revision=$revision
-        definition=[ordered]@{id='DEF-1';version=1}
+        schema_version='0.1';project_id='WORKER-RUNTIME';execution_id=$executionId;revision=$revision;definition=[ordered]@{id='DEF-1';version=1}
         scope=[ordered]@{definition_ref='.aidos/definitions/DEF-1/v1/DEFINITION.json';implementation_policy='fixture'}
         authority=[ordered]@{filesystem_write=@('product.txt');git_commit=$false;git_push=$false;network=$false}
         validation=[ordered]@{mode='ALL';requirements=@([ordered]@{type='PATH_EXISTS';path='product.txt'})}
@@ -68,19 +48,9 @@ try{
     Set-Content -LiteralPath (Join-Path $repo 'product.txt') -Value 'initial' -Encoding utf8NoBOM
 
     $previous=[pscustomobject][ordered]@{
-        schema_version='0.1'
-        envelope_type='AIDOS_REPOSITORY_HANDOFF'
-        handoff_id=[guid]::NewGuid().ToString()
-        project_id='WORKER-RUNTIME'
-        kind='RESULT'
-        from_actor='THINKER'
-        to_actor='CORE'
-        status='READY'
-        parent_handoff_id=[guid]::NewGuid().ToString()
-        created_at=[DateTimeOffset]::UtcNow.ToString('o')
-        action='START_DEFINITION_RESULT'
-        payload_ref='.aidos/definitions/DEF-1/v1/PROGRESS.json'
-        payload_sha256=$null
+        schema_version='0.1';envelope_type='AIDOS_REPOSITORY_HANDOFF';handoff_id=[guid]::NewGuid().ToString();project_id='WORKER-RUNTIME'
+        kind='RESULT';from_actor='THINKER';to_actor='CORE';status='READY';parent_handoff_id=[guid]::NewGuid().ToString();created_at=[DateTimeOffset]::UtcNow.ToString('o')
+        action='START_DEFINITION_RESULT';payload_ref='.aidos/definitions/DEF-1/v1/PROGRESS.json';payload_sha256=$null
         binding=[pscustomobject][ordered]@{project_state='TASK_READY';definition_id='DEF-1';definition_version=1;execution_id=$executionId;revision=$revision;review_id=$null}
         source_refs=@()
     }
@@ -98,24 +68,11 @@ try{
         $boundExecution=Read-AidosJson -Path $ExecutionPath
         Set-Content -LiteralPath (Join-Path ([string]$Project.local_root) 'product.txt') -Value 'implemented' -Encoding utf8NoBOM
         $result=[pscustomobject][ordered]@{
-            schema_version='0.1'
-            project_id=[string]$Project.project_id
-            execution_id=[string]$boundExecution.execution_id
-            revision=[int]$boundExecution.revision
-            lease_id='LEASE-TEST'
-            codex_session_id='SESSION-TEST'
-            resumed=$false
-            started_at=[DateTimeOffset]::UtcNow.AddSeconds(-1).ToString('o')
-            finished_at=[DateTimeOffset]::UtcNow.ToString('o')
-            exit_code=0
-            terminal_type='turn.completed'
-            process_succeeded=$true
-            validation_status='PASS'
+            schema_version='0.1';project_id=[string]$Project.project_id;execution_id=[string]$boundExecution.execution_id;revision=[int]$boundExecution.revision
+            lease_id='LEASE-TEST';codex_session_id='SESSION-TEST';resumed=$false;started_at=[DateTimeOffset]::UtcNow.AddSeconds(-1).ToString('o');finished_at=[DateTimeOffset]::UtcNow.ToString('o')
+            exit_code=0;terminal_type='turn.completed';process_succeeded=$true;validation_status='PASS'
             validation_path=('.aidos/executions/{0}/revision-{1}/VALIDATION.json' -f [string]$boundExecution.execution_id,[int]$boundExecution.revision)
-            final_message='done'
-            prompt_sha256=('a'*64)
-            error=$null
-            git_head=$headBefore
+            final_message='done';prompt_sha256=('a'*64);error=$null;git_head=$headBefore
             events_path=('.aidos/executions/{0}/revision-{1}/codex-events.jsonl' -f [string]$boundExecution.execution_id,[int]$boundExecution.revision)
             stderr_path=('.aidos/executions/{0}/revision-{1}/codex-stderr.log' -f [string]$boundExecution.execution_id,[int]$boundExecution.revision)
         }
@@ -127,16 +84,9 @@ try{
         $state.state='REVIEW_READY'
         $state.terminal_result=[IO.Path]::GetRelativePath([string]$Project.local_root,$resultPath).Replace('\','/')
         $state.validation_result=[IO.Path]::GetRelativePath([string]$Project.local_root,$validationPath).Replace('\','/')
-        $state.codex_session_id='SESSION-TEST'
-        $state.git_head=$headBefore
-        $state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        $state.codex_session_id='SESSION-TEST';$state.git_head=$headBefore;$state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
         Write-AidosJsonAtomic -Path (Join-Path ([string]$Project.local_root) '.aidos/STATE.json') -Value $state
-        [pscustomobject][ordered]@{
-            status='REVIEW_READY'
-            execution=$boundExecution
-            result=$result
-            validation=[pscustomobject][ordered]@{status='PASS'}
-        }
+        [pscustomobject][ordered]@{status='REVIEW_READY';execution=$boundExecution;result=$result;validation=[pscustomobject][ordered]@{status='PASS'}}
     }.GetNewClosure()
 
     $outcome=Invoke-AidosRepositoryWorkerHandoff -Project $project -ExecutionPath $executionPath -CodexInvoker $codexInvoker
