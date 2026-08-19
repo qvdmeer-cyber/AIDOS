@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schemas/repository-handoff.schema.json",
+  "title": "AIDOS Repository Handoff Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "envelope_type",
+    "handoff_id",
+    "project_id",
+    "kind",
+    "from_actor",
+    "to_actor",
+    "status",
+    "parent_handoff_id",
+    "created_at",
+    "action",
+    "payload_ref",
+    "payload_sha256",
+    "binding",
+    "source_refs"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "envelope_type": { "const": "AIDOS_REPOSITORY_HANDOFF" },
+    "handoff_id": { "type": "string", "format": "uuid" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["ASSIGNMENT", "RESULT"] },
+    "from_actor": { "enum": ["CORE", "THINKER", "WORKER", "HUMAN"] },
+    "to_actor": { "enum": ["CORE", "THINKER", "WORKER", "HUMAN"] },
+    "status": { "const": "READY" },
+    "parent_handoff_id": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "format": "uuid" }
+      ]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "action": { "type": "string", "minLength": 1 },
+    "payload_ref": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "(^/|^[A-Za-z]:|(^|/)\\.\\.(/|$))" }
+    },
+    "payload_sha256": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_state",
+        "definition_id",
+        "definition_version",
+        "execution_id",
+        "revision",
+        "review_id"
+      ],
+      "properties": {
+        "project_state": { "type": ["string", "null"] },
+        "definition_id": { "type": ["string", "null"] },
+        "definition_version": { "type": ["integer", "null"], "minimum": 1 },
+        "execution_id": { "type": ["string", "null"] },
+        "revision": { "type": ["integer", "null"], "minimum": 1 },
+        "review_id": { "type": ["string", "null"] }
+      }
+    },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "not": { "pattern": "(^/|^[A-Za-z]:|(^|/)\\.\\.(/|$))" }
+      },
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "ASSIGNMENT" } } },
+      "then": {
+        "properties": {
+          "from_actor": { "const": "CORE" },
+          "to_actor": { "enum": ["THINKER", "WORKER", "HUMAN"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "RESULT" } } },
+      "then": {
+        "properties": {
+          "from_actor": { "enum": ["THINKER", "WORKER", "HUMAN"] },
+          "to_actor": { "const": "CORE" }
+        }
+      }
+    }
+  ]
+}
