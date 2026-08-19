@@ -16,7 +16,7 @@ New-Item -ItemType Directory -Path (Join-Path $registry 'projects'),$state -Forc
 try{
     $configured=Initialize-AidosRepositoryHandoffBridge -RegistryRoot $registry -BuilderRoot (Join-Path $temp 'builder') -ContractsRoot (Join-Path $temp 'contracts') -AidosRoot $root -StateRoot $state -ProcessName 'ChatGPT Classic Test' -RecoveryIntervalSeconds 10 -MaxProjectsPerTick 4
     Assert-Bridge ([string]$configured.status-eq'CONFIGURED') 'bridge configuration is persisted'
-    Assert-Bridge ([string]$configured.config.schema_version-eq'0.3') 'bridge configuration records guarded Worker finalization version'
+    Assert-Bridge ([string]$configured.config.schema_version-eq'0.4') 'bridge configuration records Human Input transport version'
     Assert-Bridge ([string]$configured.config.builder_root-eq[IO.Path]::GetFullPath((Join-Path $temp 'builder'))) 'bridge configuration binds Builder root'
     Assert-Bridge ([string]$configured.config.process_name-eq'ChatGPT Classic Test') 'bridge configuration binds exact ChatGPT process name'
     $loaded=Read-AidosRepositoryHandoffBridgeConfiguration -StateRoot $state
@@ -43,6 +43,7 @@ try{
     Assert-Bridge ($null-ne$calls.worker_adapter -and $null-ne$calls.review_adapter) 'runtime manager receives repository Worker and review adapters'
     Assert-Bridge ([string]$tick.preparation.actor_transport_result.status-eq'DEFERRED_INTERACTIVE_GATE') 'legacy Desktop Thinker transport remains deferred'
     Assert-Bridge ([string]$tick.manager.repository_worker_finalization.status-eq'IDLE') 'empty runtime manager has no deferred Worker lifecycle to finalize'
+    Assert-Bridge ([string]$tick.human_input_triggers.status-eq'IDLE' -and [int]$tick.human_input_triggers.processed-eq0) 'empty portfolio has no Human Input ChatGPT transport work'
     Assert-Bridge ([string]$tick.status-eq'IDLE') 'empty portfolio remains idle'
 
     $wake=Signal-AidosRepositoryHandoffBridge -StateRoot $state -Reason TEST -ProjectId P1 -HandoffId ([guid]::NewGuid().ToString())
