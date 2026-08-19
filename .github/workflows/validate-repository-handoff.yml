@@ -19,6 +19,7 @@ jobs:
             'bridge/AidosRepositoryHandoffPersistence.psm1',
             'bridge/AidosRepositoryHandoffOpenApi.psm1',
             'bridge/AidosRepositoryHandoffInstallation.psm1',
+            'bridge/Refresh-AidosRepositoryHandoffGptConfig.ps1',
             'bridge/Invoke-AidosRepositoryHandoffHost.ps1',
             'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1',
             'bridge/AidosRepositoryActorHandoff.psm1',
@@ -36,6 +37,7 @@ jobs:
             'tests/RepositoryHandoffPersistence.Tests.ps1',
             'tests/RepositoryHandoffOpenApi.Tests.ps1',
             'tests/RepositoryHandoffInstallation.Tests.ps1',
+            'tests/RepositoryGptConfigRefresh.Tests.ps1',
             'tests/RepositoryHandoffBootstrap.Tests.ps1',
             'tests/RepositoryHandoffWslProvider.Tests.ps1',
             'tests/RepositoryHandoffGatewayAtomicWrite.Tests.ps1',
@@ -77,6 +79,9 @@ jobs:
       - name: Repository handoff host installation model
         shell: pwsh
         run: ./tests/RepositoryHandoffInstallation.Tests.ps1
+      - name: Safe GPT configuration refresh
+        shell: pwsh
+        run: ./tests/RepositoryGptConfigRefresh.Tests.ps1
       - name: Repository handoff host bootstrap
         shell: pwsh
         run: ./tests/RepositoryHandoffBootstrap.Tests.ps1
