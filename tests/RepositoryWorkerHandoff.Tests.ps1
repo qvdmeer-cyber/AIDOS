@@ -38,7 +38,8 @@ try{
     Assert-Worker ([string]$published.handoff.metadata.to_actor-eq'WORKER' -and [string]$published.handoff.metadata.from_actor-eq'CORE') 'Worker assignment preserves Core authority'
     Assert-Worker ([string]$published.handoff.metadata.parent_handoff_id-eq[string]$previous.handoff_id) 'Worker assignment links to prior Thinker result'
     Assert-Worker ([string]$published.handoff.metadata.payload_ref-eq'.aidos/executions/EXEC-1/revision-1/EXECUTION.json') 'Worker assignment binds canonical execution payload'
-    Assert-Worker ((Invoke-TestGit $repo @('log','-1','--pretty=%s'))[0]-match'publish Worker handoff') 'Worker assignment is committed immediately'
+    $assignmentCommitSubject=[string](Invoke-TestGit $repo @('log','-1','--pretty=%s')|Select-Object -First 1)
+    Assert-Worker ($assignmentCommitSubject-match'publish Worker handoff') ("Worker assignment is committed immediately; subject='$assignmentCommitSubject'; persistence="+($published.persistence|ConvertTo-Json -Depth 30 -Compress))
 
     Set-Content (Join-Path $repo 'product.txt') 'implemented' -Encoding utf8NoBOM
     [ordered]@{schema_version='0.1';project_id='P1';state='REVIEW_READY';definition_id='DEF-1';definition_version=1;execution_id=$executionId;revision=$revision;review_id=$null;terminal_result=".aidos/executions/$executionId/revision-$revision/RESULT.json";validation_result=".aidos/executions/$executionId/revision-$revision/VALIDATION.json"}|ConvertTo-Json|Set-Content (Join-Path $repo '.aidos/STATE.json') -Encoding utf8NoBOM
