@@ -34,7 +34,7 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
     }
     if($surfaces.Count-eq0){return $null}
 
-    $orderedSurfaces=[string[]]@($surfaces)
+    $orderedSurfaces=$surfaces.ToArray()
     if($orderedSurfaces.Count-gt1){
         $compact=[string]::Join('',[string[]]$orderedSurfaces)
         if(-not[string]::IsNullOrWhiteSpace($compact) -and $seenSurfaces.Add($compact)){$surfaces.Add($compact)}
@@ -43,7 +43,7 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
     }
 
     if($expectedAssignmentHashes.Count-eq0){
-        foreach($surface in @($surfaces)){
+        foreach($surface in $surfaces.ToArray()){
             if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
             if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
             foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
@@ -59,7 +59,7 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
 
     $responses=[Collections.Generic.List[string]]::new()
     $seenResponses=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach($surface in @($surfaces)){
+    foreach($surface in $surfaces.ToArray()){
         if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
         if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
         foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
@@ -119,13 +119,13 @@ function Get-AidosDesktopChatGPTActorResponseAncestorRangeTexts {
     if(-not$textPattern){return @()}
     $values=[System.Collections.Generic.List[string]]::new()
     $seen=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach($candidateElement in @($chain)){
+    foreach($candidateElement in $chain.ToArray()){
         try{$text=[string]$textPattern.RangeFromChild($candidateElement).GetText(-1)}catch{continue}
         if([string]::IsNullOrWhiteSpace($text)){continue}
         if($text.Length-gt$MaximumRangeCharacters){continue}
         if($seen.Add($text)){$values.Add($text)}
     }
-    @($values)
+    $values.ToArray()
 }
 
 function Get-AidosDesktopChatGPTResolvedActorResponseText {
@@ -161,7 +161,7 @@ function Get-AidosDesktopChatGPTResolvedActorResponseText {
 
     # Preserve the existing sibling-fragment fallback for accessibility trees
     # where a complete response is reconstructed only after aggregating controls.
-    Select-AidosDesktopChatGPTResolvedActorResponseText -Texts @($allTexts) -Assignment $Assignment
+    Select-AidosDesktopChatGPTResolvedActorResponseText -Texts ($allTexts.ToArray()) -Assignment $Assignment
 }
 
 Export-ModuleMember -Function Initialize-AidosDesktopChatGPTWindowDiscovery,Get-AidosWindowDiscoveryText,Get-AidosWindowDiscoveryClass,Get-AidosDesktopChatGPTFallbackProcessContexts,Get-AidosDesktopChatGPTResilientProcessContext,Get-AidosDesktopChatGPTFreshComposerObservation,Wait-AidosDesktopChatGPTFreshComposerCleared,Add-AidosDesktopChatGPTFreshComposerProof,Get-AidosDesktopChatGPTElementSearchTexts,Get-AidosDesktopChatGPTJsonObjectCandidates,Select-AidosDesktopChatGPTResolvedActorResponseText,Select-AidosDesktopChatGPTResolvedActorResponseFromHierarchyTexts,Get-AidosDesktopChatGPTActorResponseAncestorRangeTexts,Get-AidosDesktopChatGPTResolvedActorResponseText,Add-AidosDesktopChatGPTResolvedActorResponseReader,Add-AidosDesktopChatGPTConversationProofRecovery,New-AidosDesktopChatGPTResilientWindowsBackend,New-AidosDesktopChatGPTWindowsBackend
