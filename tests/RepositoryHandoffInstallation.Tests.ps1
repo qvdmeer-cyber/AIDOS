@@ -38,7 +38,7 @@ try{
     foreach($dir in @('aidos','registry','builder','contracts','host','bridge','gateway')){New-Item -ItemType Directory -Path (Join-Path $temp $dir) -Force|Out-Null}
     $entryPoint=Join-Path $temp 'entry.ps1';Set-Content -LiteralPath $entryPoint -Value '# entry' -Encoding utf8NoBOM
     $tailscale=Join-Path $temp 'tailscale.exe';Set-Content -LiteralPath $tailscale -Value 'fixture' -Encoding ascii
-    [ordered]@{schema_version='0.2';registry_root=(Join-Path $temp 'registry');state_root=(Join-Path $temp 'bridge');process_name='OLD'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $temp 'bridge/CONFIG.json') -Encoding utf8NoBOM
+    [ordered]@{schema_version='0.3';registry_root=(Join-Path $temp 'registry');state_root=(Join-Path $temp 'bridge');process_name='OLD'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $temp 'bridge/CONFIG.json') -Encoding utf8NoBOM
     $config=New-AidosRepositoryHandoffHostConfiguration -EntryPoint $entryPoint -AidosRoot (Join-Path $temp 'aidos') -RegistryRoot (Join-Path $temp 'registry') -BuilderRoot (Join-Path $temp 'builder') -ContractsRoot (Join-Path $temp 'contracts') -HostStateRoot (Join-Path $temp 'host') -BridgeStateRoot (Join-Path $temp 'bridge') -GatewayStateRoot (Join-Path $temp 'gateway') -AuthorizedUser 'AIDOS\qvdm' -ProcessName 'ChatGPT Classic Test' -PublicUrl 'https://aidos.tail1234.ts.net/' -TailscalePath $tailscale
     Assert-Install ([string]$config.public_url-eq'https://aidos.tail1234.ts.net') 'host configuration normalizes public URL'
     Assert-Install ([string]$config.schema_version-eq'0.2') 'host configuration schema is explicit'
@@ -53,10 +53,14 @@ try{
     Assert-Install ($vbs.Contains('LAUNCHER.ps1') -and $vbs.Contains('shell.Run(command, 0, True)')) 'VBS bootstrap starts PowerShell hidden and waits'
 
     $instructions=New-AidosRepositoryThinkerGptInstructions
-    Assert-Install ($instructions.Contains('AIDOS_HANDOFF_READY')) 'custom GPT instructions require the bridge marker'
-    Assert-Install ($instructions.Contains('getAidosProjectHandoff') -and $instructions.Contains('submitAidosBoundResult')) 'custom GPT instructions bind read and submit actions'
-    Assert-Install ($instructions.Contains('Never put the work product or result JSON in the chat')) 'custom GPT instructions keep content transport out of chat'
-    Assert-Install ($instructions.Contains('AIDOS Core validates the result and selects the next actor')) 'custom GPT instructions preserve Core scheduling authority'
+    Assert-Install ($instructions.Contains('AIDOS_HANDOFF_READY')) 'custom GPT instructions require the Thinker bridge marker'
+    Assert-Install ($instructions.Contains('getAidosProjectHandoff') -and $instructions.Contains('submitAidosBoundResult')) 'custom GPT instructions bind Thinker read and submit actions'
+    Assert-Install ($instructions.Contains('AIDOS_HUMAN_INPUT_REQUIRED')) 'custom GPT instructions recognize Human Input presentation markers'
+    Assert-Install ($instructions.Contains('getAidosHumanInput') -and $instructions.Contains('submitAidosHumanInputResponse')) 'custom GPT instructions bind Human Input read and submit actions'
+    Assert-Install ($instructions.Contains('AIDOS_HUMAN_INPUT_AWAITING')) 'custom GPT instructions preserve an unresolved Human Input sentinel in chat'
+    Assert-Install ($instructions.Contains('Do not choose, infer, recommend, or submit an answer on the user')) 'custom GPT instructions cannot answer Human Input on behalf of the operator'
+    Assert-Install ($instructions.Contains('Never put Thinker work product or result JSON in chat')) 'custom GPT instructions keep Thinker work content out of chat'
+    Assert-Install ($instructions.Contains('AIDOS Core validates durable state and selects the next lifecycle step')) 'custom GPT instructions preserve Core scheduling authority'
 
     $engine=if([OperatingSystem]::IsWindows()){Join-Path $PSHOME 'pwsh.exe'}else{Join-Path $PSHOME 'pwsh'}
     $written=Write-AidosRepositoryHandoffHostFiles -Configuration $config -PowerShellPath $engine
@@ -66,7 +70,7 @@ try{
     Assert-Install (-not($persisted.PSObject.Properties.Name-contains'api_key')) 'persisted host configuration contains no gateway secret'
     Assert-Install ([string]$written.bridge_configuration.status-eq'SYNCHRONIZED') 'host file publication synchronizes the bridge configuration'
     $bridgeConfig=Get-Content -LiteralPath (Join-Path $temp 'bridge/CONFIG.json') -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
-    Assert-Install ([string]$bridgeConfig.schema_version-eq'0.3' -and [string]$bridgeConfig.process_name-eq'ChatGPT Classic Test') 'bridge starts the exact configured ChatGPT process identity'
+    Assert-Install ([string]$bridgeConfig.schema_version-eq'0.4' -and [string]$bridgeConfig.process_name-eq'ChatGPT Classic Test') 'bridge starts Human Input transport with exact configured ChatGPT process identity'
 
     $nonDefault=New-AidosRepositoryHandoffHostConfiguration -EntryPoint $entryPoint -AidosRoot (Join-Path $temp 'aidos') -RegistryRoot (Join-Path $temp 'registry') -BuilderRoot (Join-Path $temp 'builder') -ContractsRoot (Join-Path $temp 'contracts') -HostStateRoot (Join-Path $temp 'host') -BridgeStateRoot (Join-Path $temp 'bridge') -GatewayStateRoot (Join-Path $temp 'gateway') -AuthorizedUser 'AIDOS\qvdm' -ProcessName 'ChatGPT Classic Test' -PublicUrl 'https://aidos.tail1234.ts.net' -TailscalePath $tailscale -PublicPort 10000
     Assert-Install ([string]$nonDefault.public_url-eq'https://aidos.tail1234.ts.net:10000') 'host configuration and OpenAPI agree on a non-default Funnel port'

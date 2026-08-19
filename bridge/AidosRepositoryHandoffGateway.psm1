@@ -8,6 +8,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -Disa
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffSignal.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorTransport.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -DisableNameChecking
 
 function Get-AidosRepositoryHandoffGatewayDefaultStateRoot {
     if([OperatingSystem]::IsWindows()){return (Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-gateway')}
@@ -173,6 +174,102 @@ function Get-AidosRepositoryHandoffGatewaySource {
     if($text-match'(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*\S+'){throw "Authorized source is not secret-free: $SourceRef"}
     [pscustomobject][ordered]@{project_id=[string]$project.project_id;source_ref=$SourceRef;sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant();byte_length=$bytes.Length;content=$text}
 }
+
+function Assert-AidosRepositoryHandoffGatewayHumanInputBinding {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)]$Request)
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    if($null-eq$Request.binding){throw 'Human Input Request binding is missing.'}
+    $state=Get-AidosState $root
+    foreach($name in @('definition_id','definition_version','execution_id','revision','review_id')){
+        $expected=$Request.binding.PSObject.Properties[$name]
+        if($null-eq$expected -or $null-eq$expected.Value){continue}
+        $actual=$state.PSObject.Properties[$name]
+        if($null-eq$actual -or [string]$actual.Value-ne[string]$expected.Value){throw "Human Input Request binding mismatch for '$name'."}
+    }
+    if($Request.binding.PSObject.Properties['baseline_version'] -and $null-ne$Request.binding.baseline_version){
+        $baselinePath=Join-Path $root '.aidos/documentation/PROJECT_BASELINE.json'
+        if(-not(Test-Path -LiteralPath $baselinePath -PathType Leaf)){throw 'Bound Project Baseline is unavailable.'}
+        $baseline=Get-Content -LiteralPath $baselinePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+        if([int]$baseline.baseline_version-ne[int]$Request.binding.baseline_version){throw 'Human Input Request baseline binding mismatch.'}
+    }
+    $true
+}
+
+function Get-AidosRepositoryHandoffGatewayHumanInput {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId)
+    $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
+    $root=Resolve-AidosFileSystemPath ([string]$project.local_root)
+    $state=Get-AidosState $root
+    if([string]$state.state-ne'WAITING_USER'){return [pscustomobject][ordered]@{status='NO_HUMAN_INPUT';project_id=[string]$project.project_id}}
+    $requestRoot=Join-Path $root '.aidos/human-input'
+    if(-not(Test-Path -LiteralPath $requestRoot -PathType Container)){throw 'Project is WAITING_USER but Human Input request storage is missing.'}
+    $waiting=@(
+        Get-ChildItem -LiteralPath $requestRoot -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Sort-Object Name |
+        ForEach-Object {
+            $request=Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+            if([string]$request.status-eq'WAITING'){[pscustomobject][ordered]@{path=$_.FullName;request=$request}}
+        }
+    )
+    if($waiting.Count-eq0){return [pscustomobject][ordered]@{status='NO_HUMAN_INPUT';project_id=[string]$project.project_id}}
+    if($waiting.Count-ne1){throw "Project has $($waiting.Count) WAITING Human Input Requests; expected exactly one."}
+    $candidate=$waiting[0];$request=$candidate.request
+    if(-not[string]::Equals([string]$request.project_id,[string]$project.project_id,[StringComparison]::Ordinal)){throw 'Human Input Request project binding mismatch.'}
+    Assert-AidosRepositoryHandoffGatewayHumanInputBinding -ProjectRoot $root -Request $request|Out-Null
+    $sha=(Get-FileHash -LiteralPath $candidate.path -Algorithm SHA256).Hash.ToLowerInvariant()
+    [pscustomobject][ordered]@{
+        status='READY'
+        project_id=[string]$project.project_id
+        request_id=[string]$request.request_id
+        request_sha256=$sha
+        phase=[string]$request.phase
+        request_type=[string]$request.request_type
+        context_summary=[string]$request.context_summary
+        question=[string]$request.question
+        options=@($request.options|ForEach-Object {[pscustomobject][ordered]@{option_id=[string]$_.option_id;label=[string]$_.label;description=if($null-eq$_.description){$null}else{[string]$_.description}}})
+        authority_classification=[string]$request.authority_classification
+        auto_define_stop_reason=if($request.PSObject.Properties['auto_define_stop_reason'] -and $null-ne$request.auto_define_stop_reason){[string]$request.auto_define_stop_reason}else{$null}
+        binding=$request.binding
+    }
+}
+
+function Submit-AidosRepositoryHandoffGatewayHumanInputResponse {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RegistryRoot,
+        [Parameter(Mandatory)][string]$ProjectId,
+        [Parameter(Mandatory)][string]$RequestId,
+        [Parameter(Mandatory)]$Request,
+        [string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),
+        [switch]$Push
+    )
+    if(-not$Request.PSObject.Properties['request_sha256'] -or [string]::IsNullOrWhiteSpace([string]$Request.request_sha256)){throw 'Human Input response requires request_sha256.'}
+    $selectedOptionId=if($Request.PSObject.Properties['selected_option_id']){[string]$Request.selected_option_id}else{$null}
+    $text=if($Request.PSObject.Properties['text']){[string]$Request.text}else{$null}
+    if([string]::IsNullOrWhiteSpace($selectedOptionId)-and[string]::IsNullOrWhiteSpace($text)){throw 'Human Input response requires selected_option_id and/or text.'}
+    $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
+    $root=Resolve-AidosFileSystemPath ([string]$project.local_root)
+    $requestPath=Get-AidosHumanInputRequestPath -ProjectRoot $root -RequestId $RequestId
+    if(-not(Test-Path -LiteralPath $requestPath -PathType Leaf)){throw "Human Input Request not found: $RequestId"}
+    $current=Get-Content -LiteralPath $requestPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+    if(-not[string]::Equals([string]$current.project_id,[string]$project.project_id,[StringComparison]::Ordinal)){throw 'Human Input response project binding mismatch.'}
+    if(-not[string]::Equals([string]$current.request_id,$RequestId,[StringComparison]::OrdinalIgnoreCase)){throw 'Human Input response request_id mismatch.'}
+    if([string]$current.status-eq'WAITING'){
+        $sha=(Get-FileHash -LiteralPath $requestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if(-not[string]::Equals($sha,[string]$Request.request_sha256,[StringComparison]::Ordinal)){throw 'Human Input Request hash is stale.'}
+    }elseif([string]$current.status-ne'RESOLVED'){
+        throw "Human Input Request status '$($current.status)' cannot accept a response."
+    }
+    $response=Submit-AidosHumanInputResponse -ProjectRoot $root -RequestId $RequestId -RespondedBy 'CHATGPT_CLASSIC_OPERATOR' -SelectedOptionId $selectedOptionId -Text $text
+    $persistence=$null
+    if([string]$response.status-eq'RESOLVED'){$persistence=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS Human Input $RequestId") -Push:$Push}
+    $accepted=if([string]$response.status-eq'ALREADY_RESOLVED'){'ALREADY_ACCEPTED'}else{'ACCEPTED'}
+    Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'HUMAN_INPUT_ACCEPTED' -ProjectId ([string]$project.project_id) -HandoffId $RequestId|Out-Null
+    [pscustomobject][ordered]@{status=$accepted;project_id=[string]$project.project_id;request_id=$RequestId;resume_ref=[string]$response.resume_ref;persistence=$persistence}
+}
+
 function Ensure-AidosRepositoryRuntimeActorActivated {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentId)
     $state=Read-AidosRuntimeActorTransportState -ProjectRoot $ProjectRoot -AssignmentId $AssignmentId
@@ -240,6 +337,11 @@ function Invoke-AidosRepositoryHandoffGatewayRequest {
     try{
         if($Method-eq'GET'-and$Path-eq'/health'){return New-AidosRepositoryHandoffGatewayResponse 200 ([ordered]@{status='OK';service='AIDOS_REPOSITORY_HANDOFF_GATEWAY'})}
         if($Method-eq'GET'-and$Path-match'^/v1/projects/([^/]+)/handoff$'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewayCurrentHandoff -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))}
+        if($Method-eq'GET'-and$Path-match'^/v1/projects/([^/]+)/human-input$'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewayHumanInput -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))}
+        if($Method-eq'POST'-and$Path-match'^/v1/projects/([^/]+)/human-input/([^/]+)/response$'){
+            if($null-eq$Body){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
+            return New-AidosRepositoryHandoffGatewayResponse 200 (Submit-AidosRepositoryHandoffGatewayHumanInputResponse -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -RequestId ([Uri]::UnescapeDataString($Matches[2])) -Request $Body -BridgeStateRoot $BridgeStateRoot -Push:$Push)
+        }
         if($Method-eq'GET'-and$Path-match'^/v1/projects/([^/]+)/sources$'){
             $sourceRef=[string]$Query['path'];if([string]::IsNullOrWhiteSpace($sourceRef)){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='SOURCE_PATH_REQUIRED'})}
             return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewaySource -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -SourceRef $sourceRef)
@@ -295,4 +397,4 @@ function Stop-AidosRepositoryHandoffGateway {
     [pscustomobject][ordered]@{status='STOP_REQUESTED';state_root=[IO.Path]::GetFullPath($StateRoot)}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Move-AidosRepositoryHandoffGatewayAtomicFile,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Test-AidosRepositoryHandoffGatewayProjectId,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
+Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Move-AidosRepositoryHandoffGatewayAtomicFile,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Test-AidosRepositoryHandoffGatewayProjectId,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Assert-AidosRepositoryHandoffGatewayHumanInputBinding,Get-AidosRepositoryHandoffGatewayHumanInput,Submit-AidosRepositoryHandoffGatewayHumanInputResponse,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway

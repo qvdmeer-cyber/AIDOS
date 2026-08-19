@@ -36,8 +36,8 @@ function New-AidosRepositoryHandoffOpenApiDocument {
         openapi='3.0.3'
         info=[ordered]@{
             title='AIDOS Repository Handoff Gateway'
-            version='0.1.0'
-            description='Private AIDOS Thinker transport. Read the exact Core-published handoff and authorized sources, then submit one result bound to the current parent handoff. Never guess project, handoff, assignment, review, binding, or evidence identities.'
+            version='0.2.0'
+            description='Private AIDOS Thinker and Human Input transport. Read exact Core-published authority, use only authorized sources, submit bound Thinker results, and surface/submit exact Human Input without moving lifecycle authority into ChatGPT.'
         }
         servers=@([ordered]@{url=$server;description='AIDOS private Tailscale Funnel endpoint'})
         security=@([ordered]@{BearerAuth=@()})
@@ -51,6 +51,38 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                     parameters=@([ordered]@{name='projectId';in='path';required=$true;description='Exact AIDOS project_id from the trigger.';schema=[ordered]@{type='string';minLength=1}})
                     responses=[ordered]@{
                         '200'=[ordered]@{description='Current handoff, exact payload and human-readable instructions.';content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/HandoffResponse'}}}}
+                        '401'=$errorResponse
+                        '409'=$errorResponse
+                    }
+                }
+            }
+            '/v1/projects/{projectId}/human-input'=[ordered]@{
+                get=[ordered]@{
+                    operationId='getAidosHumanInput'
+                    summary='Read the current WAITING Human Input Request for one exact project'
+                    description='Use the exact project_id from an AIDOS_HUMAN_INPUT_REQUIRED trigger or from the most recent unresolved AIDOS Human Input presentation. The response is authoritative; never rely on chat history for request content.'
+                    'x-openai-isConsequential'=$false
+                    parameters=@([ordered]@{name='projectId';in='path';required=$true;description='Exact AIDOS project_id.';schema=[ordered]@{type='string';minLength=1}})
+                    responses=[ordered]@{
+                        '200'=[ordered]@{description='Current WAITING Human Input Request, or NO_HUMAN_INPUT.';content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/HumanInputResponse'}}}}
+                        '401'=$errorResponse
+                        '409'=$errorResponse
+                    }
+                }
+            }
+            '/v1/projects/{projectId}/human-input/{requestId}/response'=[ordered]@{
+                post=[ordered]@{
+                    operationId='submitAidosHumanInputResponse'
+                    summary='Submit the operator response to one exact AIDOS Human Input Request'
+                    description='Call only after the user has clearly answered the currently fetched request. Copy project_id, request_id and request_sha256 exactly. AIDOS Core validates request binding and permitted options, persists the response/resume intent, and selects the next lifecycle step.'
+                    'x-openai-isConsequential'=$false
+                    parameters=@(
+                        [ordered]@{name='projectId';in='path';required=$true;description='Exact AIDOS project_id.';schema=[ordered]@{type='string';minLength=1}},
+                        [ordered]@{name='requestId';in='path';required=$true;description='Exact request_id returned by getAidosHumanInput.';schema=[ordered]@{type='string';format='uuid'}}
+                    )
+                    requestBody=[ordered]@{required=$true;content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/HumanInputSubmitRequest'}}}}
+                    responses=[ordered]@{
+                        '200'=[ordered]@{description='Human Input response accepted or already accepted idempotently.';content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/HumanInputAcceptedResponse'}}}}
                         '401'=$errorResponse
                         '409'=$errorResponse
                     }
@@ -150,6 +182,56 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                         metadata=[ordered]@{'$ref'='#/components/schemas/HandoffMetadata'}
                         body=[ordered]@{type='string'}
                         payload=[ordered]@{'$ref'='#/components/schemas/Payload'}
+                    }
+                }
+                HumanInputOption=[ordered]@{
+                    type='object'
+                    additionalProperties=$false
+                    required=@('option_id','label','description')
+                    properties=[ordered]@{
+                        option_id=[ordered]@{type='string';minLength=1}
+                        label=[ordered]@{type='string';minLength=1}
+                        description=$nullableString
+                    }
+                }
+                HumanInputResponse=[ordered]@{
+                    type='object'
+                    additionalProperties=$false
+                    required=@('status','project_id')
+                    properties=[ordered]@{
+                        status=[ordered]@{type='string';enum=@('READY','NO_HUMAN_INPUT')}
+                        project_id=[ordered]@{type='string';minLength=1}
+                        request_id=[ordered]@{type='string';format='uuid';nullable=$true}
+                        request_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$';nullable=$true}
+                        phase=$nullableString
+                        request_type=$nullableString
+                        context_summary=$nullableString
+                        question=$nullableString
+                        options=[ordered]@{type='array';items=[ordered]@{'$ref'='#/components/schemas/HumanInputOption'}}
+                        authority_classification=$nullableString
+                        auto_define_stop_reason=$nullableString
+                        binding=[ordered]@{'$ref'='#/components/schemas/Binding'}
+                    }
+                }
+                HumanInputSubmitRequest=[ordered]@{
+                    type='object'
+                    additionalProperties=$false
+                    required=@('request_sha256')
+                    properties=[ordered]@{
+                        request_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
+                        selected_option_id=$nullableString
+                        text=$nullableString
+                    }
+                }
+                HumanInputAcceptedResponse=[ordered]@{
+                    type='object'
+                    additionalProperties=$true
+                    required=@('status','project_id','request_id')
+                    properties=[ordered]@{
+                        status=[ordered]@{type='string';enum=@('ACCEPTED','ALREADY_ACCEPTED')}
+                        project_id=[ordered]@{type='string';minLength=1}
+                        request_id=[ordered]@{type='string';format='uuid'}
+                        resume_ref=$nullableString
                     }
                 }
                 SourceResponse=[ordered]@{
