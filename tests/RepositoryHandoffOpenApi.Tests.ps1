@@ -21,7 +21,7 @@ try{
     $document=New-AidosRepositoryHandoffOpenApiDocument -ServerUrl 'https://aidos-machine.example.ts.net/'
     Assert-OpenApi ([string]$document.openapi-eq'3.0.3') 'OpenAPI version is explicit and GPT Action compatible'
     Assert-OpenApi ([string]$document.servers[0].url-eq'https://aidos-machine.example.ts.net') 'OpenAPI server uses normalized Funnel URL'
-    Assert-OpenApi (@($document.paths.PSObject.Properties).Count-eq3) 'OpenAPI exposes only handoff, authorized source and result endpoints'
+    Assert-OpenApi (@($document.paths.Keys).Count-eq3) 'OpenAPI exposes only handoff, authorized source and result endpoints'
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/handoff'.get.operationId-eq'getAidosProjectHandoff') 'handoff operation ID is stable'
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/sources'.get.operationId-eq'getAidosAuthorizedSource') 'source operation ID is stable'
     $submit=$document.paths.'/v1/projects/{projectId}/results'.post
