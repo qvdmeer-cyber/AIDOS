@@ -100,6 +100,22 @@ function New-AidosRepositoryThinkerWindowsBackend {
             if(-not$root){throw 'ChatGPT window is unavailable through UI Automation.'}
             Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
         }
+        ResolveConversationByTitle={
+            param($Context,$ConversationTitle)
+            $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
+            if(-not$root){throw 'ChatGPT window is unavailable through UI Automation.'}
+            $element=Find-AidosRepositoryThinkerConversationAction -RootElement $root -ConversationTitle ([string]$ConversationTitle)
+            $method=Invoke-AidosRepositoryThinkerActionableElement -Element $element
+            for($attempt=0;$attempt-lt50;$attempt++){
+                Start-Sleep -Milliseconds 100
+                $observed=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
+                if(-not[string]::IsNullOrWhiteSpace([string]$observed.url) -and $observed.url.IndexOf('/c/',[StringComparison]::OrdinalIgnoreCase)-ge0){
+                    $conversation=[pscustomobject][ordered]@{title=[string]$ConversationTitle;document_title=[string]$observed.title;url=[string]$observed.url;document=$observed.document}
+                    return [pscustomobject][ordered]@{status='RESOLVED';method=$method;conversation=$conversation;context=$Context}
+                }
+            }
+            throw "ChatGPT conversation '$ConversationTitle' was invoked but no conversation URL became active."
+        }
         ActivateConversation={
             param($Context,$Binding)
             $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
@@ -125,8 +141,15 @@ function Bind-AidosRepositoryThinkerConversation {
     param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)][string]$Repository,[Parameter(Mandatory)][string]$ExpectedConversationTitle,[string]$ProcessName='ChatGPT Classic',[object]$Backend)
     if($null-eq$Backend){$Backend=New-AidosRepositoryThinkerWindowsBackend -ProcessName $ProcessName}
     $context=& $Backend.GetProcessContext $ProcessName
-    $conversation=& $Backend.GetCurrentConversation $context
-    if(-not[string]::Equals([string]$conversation.title,$ExpectedConversationTitle,[StringComparison]::Ordinal)){throw "Active ChatGPT conversation title '$($conversation.title)' does not equal required project title '$ExpectedConversationTitle'. Rename and pin the conversation before binding."}
+    $resolver=$Backend.PSObject.Properties['ResolveConversationByTitle']
+    if($resolver){
+        $resolved=& $Backend.ResolveConversationByTitle $context $ExpectedConversationTitle
+        if($null-eq$resolved -or [string]$resolved.status-ne'RESOLVED' -or $null-eq$resolved.conversation){throw "Pinned ChatGPT conversation '$ExpectedConversationTitle' could not be resolved for binding."}
+        $conversation=$resolved.conversation
+    }else{
+        $conversation=& $Backend.GetCurrentConversation $context
+        if(-not[string]::Equals([string]$conversation.title,$ExpectedConversationTitle,[StringComparison]::Ordinal)){throw "Active ChatGPT conversation title '$($conversation.title)' does not equal required project title '$ExpectedConversationTitle'. Rename and pin the conversation before binding."}
+    }
     if([string]::IsNullOrWhiteSpace([string]$conversation.url)){throw 'Active ChatGPT conversation URL is unavailable.'}
     $now=[DateTimeOffset]::UtcNow.ToString('o')
     $binding=[pscustomobject][ordered]@{schema_version='0.1';binding_type='MANUAL_PROJECT_CHATGPT_CONVERSATION';project_id=$ProjectId;repository=$Repository;process_name=$ProcessName;conversation_title=$ExpectedConversationTitle;conversation_url=[string]$conversation.url;status='BOUND';bound_at=$now;updated_at=$now}
