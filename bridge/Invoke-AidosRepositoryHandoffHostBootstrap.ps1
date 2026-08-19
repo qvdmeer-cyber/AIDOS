@@ -33,9 +33,11 @@ if(-not$IsWindows){throw 'The AIDOS repository handoff host bootstrap must run w
 $original=Join-Path $PSScriptRoot 'Invoke-AidosRepositoryHandoffHost.ps1'
 $bridgeOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoffBridge.psm1'
 $handoffOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1'
+$gatewayOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoffGateway.psm1'
 if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $original"}
 if(-not(Test-Path -LiteralPath $bridgeOriginal -PathType Leaf)){throw "Repository handoff bridge module is unavailable: $bridgeOriginal"}
 if(-not(Test-Path -LiteralPath $handoffOriginal -PathType Leaf)){throw "Repository handoff module is unavailable: $handoffOriginal"}
+if(-not(Test-Path -LiteralPath $gatewayOriginal -PathType Leaf)){throw "Repository handoff gateway module is unavailable: $gatewayOriginal"}
 
 # The operator machine has proven that both unqualified command lookup and
 # module-qualified lookup are unreliable for modules loaded from this UNC/WSL
@@ -91,6 +93,29 @@ try{
     $runtimeHandoffStream.Dispose()
 }
 
+# A previous gateway instance may publish terminal STOPPED state after a new
+# instance has already started. Under StrictMode that stale object has no
+# heartbeat_at property, so direct property assignment crashes the new gateway.
+# Make heartbeat refresh reconstruct the running state whenever the status file
+# does not belong to the current live instance.
+$gatewaySource=Get-Content -LiteralPath $gatewayOriginal -Raw -Encoding UTF8
+$gatewayTarget='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$status.heartbeat_at=[DateTimeOffset]::UtcNow.ToString(''o'');Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
+$gatewayReplacement='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$heartbeat=[DateTimeOffset]::UtcNow.ToString(''o'');if([string]$status.status-ne''RUNNING'' -or [int]$status.pid-ne$PID){$status=[pscustomobject][ordered]@{schema_version=''0.2'';status=''RUNNING'';pid=$PID;listen_prefix=[string]$config.listen_prefix;started_at=$heartbeat;heartbeat_at=$heartbeat}}else{$status|Add-Member -NotePropertyName heartbeat_at -NotePropertyValue $heartbeat -Force};Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
+$gatewayMatches=[regex]::Matches($gatewaySource,[regex]::Escape($gatewayTarget)).Count
+if($gatewayMatches-ne1){throw "Repository host bootstrap expected exactly one gateway heartbeat source match; found $gatewayMatches."}
+$gatewaySource=$gatewaySource.Replace($gatewayTarget,$gatewayReplacement)
+
+$runtimeGatewayName='AidosRepositoryHandoffGateway.runtime.'+[guid]::NewGuid().ToString('N')+'.psm1'
+$runtimeGateway=Join-Path $PSScriptRoot $runtimeGatewayName
+$runtimeGatewayBytes=[Text.UTF8Encoding]::new($false).GetBytes($gatewaySource)
+$runtimeGatewayStream=[IO.FileStream]::new($runtimeGateway,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+try{
+    $runtimeGatewayStream.Write($runtimeGatewayBytes,0,$runtimeGatewayBytes.Length)
+    $runtimeGatewayStream.Flush($true)
+}finally{
+    $runtimeGatewayStream.Dispose()
+}
+
 # Pending runtime actor enumeration returns raw RUNTIME_ACTOR_ASSIGNMENT
 # records rather than wrappers, the compact Where-Object property syntax is
 # parsed incorrectly by the operator PowerShell version, and the runtime
@@ -125,6 +150,7 @@ $source=Get-Content -LiteralPath $original -Raw -Encoding UTF8
 $replacements=[ordered]@{
     "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking" = "`$script:AidosWindowsSessionModule=Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -Force -PassThru -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoffBridge.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeBridgeName') -Force -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoffGateway.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeGatewayName') -Force -DisableNameChecking"
     '$snapshot=Get-AidosInteractiveSessionSnapshot' = '$snapshot=& $script:AidosWindowsSessionModule { Get-AidosInteractiveSessionSnapshot }'
     '$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser' = '$authorization=& $script:AidosWindowsSessionModule { param($Snapshot,$AuthorizedUser) Test-AidosAuthorizedInteractiveSession -Snapshot $Snapshot -AuthorizedUser $AuthorizedUser } $snapshot $ExpectedUser'
 }
@@ -189,4 +215,5 @@ try{
     if(Test-Path -LiteralPath $runtimeHost){Remove-Item -LiteralPath $runtimeHost -Force}
     if(Test-Path -LiteralPath $runtimeBridge){Remove-Item -LiteralPath $runtimeBridge -Force}
     if(Test-Path -LiteralPath $runtimeHandoff){Remove-Item -LiteralPath $runtimeHandoff -Force}
+    if(Test-Path -LiteralPath $runtimeGateway){Remove-Item -LiteralPath $runtimeGateway -Force}
 }
