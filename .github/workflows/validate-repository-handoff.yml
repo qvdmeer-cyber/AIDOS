@@ -35,6 +35,7 @@ jobs:
             'tests/RepositoryHandoffWslProvider.Tests.ps1',
             'tests/RepositoryHandoffGatewayAtomicWrite.Tests.ps1',
             'tests/RepositoryHandoffBridgeAtomicWrite.Tests.ps1',
+            'tests/RepositoryHandoffNestedRuntimeRouting.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
@@ -71,6 +72,9 @@ jobs:
       - name: Bridge atomic status overwrite
         shell: pwsh
         run: ./tests/RepositoryHandoffBridgeAtomicWrite.Tests.ps1
+      - name: Nested WSL-safe handoff routing
+        shell: pwsh
+        run: ./tests/RepositoryHandoffNestedRuntimeRouting.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1

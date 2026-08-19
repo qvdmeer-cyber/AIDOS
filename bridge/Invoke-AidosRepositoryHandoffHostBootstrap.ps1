@@ -34,18 +34,20 @@ $original=Join-Path $PSScriptRoot 'Invoke-AidosRepositoryHandoffHost.ps1'
 $bridgeOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoffBridge.psm1'
 $handoffOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1'
 $actorHandoffOriginal=Join-Path $PSScriptRoot 'AidosRepositoryActorHandoff.psm1'
+$reviewHandoffOriginal=Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1'
 $gatewayOriginal=Join-Path $PSScriptRoot 'AidosRepositoryHandoffGateway.psm1'
 if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $original"}
 if(-not(Test-Path -LiteralPath $bridgeOriginal -PathType Leaf)){throw "Repository handoff bridge module is unavailable: $bridgeOriginal"}
 if(-not(Test-Path -LiteralPath $handoffOriginal -PathType Leaf)){throw "Repository handoff module is unavailable: $handoffOriginal"}
 if(-not(Test-Path -LiteralPath $actorHandoffOriginal -PathType Leaf)){throw "Repository actor handoff module is unavailable: $actorHandoffOriginal"}
+if(-not(Test-Path -LiteralPath $reviewHandoffOriginal -PathType Leaf)){throw "Repository review handoff module is unavailable: $reviewHandoffOriginal"}
 if(-not(Test-Path -LiteralPath $gatewayOriginal -PathType Leaf)){throw "Repository handoff gateway module is unavailable: $gatewayOriginal"}
 
 # The operator machine has proven that both unqualified command lookup and
 # module-qualified lookup are unreliable for modules loaded from this UNC/WSL
 # path. Materialize temporary runtime copies beside the canonical modules.
 #
-# The Windows WSL provider can report ordinary directories as LinkType=HardLink
+# The Windows WSL provider can report ordinary repository items as LinkType=HardLink
 # without any LinkTarget/Target. Treat that specific provider-only shape as
 # ordinary content while still rejecting real targets and other explicit link
 # types. On normal Windows paths retain the conservative ReparsePoint check.
@@ -93,7 +95,7 @@ try{$runtimeHandoffStream.Write($runtimeHandoffBytes,0,$runtimeHandoffBytes.Leng
 
 # Actor publication imports its own handoff module. Route that nested dependency
 # through the same WSL-safe runtime handoff module or it bypasses the validator
-# used directly by the bridge.
+# used directly by the bridge and gateway.
 $actorHandoffSource=Get-Content -LiteralPath $actorHandoffOriginal -Raw -Encoding UTF8
 $actorHandoffTarget="Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking"
 $actorHandoffReplacement="Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
@@ -106,15 +108,35 @@ $runtimeActorHandoffBytes=[Text.UTF8Encoding]::new($false).GetBytes($actorHandof
 $runtimeActorHandoffStream=[IO.FileStream]::new($runtimeActorHandoff,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try{$runtimeActorHandoffStream.Write($runtimeActorHandoffBytes,0,$runtimeActorHandoffBytes.Length);$runtimeActorHandoffStream.Flush($true)}finally{$runtimeActorHandoffStream.Dispose()}
 
+# Review publication also imports the canonical handoff module. Give it the same
+# WSL-safe dependency so review reads and writes cannot reintroduce the provider
+# false-positive into gateway or bridge module scope.
+$reviewHandoffSource=Get-Content -LiteralPath $reviewHandoffOriginal -Raw -Encoding UTF8
+$reviewHandoffTarget="Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking"
+$reviewHandoffReplacement="Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
+$reviewHandoffMatches=[regex]::Matches($reviewHandoffSource,[regex]::Escape($reviewHandoffTarget)).Count
+if($reviewHandoffMatches-ne1){throw "Repository host bootstrap expected exactly one review-handoff dependency match; found $reviewHandoffMatches."}
+$reviewHandoffSource=$reviewHandoffSource.Replace($reviewHandoffTarget,$reviewHandoffReplacement)
+$runtimeReviewHandoffName='AidosRepositoryReviewHandoff.runtime.'+[guid]::NewGuid().ToString('N')+'.psm1'
+$runtimeReviewHandoff=Join-Path $PSScriptRoot $runtimeReviewHandoffName
+$runtimeReviewHandoffBytes=[Text.UTF8Encoding]::new($false).GetBytes($reviewHandoffSource)
+$runtimeReviewHandoffStream=[IO.FileStream]::new($runtimeReviewHandoff,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+try{$runtimeReviewHandoffStream.Write($runtimeReviewHandoffBytes,0,$runtimeReviewHandoffBytes.Length);$runtimeReviewHandoffStream.Flush($true)}finally{$runtimeReviewHandoffStream.Dispose()}
+
 # A previous gateway instance may publish terminal STOPPED state after a new
-# instance has already started. Also route gateway path validation through the
-# same WSL-safe handoff runtime module.
+# instance has already started. Route every nested repository handoff dependency
+# through the same WSL-safe runtime modules.
 $gatewaySource=Get-Content -LiteralPath $gatewayOriginal -Raw -Encoding UTF8
-$gatewayHandoffTarget="Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking"
-$gatewayHandoffReplacement="Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
-$gatewayHandoffMatches=[regex]::Matches($gatewaySource,[regex]::Escape($gatewayHandoffTarget)).Count
-if($gatewayHandoffMatches-ne1){throw "Repository host bootstrap expected exactly one gateway handoff dependency match; found $gatewayHandoffMatches."}
-$gatewaySource=$gatewaySource.Replace($gatewayHandoffTarget,$gatewayHandoffReplacement)
+$gatewayReplacements=[ordered]@{
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeActorHandoffName') -Force -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -DisableNameChecking"
+}
+foreach($pair in $gatewayReplacements.GetEnumerator()){
+    $matches=[regex]::Matches($gatewaySource,[regex]::Escape([string]$pair.Key)).Count
+    if($matches-ne1){throw "Repository host bootstrap expected exactly one gateway dependency match for: $($pair.Key); found $matches."}
+    $gatewaySource=$gatewaySource.Replace([string]$pair.Key,[string]$pair.Value)
+}
 $gatewayTarget='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$status.heartbeat_at=[DateTimeOffset]::UtcNow.ToString(''o'');Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
 $gatewayReplacement='$status=Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20;$heartbeat=[DateTimeOffset]::UtcNow.ToString(''o'');if([string]$status.status-ne''RUNNING'' -or [int]$status.pid-ne$PID){$status=[pscustomobject][ordered]@{schema_version=''0.2'';status=''RUNNING'';pid=$PID;listen_prefix=[string]$config.listen_prefix;started_at=$heartbeat;heartbeat_at=$heartbeat}}else{$status|Add-Member -NotePropertyName heartbeat_at -NotePropertyValue $heartbeat -Force};Write-AidosRepositoryHandoffGatewayJsonAtomic -Path $statusPath -Value $status'
 $gatewayMatches=[regex]::Matches($gatewaySource,[regex]::Escape($gatewayTarget)).Count
@@ -134,6 +156,7 @@ $bridgeReplacements=[ordered]@{
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeActorHandoffName') -Force -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -Global -DisableNameChecking"
 }
 foreach($pair in $bridgeReplacements.GetEnumerator()){
     $matches=[regex]::Matches($bridgeSource,[regex]::Escape([string]$pair.Key)).Count
@@ -188,6 +211,7 @@ try{
 }finally{
     if(Test-Path -LiteralPath $runtimeHost){Remove-Item -LiteralPath $runtimeHost -Force}
     if(Test-Path -LiteralPath $runtimeBridge){Remove-Item -LiteralPath $runtimeBridge -Force}
+    if(Test-Path -LiteralPath $runtimeReviewHandoff){Remove-Item -LiteralPath $runtimeReviewHandoff -Force}
     if(Test-Path -LiteralPath $runtimeActorHandoff){Remove-Item -LiteralPath $runtimeActorHandoff -Force}
     if(Test-Path -LiteralPath $runtimeHandoff){Remove-Item -LiteralPath $runtimeHandoff -Force}
     if(Test-Path -LiteralPath $runtimeGateway){Remove-Item -LiteralPath $runtimeGateway -Force}
