@@ -18,6 +18,8 @@ jobs:
             'bridge/AidosRepositoryHandoffSignal.psm1',
             'bridge/AidosRepositoryHandoffPersistence.psm1',
             'bridge/AidosRepositoryHandoffOpenApi.psm1',
+            'bridge/AidosRepositoryHandoffInstallation.psm1',
+            'bridge/Invoke-AidosRepositoryHandoffHost.ps1',
             'bridge/AidosRepositoryActorHandoff.psm1',
             'bridge/AidosRepositoryWorkerHandoff.psm1',
             'bridge/AidosRepositoryReviewHandoff.psm1',
@@ -27,6 +29,7 @@ jobs:
             'tests/RepositoryHandoff.Tests.ps1',
             'tests/RepositoryHandoffPersistence.Tests.ps1',
             'tests/RepositoryHandoffOpenApi.Tests.ps1',
+            'tests/RepositoryHandoffInstallation.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
             'tests/RepositoryThinkerBinding.Tests.ps1',
@@ -47,6 +50,9 @@ jobs:
       - name: GPT Action OpenAPI contract
         shell: pwsh
         run: ./tests/RepositoryHandoffOpenApi.Tests.ps1
+      - name: Repository handoff host installation model
+        shell: pwsh
+        run: ./tests/RepositoryHandoffInstallation.Tests.ps1
       - name: Repository Worker handoff
         shell: pwsh
         run: ./tests/RepositoryWorkerHandoff.Tests.ps1
