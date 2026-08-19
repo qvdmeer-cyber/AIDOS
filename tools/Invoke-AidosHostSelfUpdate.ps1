@@ -41,6 +41,33 @@ function Invoke-HostCoreValidation([Parameter(Mandatory)][string]$CandidateWslPa
     $code=$LASTEXITCODE
     [pscustomobject]@{exit_code=$code;output=@($output|ForEach-Object {[string]$_});candidate_root=$candidateUnc;engine=$engine}
 }
+function Clear-AidosValidationWorktree {
+    param(
+        [Parameter(Mandatory)][string]$Repo,
+        [Parameter(Mandatory)][string]$CandidateRoot,
+        [Parameter(Mandatory)][string]$Candidate,
+        [Parameter(Mandatory)][string]$Commit
+    )
+    if($Commit -notmatch '^[0-9a-f]{40}$'){throw 'Validation worktree cleanup requires an exact lowercase SHA-1 commit id.'}
+    $prefix=$CandidateRoot.TrimEnd('/')+'/'
+    if(-not$Candidate.StartsWith($prefix,[StringComparison]::Ordinal) -or -not[string]::Equals($Candidate,($prefix+$Commit),[StringComparison]::Ordinal)){
+        throw "Refusing validation worktree cleanup outside the exact AIDOS-owned candidate path: $Candidate"
+    }
+
+    # Registered worktrees are removed through Git first. A prior interrupted
+    # validation may leave only the directory behind, so prune metadata before
+    # checking for that known AIDOS-owned stale directory.
+    Invoke-Wsl @('git','-C',$Repo,'worktree','remove','--force',$Candidate)|Out-Null
+    Require-WslSuccess 'prune validation worktrees' (Invoke-Wsl @('git','-C',$Repo,'worktree','prune'))|Out-Null
+
+    $absent=Invoke-Wsl @('test','!','-e',$Candidate)
+    if([int]$absent.exit_code-ne0){
+        Require-WslSuccess 'remove stale validation worktree directory' (Invoke-Wsl @('rm','-rf','--',$Candidate))|Out-Null
+        $absent=Invoke-Wsl @('test','!','-e',$Candidate)
+        if([int]$absent.exit_code-ne0){throw "AIDOS validation worktree path remains after bounded cleanup: $Candidate"}
+        Require-WslSuccess 'prune validation worktrees after stale-directory cleanup' (Invoke-Wsl @('git','-C',$Repo,'worktree','prune'))|Out-Null
+    }
+}
 
 $lock=$null
 try{$lock=[IO.FileStream]::new($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
@@ -65,14 +92,18 @@ try {
     if([string]$local-eq[string]$remote){Write-SelfUpdateStatus -Status 'CURRENT' -Detail @{commit=$local}|Out-Null;exit 0}
     $ancestor=Invoke-Wsl @('git','-C',$repo,'merge-base','--is-ancestor',$local,$remote)
     if([int]$ancestor.exit_code-ne0){Write-SelfUpdateStatus -Status 'BLOCKED_NON_FAST_FORWARD' -Detail @{local=$local;remote=$remote}|Out-Null;exit 1}
+    if($remote -notmatch '^[0-9a-f]{40}$'){throw "Remote Core revision is not an exact lowercase SHA-1 commit id: $remote"}
 
-    $candidate="$WslReposRoot/.aidos-core-update/$remote"
-    Invoke-Wsl @('git','-C',$repo,'worktree','remove','--force',$candidate)|Out-Null
+    $candidateRoot="$WslReposRoot/.aidos-core-update"
+    $candidate="$candidateRoot/$remote"
+    Clear-AidosValidationWorktree -Repo $repo -CandidateRoot $candidateRoot -Candidate $candidate -Commit $remote
     Require-WslSuccess 'create validation worktree' (Invoke-Wsl @('git','-C',$repo,'worktree','add','--detach',$candidate,$remote))|Out-Null
     try {
         $validation=Invoke-HostCoreValidation -CandidateWslPath $candidate
         if([int]$validation.exit_code-ne0){Write-SelfUpdateStatus -Status 'VALIDATION_FAILED' -Detail @{remote=$remote;candidate_root=[string]$validation.candidate_root;engine=[string]$validation.engine;output=@($validation.output)}|Out-Null;exit 1}
-    } finally {Invoke-Wsl @('git','-C',$repo,'worktree','remove','--force',$candidate)|Out-Null}
+    } finally {
+        Clear-AidosValidationWorktree -Repo $repo -CandidateRoot $candidateRoot -Candidate $candidate -Commit $remote
+    }
 
     Require-WslSuccess 'fast-forward Core update' (Invoke-Wsl @('git','-C',$repo,'merge','--ff-only',$remote))|Out-Null
     [ordered]@{schema_version='0.1';commit=$remote;previous_commit=$local;validated_at=[DateTimeOffset]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $reloadMarkerPath -Encoding utf8NoBOM
