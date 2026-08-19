@@ -46,6 +46,7 @@ jobs:
             'tests/RepositoryThinkerOptionalLegacyPattern.Tests.ps1',
             'tests/RepositoryThinkerMarkdownNormalization.Tests.ps1',
             'tests/RepositoryThinkerRetryTimestamp.Tests.ps1',
+            'tests/RepositoryCurrentThinkerTriggerGuard.Tests.ps1',
             'tests/RepositoryHandoffBridge.Tests.ps1'
           )
           foreach ($path in $paths) {
@@ -111,6 +112,9 @@ jobs:
       - name: Thinker retry timestamp parsing
         shell: pwsh
         run: ./tests/RepositoryThinkerRetryTimestamp.Tests.ps1
+      - name: Current Thinker trigger dispatch guard
+        shell: pwsh
+        run: ./tests/RepositoryCurrentThinkerTriggerGuard.Tests.ps1
       - name: Unified preparation and runtime bridge
         shell: pwsh
         run: ./tests/RepositoryHandoffBridge.Tests.ps1
