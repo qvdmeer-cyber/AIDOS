@@ -42,8 +42,8 @@ if(-not(Test-Path -LiteralPath $original -PathType Leaf)){throw "Repository hand
 $source=Get-Content -LiteralPath $original -Raw -Encoding UTF8
 $replacements=[ordered]@{
     "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -Force -Global -DisableNameChecking"
-    '`$snapshot=Get-AidosInteractiveSessionSnapshot' = '`$snapshot=AidosWindowsSession\Get-AidosInteractiveSessionSnapshot'
-    '`$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot `$snapshot -AuthorizedUser `$ExpectedUser' = '`$authorization=AidosWindowsSession\Test-AidosAuthorizedInteractiveSession -Snapshot `$snapshot -AuthorizedUser `$ExpectedUser'
+    '$snapshot=Get-AidosInteractiveSessionSnapshot' = '$snapshot=AidosWindowsSession\Get-AidosInteractiveSessionSnapshot'
+    '$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser' = '$authorization=AidosWindowsSession\Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser'
 }
 foreach($pair in $replacements.GetEnumerator()){
     $matches=[regex]::Matches($source,[regex]::Escape([string]$pair.Key)).Count
