@@ -13,8 +13,12 @@ function Select-AidosDesktopChatGPTResolvedActorResponseFromHierarchyTexts {
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$AncestorRangeTexts,
         [Parameter(Mandatory)]$Assignment
     )
-    $direct=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts $ElementTexts -Assignment $Assignment
+    $direct=$null
+    if($ElementTexts.Count-gt0){
+        $direct=Select-AidosDesktopChatGPTResolvedActorResponseText -Texts $ElementTexts -Assignment $Assignment
+    }
     if(-not[string]::IsNullOrWhiteSpace([string]$direct)){return $direct}
+    if($AncestorRangeTexts.Count-eq0){return $null}
     Select-AidosDesktopChatGPTResolvedActorResponseText -Texts $AncestorRangeTexts -Assignment $Assignment
 }
 
