@@ -18,6 +18,30 @@ function Get-AidosRepositoryHandoffGatewayPath {
     $names=@{config='CONFIG.json';key='API_KEY.txt';status='STATUS.json';stop='STOP'}
     Join-Path ([IO.Path]::GetFullPath($StateRoot)) $names[$Kind]
 }
+function Move-AidosRepositoryHandoffGatewayAtomicFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$DestinationPath,
+        [ValidateRange(1,100)][int]$MaxAttempts=20,
+        [ValidateRange(0,1000)][int]$DelayMilliseconds=25,
+        [scriptblock]$MoveAction,
+        [scriptblock]$SleepAction
+    )
+    if($null-eq$MoveAction){$MoveAction={param($source,$destination);[IO.File]::Move($source,$destination,$true)}}
+    if($null-eq$SleepAction){$SleepAction={param($milliseconds);Start-Sleep -Milliseconds $milliseconds}}
+    for($attempt=1;$attempt-le$MaxAttempts;$attempt++){
+        try{
+            & $MoveAction $SourcePath $DestinationPath
+            return
+        }catch [UnauthorizedAccessException]{
+            if($attempt-ge$MaxAttempts){throw}
+        }catch [IO.IOException]{
+            if($attempt-ge$MaxAttempts){throw}
+        }
+        & $SleepAction $DelayMilliseconds
+    }
+}
 function Write-AidosRepositoryHandoffGatewayJsonAtomic {
     param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)]$Value)
     $dir=Split-Path -Parent $Path
@@ -25,7 +49,7 @@ function Write-AidosRepositoryHandoffGatewayJsonAtomic {
     $tmp="$Path.$([guid]::NewGuid().ToString('N')).tmp"
     try{
         $Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
-        [IO.File]::Move($tmp,$Path,$true)
+        Move-AidosRepositoryHandoffGatewayAtomicFile -SourcePath $tmp -DestinationPath $Path
     }finally{
         if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}
     }
@@ -271,4 +295,4 @@ function Stop-AidosRepositoryHandoffGateway {
     [pscustomobject][ordered]@{status='STOP_REQUESTED';state_root=[IO.Path]::GetFullPath($StateRoot)}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Test-AidosRepositoryHandoffGatewayProjectId,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
+Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Move-AidosRepositoryHandoffGatewayAtomicFile,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Test-AidosRepositoryHandoffGatewayProjectId,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
