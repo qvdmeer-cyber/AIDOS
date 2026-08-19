@@ -5,6 +5,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousExecution.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWorkerDispatchGuard.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorTransport.psm1') -DisableNameChecking
 
 function Resolve-AidosRepositoryWorkerHandoffModulePath {
     [CmdletBinding()]
@@ -109,6 +110,79 @@ function New-AidosRepositoryWorkerDeferredPersistence {
     }
 }
 
+function Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Project,
+        [Parameter(Mandatory)]$Handoff
+    )
+    $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+    $state=Get-AidosState -ProjectRoot $root
+    if([string]$state.state-ne'TASK_READY'){throw 'Another repository actor assignment is already active.'}
+    if($null-eq$Handoff -or [string]$Handoff.metadata.kind-ne'ASSIGNMENT' -or [string]$Handoff.metadata.from_actor-ne'CORE' -or [string]$Handoff.metadata.to_actor-ne'THINKER'){
+        throw 'Another repository actor assignment is already active.'
+    }
+    $payloadRef=[string]$Handoff.metadata.payload_ref
+    $prefix='.aidos/runtime/actor-assignments/'
+    if(-not$payloadRef.StartsWith($prefix,[StringComparison]::Ordinal) -or -not$payloadRef.EndsWith('.json',[StringComparison]::Ordinal)){
+        throw 'Another repository actor assignment is already active.'
+    }
+    $assignmentId=$payloadRef.Substring($prefix.Length,$payloadRef.Length-$prefix.Length-5)
+    $parsedAssignmentId=[guid]::Empty
+    if(-not[guid]::TryParse($assignmentId,[ref]$parsedAssignmentId)){throw 'Another repository actor assignment is already active.'}
+
+    $bound=Read-AidosRuntimeActorAssignment -ProjectRoot $root -AssignmentId $assignmentId
+    $assignment=$bound.assignment
+    $assignmentRef=[IO.Path]::GetRelativePath($root,$bound.path).Replace('\','/')
+    if([string]$assignment.project_id-ne[string]$Project.project_id -or [string]$assignment.actor_role-ne'THINKER' -or [string]$Handoff.metadata.payload_ref-ne$assignmentRef -or [string]$Handoff.metadata.payload_sha256-ne[string]$bound.sha256 -or [string]$Handoff.metadata.action-ne[string]$assignment.action){
+        throw 'Another repository actor assignment is already active.'
+    }
+    foreach($name in @('project_state','definition_id','definition_version','execution_id','revision','review_id')){
+        if([string]$Handoff.metadata.binding.$name-ne[string]$assignment.binding.$name){throw 'Another repository actor assignment is already active.'}
+    }
+
+    $transport=Read-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $assignmentId
+    if($null-eq$transport -or [string]$transport.status-ne'CONSUMED'){throw 'Another repository actor assignment is already active.'}
+    $resultPath=Get-AidosRuntimeActorResultPath -ProjectRoot $root -AssignmentId $assignmentId
+    if(-not(Test-Path -LiteralPath $resultPath -PathType Leaf)){throw 'Consumed runtime actor assignment has no durable result to reconcile.'}
+    $result=Read-AidosJson -Path $resultPath
+    Test-AidosRuntimeActorResultBinding -ProjectRoot $root -Result $result|Out-Null
+    if([string]$result.outcome-ne'COMPLETED'){throw 'Consumed runtime actor result is not COMPLETED and cannot close a stale repository assignment.'}
+    $resultRef=[IO.Path]::GetRelativePath($root,$resultPath).Replace('\','/')
+    if([string]$transport.result_ref-ne$resultRef){throw 'Consumed runtime actor transport result_ref does not match the durable result.'}
+    $resultSha=(Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $metadata=[pscustomobject][ordered]@{
+        schema_version='0.1'
+        envelope_type='AIDOS_REPOSITORY_HANDOFF'
+        handoff_id=[guid]::NewGuid().ToString()
+        project_id=[string]$Project.project_id
+        kind='RESULT'
+        from_actor='THINKER'
+        to_actor='CORE'
+        status='READY'
+        parent_handoff_id=[string]$Handoff.metadata.handoff_id
+        created_at=[DateTimeOffset]::UtcNow.ToString('o')
+        action=([string]$assignment.action+'_RESULT')
+        payload_ref=$resultRef
+        payload_sha256=$resultSha
+        binding=$assignment.binding
+        source_refs=@()
+    }
+    Test-AidosRepositoryHandoffTransition -Previous $Handoff -Next $metadata|Out-Null
+    $body="# AIDOS reconciled Thinker result`n`nThe current repository assignment referenced runtime assignment $assignmentId, which AIDOS Core has already consumed. This RESULT handoff restores the repository transport chain from the exact durable runtime actor result."
+    $reconciled=Write-AidosRepositoryHandoff -ProjectRoot $root -Metadata $metadata -Body $body -ExpectedParentHandoffId ([string]$Handoff.metadata.handoff_id)
+    Add-AidosEvent -ProjectRoot $root -EventType 'REPOSITORY_STALE_ASSIGNMENT_RECONCILED' -Actor SYSTEM -Payload @{
+        stale_handoff_id=[string]$Handoff.metadata.handoff_id
+        result_handoff_id=[string]$metadata.handoff_id
+        assignment_id=$assignmentId
+        assignment_sha256=[string]$bound.sha256
+        transport_status=[string]$transport.status
+        result_ref=$resultRef
+        result_sha256=$resultSha
+    }|Out-Null
+    $reconciled
+}
+
 function Publish-AidosRepositoryWorkerAssignment {
     [CmdletBinding()]
     param(
@@ -134,7 +208,7 @@ function Publish-AidosRepositoryWorkerAssignment {
                 persistence=[pscustomobject][ordered]@{status='NO_CHANGES';commit=$null;pushed=$false;paths=@()}
             }
         }
-        throw 'Another repository actor assignment is already active.'
+        $existing=Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment -Project $Project -Handoff $existing
     }
     $binding=Get-AidosRepositoryWorkerBinding -ProjectRoot $root -Execution $execution
     $metadata=[pscustomobject][ordered]@{
@@ -359,4 +433,4 @@ function Invoke-AidosRepositoryWorkerHandoff {
     }
 }
 
-Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff
+Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff
