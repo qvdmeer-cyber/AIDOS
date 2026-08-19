@@ -7,7 +7,7 @@ $root=Split-Path $PSScriptRoot -Parent
 $bootstrapPath=Join-Path $root 'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1'
 $hostPath=Join-Path $root 'bridge/Invoke-AidosRepositoryHandoffHost.ps1'
 $text=Get-Content -LiteralPath $bootstrapPath -Raw -Encoding UTF8
-$host=Get-Content -LiteralPath $hostPath -Raw -Encoding UTF8
+$hostText=Get-Content -LiteralPath $hostPath -Raw -Encoding UTF8
 
 $script:passed=0
 function Assert-Bootstrap([bool]$Condition,[string]$Message){
@@ -29,7 +29,7 @@ $replacements=[ordered]@{
     '$snapshot=Get-AidosInteractiveSessionSnapshot' = '$snapshot=AidosWindowsSession\Get-AidosInteractiveSessionSnapshot'
     '$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser' = '$authorization=AidosWindowsSession\Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser'
 }
-$runtime=$host
+$runtime=$hostText
 foreach($pair in $replacements.GetEnumerator()){
     $matches=[regex]::Matches($runtime,[regex]::Escape([string]$pair.Key)).Count
     Assert-Bootstrap ($matches-eq1) "canonical host contains exactly one replacement target: $($pair.Key)"
