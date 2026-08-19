@@ -74,6 +74,8 @@ try{
     $staleAssignment=[ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_ASSIGNMENT';assignment_id=$staleAssignmentId;project_id='P2';actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';binding=$staleBinding;requested_at=[DateTimeOffset]::UtcNow.AddMinutes(-2).ToString('o')}
     $staleAssignmentPath=Join-Path $staleAssignmentDir ($staleAssignmentId+'.json');$staleAssignment|ConvertTo-Json -Depth 30|Set-Content $staleAssignmentPath -Encoding utf8NoBOM
     $staleAssignmentSha=(Get-FileHash -LiteralPath $staleAssignmentPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Initialize-AidosRuntimeActorTransportState -ProjectRoot $staleRepo -AssignmentId $staleAssignmentId|Out-Null
+    Set-AidosRuntimeActorTransportState -ProjectRoot $staleRepo -AssignmentId $staleAssignmentId -Status ACTIVATED -TransportType REPOSITORY_HANDOFF|Out-Null
     $staleResult=[pscustomobject][ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=$staleAssignmentId;assignment_sha256=$staleAssignmentSha;project_id='P2';actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';binding=[pscustomobject]$staleBinding;outcome='COMPLETED';result=[pscustomobject][ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='done';applicability_resolutions=@();surface_resolutions=@();human_input_request=$null};responded_at=[DateTimeOffset]::UtcNow.AddMinutes(-1).ToString('o')}
     Save-AidosRuntimeActorResult -ProjectRoot $staleRepo -Result $staleResult|Out-Null
     $staleResultRef='.aidos/runtime/actor-results/'+$staleAssignmentId+'.json'
