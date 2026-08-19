@@ -24,7 +24,7 @@ jobs:
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors)
-            if ($errors.Count) { throw "$path: $($errors.Message -join '; ')" }
+            if ($errors.Count) { throw "${path}: $($errors.Message -join '; ')" }
           }
       - name: Repository handoff contract
         shell: pwsh
