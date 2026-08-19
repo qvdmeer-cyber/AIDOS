@@ -15,7 +15,10 @@ function ConvertTo-AidosRepositoryHandoffGitPath {
 function Get-AidosRepositoryHandoffChangedPaths {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Project)
-    $status=Invoke-AidosRegisteredGit -Project $Project -Arguments @('status','--porcelain=v1')
+    # --untracked-files=all is required because a collapsed `?? .aidos/events/`
+    # directory cannot be used as the exact allow-list for the files a scoped
+    # commit will contain.
+    $status=Invoke-AidosRegisteredGit -Project $Project -Arguments @('status','--porcelain=v1','--untracked-files=all')
     if($status.ExitCode-ne0){throw 'Unable to inspect repository handoff worktree.'}
     $items=[Collections.Generic.List[object]]::new()
     foreach($line in @($status.Output)){
@@ -23,7 +26,12 @@ function Get-AidosRepositoryHandoffChangedPaths {
         if([string]::IsNullOrWhiteSpace($text) -or $text.Length-lt4){continue}
         $path=$text.Substring(3).Trim()
         if($path -match ' -> '){$path=($path -split ' -> ')[-1]}
-        $items.Add([pscustomobject][ordered]@{index=$text.Substring(0,1);worktree=$text.Substring(1,1);path=(ConvertTo-AidosRepositoryHandoffGitPath -Path $path);raw=$text})
+        $items.Add([pscustomobject][ordered]@{
+            index=$text.Substring(0,1)
+            worktree=$text.Substring(1,1)
+            path=(ConvertTo-AidosRepositoryHandoffGitPath -Path $path)
+            raw=$text
+        })
     }
     $items.ToArray()
 }
@@ -42,9 +50,18 @@ function Invoke-AidosRepositoryHandoffGitPersistence {
     foreach($path in $requested){if(-not(Test-AidosAllowedPersistencePath -Project $Project -Path $path)){throw "Unauthorized handoff persistence path: $path"}}
 
     $changed=@(Get-AidosRepositoryHandoffChangedPaths -Project $Project)
-    $changedByPath=@{};foreach($item in $changed){$changedByPath[[string]$item.path]=$item}
+    $changedByPath=@{}
+    foreach($item in $changed){$changedByPath[[string]$item.path]=$item}
     $effective=@($requested|Where-Object {$changedByPath.ContainsKey($_)})
-    if($effective.Count-eq0){return [pscustomobject][ordered]@{status='NO_CHANGES';commit=$null;pushed=$false;paths=@();uncommitted_paths=@($changed|ForEach-Object path)}}
+    if($effective.Count-eq0){
+        return [pscustomobject][ordered]@{
+            status='NO_CHANGES'
+            commit=$null
+            pushed=$false
+            paths=@()
+            uncommitted_paths=@($changed|ForEach-Object path)
+        }
+    }
 
     $staged=Invoke-AidosRegisteredGit -Project $Project -Arguments @('diff','--cached','--name-only')
     if($staged.ExitCode-ne0){throw 'Unable to inspect staged repository paths.'}
@@ -70,9 +87,19 @@ function Invoke-AidosRepositoryHandoffGitPersistence {
     $committedPaths=@($committed.Output|Where-Object {-not[string]::IsNullOrWhiteSpace([string]$_)}|ForEach-Object {ConvertTo-AidosRepositoryHandoffGitPath -Path ([string]$_)})
     foreach($path in $committedPaths){if(-not$requestedSet.Contains($path)){throw "Scoped handoff commit unexpectedly contains '$path'."}}
     $pushed=$false
-    if($Push){$pushResult=Invoke-AidosRegisteredGit -Project $Project -Arguments @('push');if($pushResult.ExitCode-ne0){throw 'git push failed after scoped handoff commit.'};$pushed=$true}
+    if($Push){
+        $pushResult=Invoke-AidosRegisteredGit -Project $Project -Arguments @('push')
+        if($pushResult.ExitCode-ne0){throw 'git push failed after scoped handoff commit.'}
+        $pushed=$true
+    }
     $remaining=@(Get-AidosRepositoryHandoffChangedPaths -Project $Project|ForEach-Object path)
-    [pscustomobject][ordered]@{status='PERSISTED';commit=$sha;pushed=$pushed;paths=$committedPaths;uncommitted_paths=$remaining}
+    [pscustomobject][ordered]@{
+        status='PERSISTED'
+        commit=$sha
+        pushed=$pushed
+        paths=$committedPaths
+        uncommitted_paths=$remaining
+    }
 }
 
 Export-ModuleMember -Function ConvertTo-AidosRepositoryHandoffGitPath,Get-AidosRepositoryHandoffChangedPaths,Invoke-AidosRepositoryHandoffGitPersistence
