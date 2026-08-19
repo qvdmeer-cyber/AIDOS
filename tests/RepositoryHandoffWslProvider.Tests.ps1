@@ -72,7 +72,7 @@ try{
     if(-not[string]::Equals([IO.Path]::GetFullPath($resolved),[IO.Path]::GetFullPath($runtimeOne),[StringComparison]::Ordinal)){throw 'ASSERTION FAILED: Worker handoff does not select the single loaded runtime handoff module'}
 
     Set-Content -LiteralPath $runtimeTwo -Value '# second test runtime handoff' -Encoding utf8NoBOM
-    Assert-Throws {Resolve-AidosRepositoryWorkerHandoffModulePath -ModuleRoot $moduleRoot -LoadedModules @([pscustomobject]@{Path=$runtimeOne},[pscustomobject]@{Path=$runtimeTwo})|Out-Null} 'multiple loaded repository handoff modules' 'Worker handoff fails closed on ambiguous runtime handoff modules'
+    Assert-Throws {Resolve-AidosRepositoryWorkerHandoffModulePath -ModuleRoot $moduleRoot -LoadedModules @([pscustomobject]@{Path=$runtimeOne},[pscustomobject]@{Path=$runtimeTwo})|Out-Null} 'has 2 loaded repository handoff modules' 'Worker handoff fails closed on ambiguous runtime handoff modules'
 }finally{
     Remove-Item -LiteralPath $runtimeOne,$runtimeTwo -Force -ErrorAction SilentlyContinue
 }
