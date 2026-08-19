@@ -29,7 +29,8 @@ jobs:
             'tests/RepositoryHandoffOpenApi.Tests.ps1',
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
-            'tests/RepositoryThinkerBinding.Tests.ps1'
+            'tests/RepositoryThinkerBinding.Tests.ps1',
+            'tests/RepositoryHandoffBridge.Tests.ps1'
           )
           foreach ($path in $paths) {
             $tokens = $null
@@ -55,3 +56,6 @@ jobs:
       - name: Project Thinker binding and trigger
         shell: pwsh
         run: ./tests/RepositoryThinkerBinding.Tests.ps1
+      - name: Unified preparation and runtime bridge
+        shell: pwsh
+        run: ./tests/RepositoryHandoffBridge.Tests.ps1
