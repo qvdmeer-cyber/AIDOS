@@ -25,7 +25,7 @@ function Write-AidosRepositoryHandoffGatewayJsonAtomic {
     $tmp="$Path.$([guid]::NewGuid().ToString('N')).tmp"
     try{
         $Value|ConvertTo-Json -Depth 100|Set-Content -LiteralPath $tmp -Encoding utf8NoBOM
-        Move-Item -LiteralPath $tmp -Destination $Path -Force
+        [IO.File]::Move($tmp,$Path,$true)
     }finally{
         if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}
     }
@@ -167,7 +167,8 @@ function Submit-AidosRepositoryRuntimeActorResult {
         if([string]::Equals([string]$handoff.metadata.parent_handoff_id,[string]$Request.expected_parent_handoff_id,[StringComparison]::OrdinalIgnoreCase)){return [pscustomobject][ordered]@{status='ALREADY_ACCEPTED';handoff=$handoff}}
         throw 'Repository handoff already contains a different result.'
     }
-    if([string]$handoff.metadata.kind-ne'ASSIGNMENT'-or[string]$handoff.metadata.to_actor-ne'THINKER'){throw 'Current repository handoff is not a Thinker assignment.'}
+    if([string]$handoff.metadata.kind-ne'ASSIGNMENT'-or[string]$handoff.metadata.to_actor-ne'THINKER'){throw 'Current repository handoff is not a Thinker assignment.'
+    }
     if(-not[string]::Equals([string]$handoff.metadata.handoff_id,[string]$Request.expected_parent_handoff_id,[StringComparison]::OrdinalIgnoreCase)){throw 'Result submission parent handoff is stale.'}
     $result=$Request.result
     $binding=Test-AidosRuntimeActorResultBinding -ProjectRoot $root -Result $result
