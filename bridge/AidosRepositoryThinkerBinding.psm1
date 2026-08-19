@@ -51,9 +51,21 @@ function Get-AidosRepositoryThinkerCurrentConversationFromRoot {
     if(@($ordered|Where-Object {[int]$_.score-eq[int]$best.score}).Count-ne1){throw 'Active ChatGPT conversation document remains ambiguous.'}
     [pscustomobject][ordered]@{title=[string]$best.title;url=[string]$best.url;document=$best.element}
 }
+function Get-AidosRepositoryThinkerLegacyAccessiblePattern {
+    $legacyType='System.Windows.Automation.LegacyIAccessiblePattern' -as [type]
+    if($null-eq$legacyType){return $null}
+    $property=$legacyType.GetProperty('Pattern',[Reflection.BindingFlags]::Public -bor [Reflection.BindingFlags]::Static)
+    if($null-eq$property){return $null}
+    $property.GetValue($null)
+}
 function Test-AidosRepositoryThinkerActionableElement {
     param([Parameter(Mandatory)]$Element)
-    foreach($pattern in @([System.Windows.Automation.SelectionItemPattern]::Pattern,[System.Windows.Automation.InvokePattern]::Pattern,[System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)){
+    $patterns=[Collections.Generic.List[object]]::new()
+    $patterns.Add([System.Windows.Automation.SelectionItemPattern]::Pattern)
+    $patterns.Add([System.Windows.Automation.InvokePattern]::Pattern)
+    $legacyPattern=Get-AidosRepositoryThinkerLegacyAccessiblePattern
+    if($null-ne$legacyPattern){$patterns.Add($legacyPattern)}
+    foreach($pattern in $patterns){
         try{$null=$Element.GetCurrentPattern($pattern);return $true}catch{}
     }
     $false
@@ -62,7 +74,10 @@ function Invoke-AidosRepositoryThinkerActionableElement {
     param([Parameter(Mandatory)]$Element)
     try{$p=$Element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern);$p.Select();return 'SELECTION_ITEM'}catch{}
     try{$p=$Element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern);$p.Invoke();return 'INVOKE'}catch{}
-    try{$p=$Element.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern);$p.DoDefaultAction();return 'LEGACY_DEFAULT_ACTION'}catch{}
+    $legacyPattern=Get-AidosRepositoryThinkerLegacyAccessiblePattern
+    if($null-ne$legacyPattern){
+        try{$p=$Element.GetCurrentPattern($legacyPattern);$p.DoDefaultAction();return 'LEGACY_DEFAULT_ACTION'}catch{}
+    }
     throw 'Bound ChatGPT conversation element exposes no actionable UIA pattern.'
 }
 function Find-AidosRepositoryThinkerConversationAction {
@@ -218,4 +233,4 @@ function Reset-AidosRepositoryThinkerTrigger {
     [pscustomobject][ordered]@{status='RESET';project_id=$ProjectId;handoff_id=$HandoffId}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Test-AidosRepositoryThinkerActionableElement,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Reset-AidosRepositoryThinkerTrigger
+Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Reset-AidosRepositoryThinkerTrigger
