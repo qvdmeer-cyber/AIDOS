@@ -58,7 +58,7 @@ try{
     $result=[pscustomobject][ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=$assignmentId;assignment_sha256=$assignmentSha;project_id='PROJECT-1';actor_role='THINKER';actor_identity='DEFINITION_AGENT';action='START_DEFINITION';binding=$assignment.binding;outcome='COMPLETED';result=[pscustomobject][ordered]@{result_type='DEFINITION_THINKER_OUTPUT';summary='done';applicability_resolutions=@();surface_resolutions=@();human_input_request=$null};responded_at=[DateTimeOffset]::UtcNow.ToString('o')}
     $request=[pscustomobject][ordered]@{expected_parent_handoff_id=$handoffId;summary='Thinker completed the assignment.';result=$result}
     $submitted=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/results' -Body $request -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root
-    Assert-Gateway ([int]$submitted.status_code-eq200 -and [string]$submitted.body.status-eq'ACCEPTED') 'valid Thinker result is accepted'
+    Assert-Gateway ([int]$submitted.status_code-eq200 -and [string]$submitted.body.status-eq'ACCEPTED') ("valid Thinker result is accepted: "+($submitted|ConvertTo-Json -Depth 100 -Compress))
     $resultPath=Join-Path $projectRoot ".aidos/runtime/actor-results/$assignmentId.json"
     Assert-Gateway (Test-Path -LiteralPath $resultPath -PathType Leaf) 'accepted result is persisted through existing actor binding validator'
     $resultHandoff=Read-AidosRepositoryHandoff -ProjectRoot $projectRoot -ExpectedProjectId 'PROJECT-1'
