@@ -31,12 +31,18 @@ try{
     $acl=@(Get-AidosRepositoryHandoffUrlAclArguments -AuthorizedUser 'AIDOS\qvdm' -Port 47831)
     Assert-Install (($acl-join' ')-eq'http add urlacl url=http://127.0.0.1:47831/ user=AIDOS\qvdm listen=yes delegate=no') 'URL ACL grants only the configured Windows identity'
 
+    Assert-Install ((Resolve-AidosRepositoryHandoffPublicUrl -PublicUrl 'https://aidos.tail1234.ts.net/' -PublicPort 443)-eq'https://aidos.tail1234.ts.net') 'default HTTPS public URL omits port 443'
+    Assert-Install ((Resolve-AidosRepositoryHandoffPublicUrl -PublicUrl 'https://aidos.tail1234.ts.net/' -PublicPort 8443)-eq'https://aidos.tail1234.ts.net:8443') 'non-default Funnel port is included in GPT Action server URL'
+    Assert-InstallThrows {Resolve-AidosRepositoryHandoffPublicUrl -PublicUrl 'https://aidos.tail1234.ts.net/base' -PublicPort 443} 'origin root' 'public URL rejects a path prefix that the gateway does not serve'
+
     foreach($dir in @('aidos','registry','builder','contracts','host','bridge','gateway')){New-Item -ItemType Directory -Path (Join-Path $temp $dir) -Force|Out-Null}
     $entryPoint=Join-Path $temp 'entry.ps1';Set-Content -LiteralPath $entryPoint -Value '# entry' -Encoding utf8NoBOM
     $tailscale=Join-Path $temp 'tailscale.exe';Set-Content -LiteralPath $tailscale -Value 'fixture' -Encoding ascii
-    $config=New-AidosRepositoryHandoffHostConfiguration -EntryPoint $entryPoint -AidosRoot (Join-Path $temp 'aidos') -RegistryRoot (Join-Path $temp 'registry') -BuilderRoot (Join-Path $temp 'builder') -ContractsRoot (Join-Path $temp 'contracts') -HostStateRoot (Join-Path $temp 'host') -BridgeStateRoot (Join-Path $temp 'bridge') -GatewayStateRoot (Join-Path $temp 'gateway') -AuthorizedUser 'AIDOS\qvdm' -ProcessName 'ChatGPT Classic' -PublicUrl 'https://aidos.tail1234.ts.net/' -TailscalePath $tailscale
+    [ordered]@{schema_version='0.2';registry_root=(Join-Path $temp 'registry');state_root=(Join-Path $temp 'bridge');process_name='OLD'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $temp 'bridge/CONFIG.json') -Encoding utf8NoBOM
+    $config=New-AidosRepositoryHandoffHostConfiguration -EntryPoint $entryPoint -AidosRoot (Join-Path $temp 'aidos') -RegistryRoot (Join-Path $temp 'registry') -BuilderRoot (Join-Path $temp 'builder') -ContractsRoot (Join-Path $temp 'contracts') -HostStateRoot (Join-Path $temp 'host') -BridgeStateRoot (Join-Path $temp 'bridge') -GatewayStateRoot (Join-Path $temp 'gateway') -AuthorizedUser 'AIDOS\qvdm' -ProcessName 'ChatGPT Classic Test' -PublicUrl 'https://aidos.tail1234.ts.net/' -TailscalePath $tailscale
     Assert-Install ([string]$config.public_url-eq'https://aidos.tail1234.ts.net') 'host configuration normalizes public URL'
-    Assert-Install ([string]$config.schema_version-eq'0.1') 'host configuration schema is explicit'
+    Assert-Install ([string]$config.schema_version-eq'0.2') 'host configuration schema is explicit'
+    Assert-Install ([string]$config.process_name-eq'ChatGPT Classic Test') 'host configuration binds exact ChatGPT process name'
     Assert-Install (-not($config.PSObject.Properties.Name-contains'api_key')) 'host configuration never embeds the gateway secret'
     Assert-Install ([string]$config.openapi_path-eq(Get-AidosRepositoryHandoffHostPath -StateRoot (Join-Path $temp 'host') -Kind openapi)) 'host configuration binds generated OpenAPI path'
 
@@ -58,6 +64,12 @@ try{
     foreach($path in @($written.config_path,$written.launcher_path,$written.vbs_path,$written.engine_path,$written.instructions_path)){Assert-Install (Test-Path -LiteralPath $path -PathType Leaf) "host file exists: $path"}
     $persisted=Get-Content -LiteralPath $written.config_path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
     Assert-Install (-not($persisted.PSObject.Properties.Name-contains'api_key')) 'persisted host configuration contains no gateway secret'
+    Assert-Install ([string]$written.bridge_configuration.status-eq'SYNCHRONIZED') 'host file publication synchronizes the bridge configuration'
+    $bridgeConfig=Get-Content -LiteralPath (Join-Path $temp 'bridge/CONFIG.json') -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+    Assert-Install ([string]$bridgeConfig.schema_version-eq'0.3' -and [string]$bridgeConfig.process_name-eq'ChatGPT Classic Test') 'bridge starts the exact configured ChatGPT process identity'
+
+    $nonDefault=New-AidosRepositoryHandoffHostConfiguration -EntryPoint $entryPoint -AidosRoot (Join-Path $temp 'aidos') -RegistryRoot (Join-Path $temp 'registry') -BuilderRoot (Join-Path $temp 'builder') -ContractsRoot (Join-Path $temp 'contracts') -HostStateRoot (Join-Path $temp 'host') -BridgeStateRoot (Join-Path $temp 'bridge') -GatewayStateRoot (Join-Path $temp 'gateway') -AuthorizedUser 'AIDOS\qvdm' -ProcessName 'ChatGPT Classic Test' -PublicUrl 'https://aidos.tail1234.ts.net' -TailscalePath $tailscale -PublicPort 10000
+    Assert-Install ([string]$nonDefault.public_url-eq'https://aidos.tail1234.ts.net:10000') 'host configuration and OpenAPI agree on a non-default Funnel port'
 
     Write-Output "PASS: $passed repository handoff installation assertions"
 }finally{Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}
