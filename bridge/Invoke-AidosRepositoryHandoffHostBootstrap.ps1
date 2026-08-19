@@ -42,17 +42,23 @@ if(-not(Test-Path -LiteralPath $bridgeOriginal -PathType Leaf)){throw "Repositor
 # functions inside that module object's own session state; no module-name or
 # exported-function lookup is then required at call time.
 #
-# The live bridge also exposed an integration mismatch: pending runtime actor
-# enumeration returns raw RUNTIME_ACTOR_ASSIGNMENT records, while the new
-# repository bridge expected a wrapper with `.assignment`. Keep the canonical
-# source immutable here, but materialize a runtime bridge copy with the exact
-# contract correction until the bridge source itself is consolidated.
+# Live bridge startup exposed two integration issues in the canonical bridge:
+# pending runtime actor enumeration returns raw RUNTIME_ACTOR_ASSIGNMENT records
+# rather than wrappers, and the compact Where-Object property syntax is parsed
+# incorrectly by the operator PowerShell version. Materialize a runtime bridge
+# copy with those exact compatibility corrections until the bridge source is
+# consolidated.
 $bridgeSource=Get-Content -LiteralPath $bridgeOriginal -Raw -Encoding UTF8
-$bridgeTarget='$assignment=$pending.assignment'
-$bridgeReplacement='$assignment=$pending'
-$bridgeMatches=[regex]::Matches($bridgeSource,[regex]::Escape($bridgeTarget)).Count
-if($bridgeMatches-ne1){throw "Repository host bootstrap expected exactly one pending-assignment bridge source match; found $bridgeMatches."}
-$bridgeSource=$bridgeSource.Replace($bridgeTarget,$bridgeReplacement)
+$bridgeReplacements=[ordered]@{
+    '$assignment=$pending.assignment' = '$assignment=$pending'
+    "Where-Object status -eq'ERROR'" = "Where-Object { `$_.status -eq 'ERROR' }"
+}
+foreach($pair in $bridgeReplacements.GetEnumerator()){
+    $matches=[regex]::Matches($bridgeSource,[regex]::Escape([string]$pair.Key)).Count
+    $expected=if([string]$pair.Key -eq "Where-Object status -eq'ERROR'"){2}else{1}
+    if($matches-ne$expected){throw "Repository host bootstrap expected $expected bridge source match(es) for: $($pair.Key); found $matches."}
+    $bridgeSource=$bridgeSource.Replace([string]$pair.Key,[string]$pair.Value)
+}
 
 $runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.'+[guid]::NewGuid().ToString('N')+'.psm1'
 $runtimeBridge=Join-Path $PSScriptRoot $runtimeBridgeName
