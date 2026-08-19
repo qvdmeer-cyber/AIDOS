@@ -1,0 +1,34 @@
+name: Validate Repository Handoff Bridge
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  repository-handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell
+        shell: pwsh
+        run: |
+          $paths = @(
+            'bridge/AidosRepositoryHandoff.psm1',
+            'bridge/AidosRepositoryActorHandoff.psm1',
+            'bridge/AidosRepositoryHandoffGateway.psm1',
+            'tests/RepositoryHandoff.Tests.ps1',
+            'tests/RepositoryHandoffGateway.Tests.ps1'
+          )
+          foreach ($path in $paths) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw "$path: $($errors.Message -join '; ')" }
+          }
+      - name: Repository handoff contract
+        shell: pwsh
+        run: ./tests/RepositoryHandoff.Tests.ps1
+      - name: Repository handoff gateway
+        shell: pwsh
+        run: ./tests/RepositoryHandoffGateway.Tests.ps1
