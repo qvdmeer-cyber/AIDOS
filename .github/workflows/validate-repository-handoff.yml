@@ -41,6 +41,7 @@ jobs:
             'tests/RepositoryHandoffGateway.Tests.ps1',
             'tests/RepositoryThinkerBinding.Tests.ps1',
             'tests/RepositoryThinkerCustomGptBinding.Tests.ps1',
+            'tests/RepositoryThinkerOptionalLegacyPattern.Tests.ps1',
             'tests/RepositoryHandoffBridge.Tests.ps1'
           )
           foreach ($path in $paths) {
@@ -91,6 +92,9 @@ jobs:
       - name: Custom GPT Thinker binding
         shell: pwsh
         run: ./tests/RepositoryThinkerCustomGptBinding.Tests.ps1
+      - name: Optional legacy UIA pattern
+        shell: pwsh
+        run: ./tests/RepositoryThinkerOptionalLegacyPattern.Tests.ps1
       - name: Unified preparation and runtime bridge
         shell: pwsh
         run: ./tests/RepositoryHandoffBridge.Tests.ps1
