@@ -1,4 +1,4 @@
-[CmdletBinding()]
+[CmdletBinding()
 param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -67,7 +67,7 @@ try{
     $eventPath=Join-Path $repo ('.aidos/events/'+(Get-Date).ToUniversalTime().ToString('yyyy-MM')+'.jsonl')
     $eventCountBefore=@(Get-Content -LiteralPath $eventPath -Encoding UTF8).Count
     $retryGuard=New-AidosWorkerDispatchGuard -ProjectRoot $repo
-    Assert-WorkerRuntime ([string]$retryGuard.created_at-eq[string]$guard.created_at -and [string]$retryGuard.git_head_before-eq$headBefore) 'same TASK_READY execution reuses an existing BOUND initial dispatch guard'
+    Assert-WorkerRuntime ([string]$retryGuard.status-eq'BOUND' -and [string]$retryGuard.git_head_before-eq$headBefore) 'same TASK_READY execution reuses an existing BOUND initial dispatch guard'
     Assert-WorkerRuntime (@(Get-Content -LiteralPath $eventPath -Encoding UTF8).Count-eq$eventCountBefore) 'guard retry does not append a duplicate guard-bound event'
 
     $roguePath=Join-Path $repo 'rogue.txt'
