@@ -8,9 +8,9 @@ Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Disab
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryWorkerHandoff.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryThinkerBinding.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryWorkerHandoff.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryThinkerBinding.psm1') -Global -DisableNameChecking
 
 function Get-AidosRepositoryHandoffBridgePath {
     [CmdletBinding()]
