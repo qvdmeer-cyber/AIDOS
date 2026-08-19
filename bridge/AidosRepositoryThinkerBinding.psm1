@@ -1,9 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking
 
 function Get-AidosRepositoryHandoffBridgeDefaultStateRoot {
     if([OperatingSystem]::IsWindows()){return (Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-bridge')}
@@ -179,12 +177,12 @@ function Invoke-AidosRepositoryThinkerTrigger {
         $context=& $Backend.FocusConversation $activation.context $binding
         $prompt=New-AidosRepositoryThinkerTriggerText -Binding $binding -Handoff $Handoff
         $send=& $Backend.SendPrompt $context $binding $prompt $Handoff.metadata
-        if(-$send -or -not[bool]$send.committed){throw 'ChatGPT trigger has no committed-send proof.'}
+        if($null-eq$send -or -not [bool]$send.committed){throw 'ChatGPT trigger has no committed-send proof.'}
         $state.status='COMMITTED';$state.triggered_at=[DateTimeOffset]::UtcNow.ToString('o');$state.updated_at=$state.triggered_at
         Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
         [pscustomobject][ordered]@{status='TRIGGERED';project_id=$projectId;handoff_id=$handoffId;activation=$activation;send=$send;state=$state}
     }catch{
-        $delays=@(60,300,900,1800);$delay=$delays[[Math]::Min($attempt-1,$delays.Count-1)]
+        $delays=@(60,300,900,1800);$delay=$delays[[Math]::Min(($attempt-1),($delays.Count-1))]
         $state.status='FAILED';$state.last_error=$_.Exception.Message;$state.retry_after=[DateTimeOffset]::UtcNow.AddSeconds($delay).ToString('o');$state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
         Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
         [pscustomobject][ordered]@{status='FAILED';project_id=$projectId;handoff_id=$handoffId;error=$state.last_error;retry_after=$state.retry_after;state=$state}
