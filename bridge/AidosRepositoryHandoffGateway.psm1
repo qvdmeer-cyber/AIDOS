@@ -82,10 +82,21 @@ function Get-AidosRepositoryHandoffGatewayPresentedKey {
     if($authorization.StartsWith('Bearer ',[StringComparison]::OrdinalIgnoreCase)){return $authorization.Substring(7).Trim()}
     $null
 }
+function Test-AidosRepositoryHandoffGatewayProjectId {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectId)
+    $value=$ProjectId.Trim()
+    if([string]::IsNullOrWhiteSpace($value) -or $value.Length-gt128 -or $value-notmatch'^[A-Za-z0-9][A-Za-z0-9._-]*$'){
+        throw 'Repository handoff gateway project_id is invalid.'
+    }
+    $value
+}
 function Get-AidosRepositoryHandoffGatewayProject {
     param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId)
-    $project=Get-AidosRegisteredProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
-    if([string]$project.stage-ne'RUNTIME'-or[string]$project.status-ne'PROMOTED'){throw "Project '$ProjectId' is not an active AIDOS runtime project."}
+    $safeProjectId=Test-AidosRepositoryHandoffGatewayProjectId -ProjectId $ProjectId
+    $project=Get-AidosRegisteredProject -RegistryRoot $RegistryRoot -ProjectId $safeProjectId
+    if([string]$project.stage-ne'RUNTIME'-or[string]$project.status-ne'PROMOTED'){throw "Project '$safeProjectId' is not an active AIDOS runtime project."}
+    if(-not[string]::Equals([string]$project.project_id,$safeProjectId,[StringComparison]::Ordinal)){throw 'Registered project identity does not match the requested gateway project_id.'}
     Test-AidosRegistryProjectBinding -Project $project|Out-Null
     $project
 }
@@ -104,9 +115,9 @@ function Get-AidosRepositoryHandoffGatewayPayload {
 function Get-AidosRepositoryHandoffGatewayCurrentHandoff {
     param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId)
     $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
-    $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId $ProjectId
-    if($null-eq$handoff){return [pscustomobject][ordered]@{status='NO_HANDOFF';project_id=$ProjectId}}
-    [pscustomobject][ordered]@{status='READY';project_id=$ProjectId;handoff_sha256=[string]$handoff.text_sha256;metadata=$handoff.metadata;body=[string]$handoff.body;payload=(Get-AidosRepositoryHandoffGatewayPayload -Project $project -Handoff $handoff)}
+    $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
+    if($null-eq$handoff){return [pscustomobject][ordered]@{status='NO_HANDOFF';project_id=[string]$project.project_id}}
+    [pscustomobject][ordered]@{status='READY';project_id=[string]$project.project_id;handoff_sha256=[string]$handoff.text_sha256;metadata=$handoff.metadata;body=[string]$handoff.body;payload=(Get-AidosRepositoryHandoffGatewayPayload -Project $project -Handoff $handoff)}
 }
 function Resolve-AidosRepositoryHandoffGatewaySourcePath {
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)][string]$AidosRoot,[Parameter(Mandatory)][string]$SourceRef)
@@ -125,7 +136,7 @@ function Get-AidosRepositoryHandoffGatewaySource {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$AidosRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)][string]$SourceRef,[int]$MaximumBytes=262144)
     $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
-    $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId $ProjectId
+    $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
     if($null-eq$handoff-or[string]$handoff.metadata.kind-ne'ASSIGNMENT'){throw 'No active assignment handoff authorizes source access.'}
     $authorized=@($handoff.metadata.source_refs|ForEach-Object {[string]$_})
     $exact=@($authorized|Where-Object {[string]::Equals($_,$SourceRef,[StringComparison]::Ordinal)})
@@ -136,7 +147,7 @@ function Get-AidosRepositoryHandoffGatewaySource {
     $text=[Text.Encoding]::UTF8.GetString($bytes)
     if($text.IndexOf([char]0)-ge0){throw "Authorized source is not UTF-8 text: $SourceRef"}
     if($text-match'(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*\S+'){throw "Authorized source is not secret-free: $SourceRef"}
-    [pscustomobject][ordered]@{project_id=$ProjectId;source_ref=$SourceRef;sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant();byte_length=$bytes.Length;content=$text}
+    [pscustomobject][ordered]@{project_id=[string]$project.project_id;source_ref=$SourceRef;sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant();byte_length=$bytes.Length;content=$text}
 }
 function Ensure-AidosRepositoryRuntimeActorActivated {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$AssignmentId)
@@ -189,7 +200,7 @@ function Submit-AidosRepositoryHandoffGatewayResult {
     }
     if([string]$accepted.status-in@('ACCEPTED','ALREADY_ACCEPTED')){
         $handoffId=if($accepted.PSObject.Properties['handoff']){[string]$accepted.handoff.metadata.handoff_id}else{$null}
-        Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'ACTOR_RESULT_ACCEPTED' -ProjectId $ProjectId -HandoffId $handoffId|Out-Null
+        Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'ACTOR_RESULT_ACCEPTED' -ProjectId ([string]$project.project_id) -HandoffId $handoffId|Out-Null
     }
     $accepted
 }
@@ -259,4 +270,4 @@ function Stop-AidosRepositoryHandoffGateway {
     [pscustomobject][ordered]@{status='STOP_REQUESTED';state_root=[IO.Path]::GetFullPath($StateRoot)}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
+Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Test-AidosRepositoryHandoffGatewayProjectId,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
