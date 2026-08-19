@@ -29,13 +29,10 @@ try{
     $persisted=Read-AidosRepositoryThinkerBinding -StateRoot $temp -ProjectId 'PROJECT-1'
     Assert-Binding ([string]$persisted.status-eq'BOUND') 'manual binding is persisted locally'
 
-    $handoff=[pscustomobject][ordered]@{
-        metadata=[pscustomobject][ordered]@{project_id='PROJECT-1';handoff_id=[guid]::NewGuid().ToString();kind='ASSIGNMENT';to_actor='THINKER'}
-        text_sha256=('a'*64)
-    }
+    $handoff=[pscustomobject][ordered]@{metadata=[pscustomobject][ordered]@{project_id='PROJECT-1';handoff_id=[guid]::NewGuid().ToString();kind='ASSIGNMENT';to_actor='THINKER'};text_sha256=('a'*64)}
     $runtime.active_title='Another conversation';$runtime.active_url='https://chatgpt.com/c/other'
     $trigger=Invoke-AidosRepositoryThinkerTrigger -StateRoot $temp -Handoff $handoff -Backend $backend
-    Assert-Binding ([string]$trigger.status-eq'TRIGGERED') 'READY Thinker handoff activates and triggers the bound conversation'
+    Assert-Binding ([string]$trigger.status-eq'TRIGGERED') ("READY Thinker handoff activates and triggers the bound conversation: "+($trigger|ConvertTo-Json -Depth 50 -Compress))
     Assert-Binding ($runtime.activation_count-eq1 -and $runtime.send_count-eq1) 'trigger performs one activation and one send'
     Assert-Binding ($runtime.last_prompt.Contains([string]$handoff.metadata.handoff_id)) 'trigger contains exact handoff identity'
     Assert-Binding ($runtime.last_prompt.Contains('Do not place the work product in this chat')) 'trigger explicitly keeps result transport in repository gateway'
