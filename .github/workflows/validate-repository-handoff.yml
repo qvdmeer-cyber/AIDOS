@@ -40,6 +40,7 @@ jobs:
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
             'tests/RepositoryThinkerBinding.Tests.ps1',
+            'tests/RepositoryThinkerCustomGptBinding.Tests.ps1',
             'tests/RepositoryHandoffBridge.Tests.ps1'
           )
           foreach ($path in $paths) {
@@ -87,6 +88,9 @@ jobs:
       - name: Project Thinker binding and trigger
         shell: pwsh
         run: ./tests/RepositoryThinkerBinding.Tests.ps1
+      - name: Custom GPT Thinker binding
+        shell: pwsh
+        run: ./tests/RepositoryThinkerCustomGptBinding.Tests.ps1
       - name: Unified preparation and runtime bridge
         shell: pwsh
         run: ./tests/RepositoryHandoffBridge.Tests.ps1
