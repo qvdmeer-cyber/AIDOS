@@ -182,6 +182,17 @@ function Get-AidosRepositoryThinkerTriggerState {
     $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $ProjectId -HandoffId $HandoffId
     if(Test-Path -LiteralPath $path -PathType Leaf){Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50}else{$null}
 }
+function ConvertTo-AidosRepositoryThinkerRetryAfter {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Value)
+    if($Value -is [DateTimeOffset]){return ([DateTimeOffset]$Value)}
+    if($Value -is [DateTime]){return [DateTimeOffset]::new([DateTime]$Value)}
+    $text=[string]$Value
+    $parsed=[DateTimeOffset]::MinValue
+    if([DateTimeOffset]::TryParseExact($text,'o',[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::RoundtripKind,[ref]$parsed)){return $parsed}
+    if([DateTimeOffset]::TryParse($text,[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AllowWhiteSpaces,[ref]$parsed)){return $parsed}
+    throw "Thinker retry_after is not a valid timestamp: $text"
+}
 function New-AidosRepositoryThinkerTriggerText {
     param([Parameter(Mandatory)]$Binding,[Parameter(Mandatory)]$Handoff)
     @"
@@ -203,7 +214,7 @@ function Invoke-AidosRepositoryThinkerTrigger {
     if($null-eq$binding -or [string]$binding.status-ne'BOUND'){return [pscustomobject][ordered]@{status='UNBOUND';project_id=$projectId;handoff_id=$handoffId}}
     $existing=Get-AidosRepositoryThinkerTriggerState -StateRoot $StateRoot -ProjectId $projectId -HandoffId $handoffId
     if($existing -and [string]$existing.status-eq'COMMITTED'){return [pscustomobject][ordered]@{status='ALREADY_TRIGGERED';state=$existing}}
-    if($existing -and [string]$existing.status-eq'FAILED' -and $existing.retry_after){$retry=[DateTimeOffset]::Parse([string]$existing.retry_after);if([DateTimeOffset]::UtcNow-lt$retry){return [pscustomobject][ordered]@{status='BACKOFF';retry_after=$retry.ToString('o');state=$existing}}}
+    if($existing -and [string]$existing.status-eq'FAILED' -and $existing.retry_after){$retry=ConvertTo-AidosRepositoryThinkerRetryAfter -Value $existing.retry_after;if([DateTimeOffset]::UtcNow-lt$retry){return [pscustomobject][ordered]@{status='BACKOFF';retry_after=$retry.ToString('o');state=$existing}}}
     if($null-eq$Backend){$Backend=New-AidosRepositoryThinkerWindowsBackend -ProcessName $ProcessName}
     $attempt=if($existing){[int]$existing.attempt+1}else{1}
     $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $projectId -HandoffId $handoffId
@@ -233,4 +244,4 @@ function Reset-AidosRepositoryThinkerTrigger {
     [pscustomobject][ordered]@{status='RESET';project_id=$ProjectId;handoff_id=$HandoffId}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Reset-AidosRepositoryThinkerTrigger
+Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,ConvertTo-AidosRepositoryThinkerRetryAfter,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Reset-AidosRepositoryThinkerTrigger

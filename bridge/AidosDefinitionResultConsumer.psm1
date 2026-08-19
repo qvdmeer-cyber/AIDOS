@@ -65,6 +65,24 @@ function New-AidosDefinitionHumanInputRequest {
     [pscustomobject][ordered]@{request_id=$requestId;request_ref=[IO.Path]::GetRelativePath($root,$path).Replace('\','/');resolution_binding_ref=[IO.Path]::GetRelativePath($root,$bindingPath).Replace('\','/');request=[pscustomobject]$request}
 }
 
+function Resolve-AidosDefinitionThinkerApplicabilityState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$AssignmentAction,
+        [Parameter(Mandatory)][string]$DefinitionState
+    )
+    if($DefinitionState -in @('AFFECTED','NOT_AFFECTED')){return $DefinitionState}
+    if($DefinitionState -notin @('APPLICABLE','NOT_APPLICABLE')){throw "Unsupported Definition applicability state '$DefinitionState'."}
+    $projectPath=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/PROJECT.json'
+    if(-not(Test-Path -LiteralPath $projectPath -PathType Leaf)){throw 'Legacy Definition applicability compatibility requires project identity.'}
+    $identity=Get-Content -LiteralPath $projectPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
+    if($AssignmentAction -ne 'START_DEFINITION' -or [string]$identity.project_mode -ne 'NEW_PROJECT'){
+        throw "Legacy Definition applicability state '$DefinitionState' is only compatible with NEW_PROJECT START_DEFINITION."
+    }
+    if($DefinitionState -eq 'APPLICABLE'){'AFFECTED'}else{'NOT_AFFECTED'}
+}
+
 function Invoke-AidosDefinitionThinkerResultConsumer {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)]$ActorResult,[Parameter(Mandatory)][string]$ContractsRoot,[string]$AidosRoot=(Split-Path $PSScriptRoot -Parent),[switch]$Push)
@@ -83,8 +101,9 @@ function Invoke-AidosDefinitionThinkerResultConsumer {
     foreach($resolution in @($output.applicability_resolutions)){
         $surfaceId=[string]$resolution.surface_id;if(-not$appSeen.Add($surfaceId)){throw "Duplicate Definition applicability resolution '$surfaceId'."};if([string]$resolution.authority_classification -notin @('SYSTEM_INVARIANT','REPO_VERIFIABLE')){throw 'Definition applicability resolution must be SYSTEM_INVARIANT or REPO_VERIFIABLE.'}
         $refs=@(Get-AidosDefinitionValidatedSourceRefs -ProjectRoot $root -AidosRoot $AidosRoot -SourceRefs @($resolution.source_refs) -DefinitionId $definitionId -DefinitionVersion $definitionVersion -RequireAny)
-        & $setApplicability -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -SurfaceId $surfaceId -DefinitionState ([string]$resolution.definition_state) -Reason ([string]$resolution.reason) -SourceRefs $refs|Out-Null
-        $applied.Add([pscustomobject]@{kind='APPLICABILITY';surface_id=$surfaceId;authority=[string]$resolution.authority_classification})
+        $definitionState=Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $root -AssignmentAction ([string]$assignment.action) -DefinitionState ([string]$resolution.definition_state)
+        & $setApplicability -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -SurfaceId $surfaceId -DefinitionState $definitionState -Reason ([string]$resolution.reason) -SourceRefs $refs|Out-Null
+        $applied.Add([pscustomobject]@{kind='APPLICABILITY';surface_id=$surfaceId;authority=[string]$resolution.authority_classification;definition_state=$definitionState})
     }
     $humanResolutions=@($output.surface_resolutions|Where-Object {[string]$_.authority_classification-eq'HUMAN_REQUIRED'})
     if($humanResolutions.Count-gt1){throw 'Definition Thinker may surface at most one HUMAN_REQUIRED decision per result.'};if($humanResolutions.Count-eq1 -and $null-eq$output.human_input_request){throw 'HUMAN_REQUIRED surface requires human_input_request.'};if($humanResolutions.Count-eq0 -and $null-ne$output.human_input_request){throw 'human_input_request requires a matching HUMAN_REQUIRED surface.'}
@@ -112,4 +131,4 @@ function Invoke-AidosDefinitionThinkerResultConsumer {
     [pscustomobject][ordered]@{status=if($humanRequest){'WAITING_HUMAN'}else{'APPLIED'};assignment_id=[string]$ActorResult.assignment_id;applied=@($applied);human_input=$humanRequest;applicability=$appCheck;progress=$progressCheck;binding=$binding}
 }
 
-Export-ModuleMember -Function Resolve-AidosDefinitionActorSourceRef,Get-AidosDefinitionValidatedSourceRefs,New-AidosDefinitionHumanInputRequest,Invoke-AidosDefinitionThinkerResultConsumer
+Export-ModuleMember -Function Resolve-AidosDefinitionActorSourceRef,Get-AidosDefinitionValidatedSourceRefs,New-AidosDefinitionHumanInputRequest,Resolve-AidosDefinitionThinkerApplicabilityState,Invoke-AidosDefinitionThinkerResultConsumer
