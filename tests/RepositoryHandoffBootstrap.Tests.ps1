@@ -19,8 +19,8 @@ function Assert-Bootstrap([bool]$Condition,[string]$Message){
 
 Assert-Bootstrap ($text.Contains("`$runtimeHost=Join-Path `$PSScriptRoot ('Invoke-AidosRepositoryHandoffHost.runtime.'")) 'bootstrap materializes a temporary runtime host beside the canonical host'
 Assert-Bootstrap ($text.Contains("`$runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.'")) 'bootstrap materializes a temporary runtime bridge beside the canonical bridge'
-Assert-Bootstrap ($text.Contains("`$bridgeTarget='`$assignment=`$pending.assignment'")) 'bootstrap identifies the live pending-assignment shape mismatch exactly'
-Assert-Bootstrap ($text.Contains("`$bridgeReplacement='`$assignment=`$pending'")) 'bootstrap corrects pending actor assignment records to the raw runtime contract'
+Assert-Bootstrap ($text.Contains("'`$assignment=`$pending.assignment' = '`$assignment=`$pending'")) 'bootstrap corrects pending actor assignment records to the raw runtime contract'
+Assert-Bootstrap ($text.Contains("\"Where-Object status -eq'ERROR'\" = \"Where-Object { `$_ .status -eq 'ERROR' }\"") -or $text.Contains("Where-Object { `\$_.status -eq 'ERROR' }")) 'bootstrap replaces fragile Where-Object property syntax with an explicit predicate'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeBridge){Remove-Item -LiteralPath `$runtimeBridge -Force}")) 'temporary runtime bridge is removed after every invocation'
 Assert-Bootstrap ($text.Contains("`$output=& `$runtimeHost @PSBoundParameters")) 'bootstrap invokes the runtime copy with the exact operator parameters'
 Assert-Bootstrap ($text.Contains("`$script:AidosWindowsSessionModule=Import-Module")) 'runtime host stores the imported Windows-session module object'
@@ -34,11 +34,17 @@ Assert-Bootstrap ($text.Contains("Stop-ScheduledTask -TaskName `$taskName")) 'bo
 Assert-Bootstrap ($text.Contains("Start-ScheduledTask -TaskName `$taskName")) 'bootstrap restarts the task after durable entrypoint replacement'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeHost){Remove-Item -LiteralPath `$runtimeHost -Force}")) 'temporary runtime host is removed after every invocation'
 
-$bridgeTarget='$assignment=$pending.assignment'
-Assert-Bootstrap ([regex]::Matches($bridgeText,[regex]::Escape($bridgeTarget)).Count-eq1) 'canonical bridge currently contains exactly one pending-assignment mismatch target'
-$bridgeRuntime=$bridgeText.Replace($bridgeTarget,'$assignment=$pending')
+$bridgeRuntime=$bridgeText
+$assignmentTarget='$assignment=$pending.assignment'
+Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape($assignmentTarget)).Count-eq1) 'canonical bridge currently contains exactly one pending-assignment mismatch target'
+$bridgeRuntime=$bridgeRuntime.Replace($assignmentTarget,'$assignment=$pending')
+$whereTarget="Where-Object status -eq'ERROR'"
+Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape($whereTarget)).Count-eq2) 'canonical bridge contains exactly two fragile error aggregation predicates'
+$bridgeRuntime=$bridgeRuntime.Replace($whereTarget,"Where-Object { `$_.status -eq 'ERROR' }")
 Assert-Bootstrap (-not$bridgeRuntime.Contains('$assignment=$pending.assignment')) 'runtime bridge has no wrapper-style pending assignment access'
 Assert-Bootstrap ($bridgeRuntime.Contains('$assignment=$pending')) 'runtime bridge consumes raw pending runtime actor assignment records'
+Assert-Bootstrap (-not$bridgeRuntime.Contains($whereTarget)) 'runtime bridge has no fragile Where-Object property syntax'
+Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape("Where-Object { `$_.status -eq 'ERROR' }")).Count-eq2) 'runtime bridge uses explicit error predicates for both result collections'
 $bridgeTokens=$null
 $bridgeErrors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($bridgeRuntime,[ref]$bridgeTokens,[ref]$bridgeErrors)
@@ -68,9 +74,6 @@ $errors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($runtime,[ref]$tokens,[ref]$errors)
 Assert-Bootstrap (@($errors).Count-eq0) ('module-object runtime host parses without errors: '+(@($errors|ForEach-Object Message)-join'; '))
 
-# Prove the PowerShell mechanism itself: invoking a scriptblock with a PSModuleInfo
-# as the call target executes inside that module's session state and can resolve
-# its own functions without exported-command or module-name lookup.
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aidos-module-object-test-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force|Out-Null
 try{
