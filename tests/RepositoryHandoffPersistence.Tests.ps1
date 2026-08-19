@@ -8,7 +8,7 @@ Import-Module (Join-Path $root 'bridge/AidosProjectRegistry.psm1') -Force -Disab
 Import-Module (Join-Path $root 'bridge/AidosRepositoryHandoffPersistence.psm1') -Force -DisableNameChecking
 
 $script:passed=0
-$script:GitExecutable=(Get-Command git -CommandType Application -ErrorAction Stop).Source
+$script:GitExecutable=(Get-Command git -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
 function Assert-Persist([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
 function Assert-PersistThrows([scriptblock]$Action,[string]$Pattern,[string]$Message){$thrown=$false;try{&$Action}catch{$thrown=$true;if($_.Exception.Message-notmatch$Pattern){throw "ASSERTION FAILED: $Message; unexpected: $($_.Exception.Message)"}};if(-not$thrown){throw "ASSERTION FAILED: $Message; no exception"};$script:passed++}
 function Invoke-TestGit([string]$Repo,[string[]]$Arguments){$output=@(& $script:GitExecutable -C $Repo @Arguments 2>&1);if($LASTEXITCODE-ne0){throw "git $($Arguments-join' ') failed: $($output-join'; ')"};@($output)}
