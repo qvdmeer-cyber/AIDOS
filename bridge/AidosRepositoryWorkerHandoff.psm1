@@ -25,7 +25,7 @@ function Resolve-AidosRepositoryWorkerHandoffModulePath {
         if(-not[string]::Equals($directory,$root,$comparison)){continue}
         if($name-notmatch'^AidosRepositoryHandoff\.runtime\.[0-9a-fA-F]{32}\.psm1$'){continue}
         if(-not(Test-Path -LiteralPath $full -PathType Leaf)){continue}
-        $candidates.Add($full)
+        $candidates.Add($full)|Out-Null
     }
     $runtimePaths=@($candidates|Sort-Object -Unique)
     if($runtimePaths.Count-gt1){throw "Worker handoff runtime has $($runtimePaths.Count) loaded repository handoff modules; refusing ambiguous WSL routing."}
@@ -33,8 +33,14 @@ function Resolve-AidosRepositoryWorkerHandoffModulePath {
     Join-Path $root 'AidosRepositoryHandoff.psm1'
 }
 
+$canonicalRepositoryHandoffModulePath=Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1'
 $repositoryHandoffModulePath=Resolve-AidosRepositoryWorkerHandoffModulePath
-Import-Module $repositoryHandoffModulePath -Force -DisableNameChecking
+$modulePathComparison=if([OperatingSystem]::IsWindows()){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+if([string]::Equals([IO.Path]::GetFullPath($repositoryHandoffModulePath),[IO.Path]::GetFullPath($canonicalRepositoryHandoffModulePath),$modulePathComparison)){
+    Import-Module $repositoryHandoffModulePath -DisableNameChecking
+}else{
+    Import-Module $repositoryHandoffModulePath -Force -DisableNameChecking
+}
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffPersistence.psm1') -DisableNameChecking
 
 function Get-AidosRepositoryWorkerBinding {
