@@ -100,26 +100,28 @@ function New-AidosRepositoryActorAssignmentBody {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$BoundAssignment,
+        [Parameter(Mandatory)][string]$PayloadRef,
         [Parameter(Mandatory)][string[]]$SourceRefs
     )
     $assignment=$BoundAssignment.assignment
     $target=ConvertTo-AidosRepositoryActorName -ActorRole ([string]$assignment.actor_role)
     $template=New-AidosRepositoryActorResultTemplate -BoundAssignment $BoundAssignment
+    $sourceLines=@($SourceRefs|ForEach-Object {"- $_"}) -join "`n"
     @"
 # AIDOS $target handoff
 
 AIDOS Core has assigned this handoff. The repository is the transport and canonical workflow state. Chat/session history is not authority.
 
-- Project: `$([string]$assignment.project_id)`
-- Assignment: `$([string]$assignment.assignment_id)`
-- Assignment SHA-256: `$([string]$BoundAssignment.sha256)`
-- Action: `$([string]$assignment.action)`
-- Target actor: `$target`
+- Project: $([string]$assignment.project_id)
+- Assignment: $([string]$assignment.assignment_id)
+- Assignment SHA-256: $([string]$BoundAssignment.sha256)
+- Action: $([string]$assignment.action)
+- Target actor: $target
 
 ## Actor protocol
 
-1. Read the exact assignment at `$(Get-AidosRepositoryActorAssignmentRelativePath -ProjectRoot '.' -AssignmentId ([string]$assignment.assignment_id))` through the handoff gateway or local repository.
-2. Read only the authorized `source_refs` from the handoff metadata. `AIDOS/...` refs resolve against AIDOS Core; all other refs resolve against this project repository.
+1. Read the exact assignment at $PayloadRef through the handoff gateway or local repository.
+2. Read only the authorized source_refs from the handoff metadata. AIDOS/... refs resolve against AIDOS Core; all other refs resolve against this project repository.
 3. Perform the assigned work under the project and AIDOS actor instructions.
 4. Return the exact result payload below to AIDOS Core. Do not directly assign or start another actor.
 5. Complete by publishing one RESULT handoff whose parent is this handoff. The bridge will wake the next actor selected by Core.
@@ -132,7 +134,7 @@ $($template|ConvertTo-Json -Depth 100)
 
 ## Authorized source refs
 
-$(@($SourceRefs|ForEach-Object {"- `$_`"}) -join "`n")
+$sourceLines
 "@
 }
 
@@ -176,8 +178,9 @@ function Publish-AidosRuntimeActorRepositoryHandoff {
         source_refs=@($sourceRefs)
     }
     if($existing){$null=Test-AidosRepositoryHandoffTransition -Previous $existing -Next $metadata}
-    $body=New-AidosRepositoryActorAssignmentBody -BoundAssignment $bound -SourceRefs $sourceRefs
-    $handoff=Write-AidosRepositoryHandoff -ProjectRoot $root -Metadata $metadata -Body $body -ExpectedParentHandoffId $(if($existing){[string]$existing.metadata.handoff_id}else{$null})
+    $body=New-AidosRepositoryActorAssignmentBody -BoundAssignment $bound -PayloadRef $payloadRef -SourceRefs $sourceRefs
+    $expectedParent=if($existing){[string]$existing.metadata.handoff_id}else{$null}
+    $handoff=Write-AidosRepositoryHandoff -ProjectRoot $root -Metadata $metadata -Body $body -ExpectedParentHandoffId $expectedParent
     $transport=Set-AidosRuntimeActorTransportState -ProjectRoot $root -AssignmentId $AssignmentId -Status ACTIVATED -TransportType REPOSITORY_HANDOFF -LastError $null
     Add-AidosEvent -ProjectRoot $root -EventType 'REPOSITORY_HANDOFF_PUBLISHED' -Actor SYSTEM -Payload @{handoff_id=[string]$metadata.handoff_id;assignment_id=$AssignmentId;assignment_sha256=[string]$bound.sha256;to_actor=$target}|Out-Null
     $persistence=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS publish $target handoff $AssignmentId") -Push:$Push
@@ -210,13 +213,12 @@ function Import-AidosRepositoryActorResultHandoff {
     if([string]$result.envelope_type-ne'RUNTIME_ACTOR_RESULT'){throw "Unsupported repository result payload envelope '$($result.envelope_type)'."}
     $assignment=Read-AidosRuntimeActorAssignment -ProjectRoot $root -AssignmentId ([string]$result.assignment_id)
     $assignmentRef=[IO.Path]::GetRelativePath($root,$assignment.path).Replace('\','/')
-    $expectedParentPayload=$assignmentRef
     $previousId=[string]$handoff.metadata.parent_handoff_id
     if([string]::IsNullOrWhiteSpace($previousId)){throw 'Repository result handoff has no parent assignment handoff.'}
     if([string]$handoff.metadata.from_actor-ne(ConvertTo-AidosRepositoryActorName -ActorRole ([string]$assignment.assignment.actor_role)){throw 'Repository result actor does not match runtime assignment.'}
     if([string]$handoff.metadata.action-ne([string]$assignment.assignment.action+'_RESULT')){throw 'Repository result handoff action does not match runtime assignment.'}
     $saved=Save-AidosRuntimeActorResult -ProjectRoot $root -Result $result
-    Add-AidosEvent -ProjectRoot $root -EventType 'REPOSITORY_HANDOFF_RESULT_IMPORTED' -Actor SYSTEM -Payload @{handoff_id=[string]$handoff.metadata.handoff_id;parent_handoff_id=$previousId;assignment_id=[string]$result.assignment_id;payload_ref=[string]$handoff.metadata.payload_ref;assignment_ref=$expectedParentPayload}|Out-Null
+    Add-AidosEvent -ProjectRoot $root -EventType 'REPOSITORY_HANDOFF_RESULT_IMPORTED' -Actor SYSTEM -Payload @{handoff_id=[string]$handoff.metadata.handoff_id;parent_handoff_id=$previousId;assignment_id=[string]$result.assignment_id;payload_ref=[string]$handoff.metadata.payload_ref;assignment_ref=$assignmentRef}|Out-Null
     $persistence=Invoke-AidosPreparationGitPersistence -Project $Project -CommitMessage ("AIDOS import repository result $($result.assignment_id)") -Push:$Push
     [pscustomobject][ordered]@{status='IMPORTED';handoff=$handoff;saved=$saved;result=$result;persistence=$persistence}
 }
