@@ -6,12 +6,10 @@ $ErrorActionPreference='Stop'
 # without weakening the existing assignment-bound JSON selector.
 . (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.Base.ps1')
 
-# Keep an immutable handle to the preserved selector before wrapping it. The
-# wrapper adds one deterministic surface that the preserved selector already
-# intended to model: exact separator-free reconstruction of adjacent UIA text
-# fragments. All JSON/template/assignment/hash checks remain in the base selector.
-$script:BaseResolvedActorResponseSelector=(Get-Command Select-AidosDesktopChatGPTResolvedActorResponseText -CommandType Function -ErrorAction Stop).ScriptBlock
-
+# Direct strict selector used by both sibling-fragment and parent-message range
+# recovery. This intentionally mirrors the preserved selector, but makes the
+# separator-free adjacent-fragment reconstruction explicit and typed so Windows
+# PowerShell binding cannot reinterpret the surface collection.
 function Select-AidosDesktopChatGPTResolvedActorResponseText {
     [CmdletBinding()]
     param(
@@ -19,16 +17,65 @@ function Select-AidosDesktopChatGPTResolvedActorResponseText {
         [Parameter(Mandatory)]$Assignment
     )
     if($Texts.Count-eq0){return $null}
-    $nonEmpty=@($Texts|Where-Object {-not[string]::IsNullOrWhiteSpace([string]$_)}|ForEach-Object {[string]$_})
-    if($nonEmpty.Count-eq0){return $null}
+    if(-not$Assignment){return $null}
+    $assignmentObject=if($Assignment.PSObject.Properties['assignment']){$Assignment.assignment}else{$Assignment}
+    if(-not$assignmentObject -or [string]::IsNullOrWhiteSpace([string]$assignmentObject.assignment_id)){return $null}
+    $assignmentId=[string]$assignmentObject.assignment_id
+    $expectedAssignmentHashes=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    if($Assignment.PSObject.Properties['sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.sha256)}
+    elseif($Assignment.PSObject.Properties['assignment_sha256'] -and -not[string]::IsNullOrWhiteSpace([string]$Assignment.assignment_sha256)){[void]$expectedAssignmentHashes.Add([string]$Assignment.assignment_sha256)}
 
-    $direct=& $script:BaseResolvedActorResponseSelector -Texts ([string[]]$nonEmpty) -Assignment $Assignment
-    if(-not[string]::IsNullOrWhiteSpace([string]$direct)){return $direct}
-    if($nonEmpty.Count-eq1){return $null}
+    $surfaces=[Collections.Generic.List[string]]::new()
+    $seenSurfaces=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($text in @($Texts)){
+        if([string]::IsNullOrWhiteSpace([string]$text)){continue}
+        $value=[string]$text
+        if($seenSurfaces.Add($value)){$surfaces.Add($value)}
+    }
+    if($surfaces.Count-eq0){return $null}
 
-    $compact=[string]::Join('',[string[]]$nonEmpty)
-    if([string]::IsNullOrWhiteSpace($compact)){return $null}
-    & $script:BaseResolvedActorResponseSelector -Texts ([string[]]@($compact)) -Assignment $Assignment
+    $orderedSurfaces=[string[]]@($surfaces)
+    if($orderedSurfaces.Count-gt1){
+        $compact=[string]::Join('',[string[]]$orderedSurfaces)
+        if(-not[string]::IsNullOrWhiteSpace($compact) -and $seenSurfaces.Add($compact)){$surfaces.Add($compact)}
+        $aggregate=[string]::Join("`n",[string[]]$orderedSurfaces)
+        if($seenSurfaces.Add($aggregate)){$surfaces.Add($aggregate)}
+    }
+
+    if($expectedAssignmentHashes.Count-eq0){
+        foreach($surface in @($surfaces)){
+            if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+            foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
+                if($candidate.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-lt0 -and $candidate.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+                try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
+                if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
+                if([string]$parsed.assignment_id-ne$assignmentId){continue}
+                $templateHash=[string]$parsed.assignment_sha256
+                if($templateHash-match'^[0-9a-fA-F]{64}$'){[void]$expectedAssignmentHashes.Add($templateHash)}
+            }
+        }
+    }
+
+    $responses=[Collections.Generic.List[string]]::new()
+    $seenResponses=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($surface in @($surfaces)){
+        if($surface.IndexOf('RUNTIME_ACTOR_RESULT',[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        if($surface.IndexOf($assignmentId,[StringComparison]::OrdinalIgnoreCase)-lt0){continue}
+        foreach($candidate in @(Get-AidosDesktopChatGPTJsonObjectCandidates -Text $surface)){
+            if($candidate.IndexOf('REQUIRED:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+            if($candidate.IndexOf('REQUIRED_NONEMPTY:',[StringComparison]::OrdinalIgnoreCase)-ge0){continue}
+            try{$parsed=$candidate|ConvertFrom-Json -Depth 100}catch{continue}
+            if([string]$parsed.envelope_type-ne'RUNTIME_ACTOR_RESULT'){continue}
+            if([string]$parsed.assignment_id-ne$assignmentId){continue}
+            $candidateHash=[string]$parsed.assignment_sha256
+            if($candidateHash-notmatch'^[0-9a-fA-F]{64}$'){continue}
+            if($expectedAssignmentHashes.Count-gt0 -and -not$expectedAssignmentHashes.Contains($candidateHash)){continue}
+            if($seenResponses.Add($candidate)){$responses.Add($candidate)}
+        }
+    }
+    if($responses.Count-eq0){return $null}
+    $responses[$responses.Count-1]
 }
 
 function Select-AidosDesktopChatGPTResolvedActorResponseFromHierarchyTexts {
