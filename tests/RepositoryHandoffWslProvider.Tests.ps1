@@ -7,7 +7,8 @@ $root=Split-Path $PSScriptRoot -Parent
 $bootstrapPath=Join-Path $root 'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1'
 $text=Get-Content -LiteralPath $bootstrapPath -Raw -Encoding UTF8
 
-$match=[regex]::Match($text,"(?s)\$handoffReplacement=@'\r?\n(?<body>function Test-AidosRepositoryPathItemIsLink .*?)\r?\n'@")
+$pattern='(?s)\$handoffReplacement=@''\r?\n(?<body>function Test-AidosRepositoryPathItemIsLink .*?)\r?\n''@'
+$match=[regex]::Match($text,$pattern)
 if(-not$match.Success){throw 'Unable to extract runtime WSL link validator from bootstrap.'}
 Invoke-Expression $match.Groups['body'].Value
 
