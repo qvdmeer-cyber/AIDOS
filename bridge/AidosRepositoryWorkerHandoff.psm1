@@ -5,7 +5,42 @@ Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousExecution.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWorkerDispatchGuard.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking
+
+function Resolve-AidosRepositoryWorkerHandoffModulePath {
+    [CmdletBinding()]
+    param(
+        [string]$ModuleRoot=$PSScriptRoot,
+        [object[]]$LoadedModules=@(Get-Module -All)
+    )
+    $root=[IO.Path]::GetFullPath($ModuleRoot)
+    $comparison=if([OperatingSystem]::IsWindows()){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+    $candidates=[Collections.Generic.List[string]]::new()
+    foreach($module in @($LoadedModules)){
+        if($null-eq$module -or -not$module.PSObject.Properties['Path']){continue}
+        $path=[string]$module.Path
+        if([string]::IsNullOrWhiteSpace($path)){continue}
+        try{$full=[IO.Path]::GetFullPath($path)}catch{continue}
+        $directory=[IO.Path]::GetDirectoryName($full)
+        $name=[IO.Path]::GetFileName($full)
+        if(-not[string]::Equals($directory,$root,$comparison)){continue}
+        if($name-notmatch'^AidosRepositoryHandoff\.runtime\.[0-9a-fA-F]{32}\.psm1$'){continue}
+        if(-not(Test-Path -LiteralPath $full -PathType Leaf)){continue}
+        $candidates.Add($full)|Out-Null
+    }
+    $runtimePaths=@($candidates|Sort-Object -Unique)
+    if($runtimePaths.Count-gt1){throw "Worker handoff runtime has $($runtimePaths.Count) loaded repository handoff modules; refusing ambiguous WSL routing."}
+    if($runtimePaths.Count-eq1){return [string]$runtimePaths[0]}
+    Join-Path $root 'AidosRepositoryHandoff.psm1'
+}
+
+$canonicalRepositoryHandoffModulePath=Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1'
+$repositoryHandoffModulePath=Resolve-AidosRepositoryWorkerHandoffModulePath
+$modulePathComparison=if([OperatingSystem]::IsWindows()){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+if([string]::Equals([IO.Path]::GetFullPath($repositoryHandoffModulePath),[IO.Path]::GetFullPath($canonicalRepositoryHandoffModulePath),$modulePathComparison)){
+    Import-Module $repositoryHandoffModulePath -DisableNameChecking
+}else{
+    Import-Module $repositoryHandoffModulePath -Force -DisableNameChecking
+}
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffPersistence.psm1') -DisableNameChecking
 
 function Get-AidosRepositoryWorkerBinding {
@@ -324,4 +359,4 @@ function Invoke-AidosRepositoryWorkerHandoff {
     }
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff
+Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff
