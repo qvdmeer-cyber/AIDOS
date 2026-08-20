@@ -72,6 +72,19 @@ Assert-ReviewAuthority (-not[string]::IsNullOrWhiteSpace([string]$fencedSelected
 $wrongAssignment=[pscustomobject]@{review_id='review-authority-1';package_manifest_sha256=('d'*64)}
 Assert-ReviewAuthority ([string]::IsNullOrWhiteSpace([string](Select-AidosDesktopStrictReviewResponseText -Texts @($resolved) -Assignment $wrongAssignment))) 'manifest-mismatched response surfaces are ignored'
 
+Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('You said:')) -eq 'USER') 'user accessibility heading is classified as USER'
+Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('ChatGPT said:')) -eq 'ASSISTANT') 'ChatGPT accessibility heading is classified as ASSISTANT'
+Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('AIDOS Repository Thinker said:')) -eq 'ASSISTANT') 'custom GPT accessibility heading is classified as ASSISTANT'
+Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('You said:','ChatGPT said:')) -eq 'UNKNOWN') 'mixed ancestor conversation text fails direction closed'
+
+$userSurface=[pscustomobject]@{direction='USER';texts=@($resolved)}
+$unknownSurface=[pscustomobject]@{direction='UNKNOWN';texts=@($resolved)}
+$assistantSurface=[pscustomobject]@{direction='ASSISTANT';texts=@($resolved)}
+Assert-ReviewAuthority ([string]::IsNullOrWhiteSpace([string](Select-AidosDesktopStrictReviewResponseSurface -Surfaces @($userSurface) -Assignment $assignment))) 'a valid-looking JSON response on the outbound USER message surface is rejected'
+Assert-ReviewAuthority ([string]::IsNullOrWhiteSpace([string](Select-AidosDesktopStrictReviewResponseSurface -Surfaces @($unknownSurface) -Assignment $assignment))) 'a valid-looking JSON response without proven direction is rejected'
+$assistantSelected=Select-AidosDesktopStrictReviewResponseSurface -Surfaces @($userSurface,$assistantSurface) -Assignment $assignment
+Assert-ReviewAuthority (-not[string]::IsNullOrWhiteSpace([string]$assistantSelected)) 'only the separately proven ASSISTANT response surface is accepted when the outbound prompt remains visible'
+
 $stub=[pscustomobject]@{
     AssertInteractiveSession={ $true }
     ReadLatestResponseText={ 'underlying reader must be replaced' }
@@ -84,5 +97,6 @@ Assert-ReviewAuthority ($null-eq$scopeResult) 'strict-reader callback retains it
 $source=Get-Content -LiteralPath $modulePath -Raw -Encoding UTF8
 Assert-ReviewAuthority ($source -match 'New-AidosDesktopChatGPTResilientWindowsBackend') 'default desktop review path is wired to the resilient conversation backend'
 Assert-ReviewAuthority ($source -match '\$\{function:Get-AidosDesktopStrictReviewResponseText\}') 'strict reader is captured before the persistent callback closure is created'
+Assert-ReviewAuthority ($source -match "direction-ne'ASSISTANT'") 'strict extraction requires a proven assistant-message surface'
 
 Write-Output "PASS: $passed desktop review authority assertions"
