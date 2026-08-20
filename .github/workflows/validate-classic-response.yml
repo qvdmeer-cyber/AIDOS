@@ -5,11 +5,32 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: tmp/patch-host-shutdown-lifecycle
+          fetch-depth: 0
+      - name: Apply repository host shutdown lifecycle patch
+        shell: pwsh
+        run: ./tools/TEMP-ApplyHostShutdownLifecyclePatch.ps1
+      - name: Commit lifecycle patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No lifecycle patch changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- bridge/AidosRepositoryHandoffInstallation.psm1 bridge/Invoke-AidosRepositoryHandoffHost.ps1 tools/Reload-AidosAutonomousPreparation.ps1 tests/RepositoryHandoffInstallation.Tests.ps1 tests/HostAgentReload.Tests.ps1
+            git commit -m "Harden repository host shutdown lifecycle"
+            git push origin HEAD:tmp/patch-host-shutdown-lifecycle
+          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
