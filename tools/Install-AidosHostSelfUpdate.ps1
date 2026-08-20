@@ -24,7 +24,21 @@ $currentUser=[Security.Principal.WindowsIdentity]::GetCurrent().Name
 if(-not[string]::Equals($currentUser,$AuthorizedUser,[StringComparison]::OrdinalIgnoreCase)){throw "Self-update installation requires the authorized interactive user '$AuthorizedUser'; current identity is '$currentUser'."}
 
 $arguments="-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Distribution `"$Distribution`" -WslReposRoot `"$WslReposRoot`" -StateRoot `"$StateRoot`" -AuthorizedUser `"$AuthorizedUser`""
-$action=New-ScheduledTaskAction -Execute $engine -Argument $arguments
+$launcherPath=Join-Path $StateRoot 'SELF_UPDATE_LAUNCHER.vbs'
+$command="`"$engine`" $arguments"
+$escapedCommand=$command.Replace('"','""')
+$launcher=@"
+Option Explicit
+Dim shell, command, rc
+Set shell = CreateObject("WScript.Shell")
+command = "$escapedCommand"
+rc = shell.Run(command, 0, True)
+WScript.Quit rc
+"@
+Set-Content -LiteralPath $launcherPath -Value $launcher -Encoding ascii
+$wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+if(-not(Test-Path -LiteralPath $wscript -PathType Leaf)){throw 'Windows Script Host is unavailable.'}
+$action=New-ScheduledTaskAction -Execute $wscript -Argument "`"$launcherPath`""
 $principal=New-ScheduledTaskPrincipal -UserId $AuthorizedUser -LogonType Interactive -RunLevel Limited
 $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) -RepetitionDuration (New-TimeSpan -Days 3650)
 $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
@@ -47,8 +61,8 @@ if($existing){
         $provisioning='UPDATED'
     }
 }else{
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'AIDOS fail-closed Core update validator and lease-safe host reload watchdog.'|Out-Null
+    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'AIDOS fail-closed Core update validator and lease-safe host reload watchdog.'|Out-Null
     $provisioning='CREATED'
 }
-if($startTask){Start-ScheduledTask -TaskName $taskName}
-[pscustomobject][ordered]@{status='INSTALLED';task_name=$taskName;task_provisioning=$provisioning;interval_minutes=$IntervalMinutes;script_path=$scriptPath;state_root=$StateRoot;authorized_user=$AuthorizedUser}
+if($startTask){Enable-ScheduledTask -TaskName $taskName|Out-Null;Start-ScheduledTask -TaskName $taskName}
+[pscustomobject][ordered]@{status='INSTALLED';task_name=$taskName;task_provisioning=$provisioning;interval_minutes=$IntervalMinutes;script_path=$scriptPath;state_root=$StateRoot;authorized_user=$AuthorizedUser;launcher_path=$launcherPath}
