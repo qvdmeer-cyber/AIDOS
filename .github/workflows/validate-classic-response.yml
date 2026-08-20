@@ -39,3 +39,15 @@ jobs:
       - name: Run host candidate validator with hosted-runner WSL fixture skipped
         shell: pwsh
         run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot $PWD
+
+  live-repository-gateway-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require live auth-gated AIDOS gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --connect-timeout 10 --max-time 20 --silent --show-error --output /tmp/aidos-gateway-body.txt --write-out '%{http_code}' 'https://aidos.tail561ce5.ts.net/health')"
+          cat /tmp/aidos-gateway-body.txt || true
+          echo "HTTP_STATUS=$code"
+          test "$code" = "401"
