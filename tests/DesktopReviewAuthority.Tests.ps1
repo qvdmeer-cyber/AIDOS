@@ -65,7 +65,7 @@ Assert-ReviewAuthority (-not[string]::IsNullOrWhiteSpace([string]$selected)) 'a 
 $parsed=$selected|ConvertFrom-Json -Depth 100
 Assert-ReviewAuthority ([string]$parsed.reason -eq 'Evidence shows the bound validation and terminal result satisfy the accepted execution.') 'selected review is the evidence-based response rather than the template'
 
-$fenced="```json`n$resolved`n```"
+$fenced=[string]::Concat('```json',"`n",$resolved,"`n",'```')
 $fencedSelected=Select-AidosDesktopStrictReviewResponseText -Texts @($fenced) -Assignment $assignment
 Assert-ReviewAuthority (-not[string]::IsNullOrWhiteSpace([string]$fencedSelected)) 'a single fenced resolved response remains supported'
 
