@@ -89,7 +89,7 @@ function Wait-AidosRepositoryHostReload {
                 $gatewayAlive=$null-ne$gatewayProcess -and [string]$gatewayProcess.ProcessName -in @('pwsh','pwsh.exe')
 
                 if($hostRunning -and $freshHostIdentity -and $hostAlive -and $bridgeAlive -and $gatewayAlive -and -not[string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)){
-                    $heartbeat=[DateTimeOffset]::Parse([string]$status.heartbeat_at)
+                    $heartbeat=[DateTimeOffset]$status.heartbeat_at
                     if($heartbeat -ge $StartedAt){return $status}
                 }
             }
