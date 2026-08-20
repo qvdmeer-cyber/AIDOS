@@ -28,10 +28,13 @@ bridge_path.write_text(bridge, encoding='utf-8')
 
 test_path = Path('tests/RepositoryHandoffBridge.Tests.ps1')
 test = test_path.read_text(encoding='utf-8')
+old_scope_assert = "    Assert-Bridge ($bridgeSource.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'review publisher executes in the imported review module scope'\n"
+new_scope_assert = "    Assert-Bridge (-not$bridgeSource.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'review publisher closure does not resolve the bridge script-scope module binding after GetNewClosure'\n"
+test = replace_once(test, old_scope_assert, new_scope_assert, 'obsolete script-scope publisher assertion')
 anchor = "    Assert-Bridge (-not$bridgeSource.Contains('AidosRepositoryReviewHandoff\\Publish-AidosRepositoryReviewHandoff')) 'bridge does not depend on the canonical review module qualifier'\n"
 if anchor not in test:
     raise RuntimeError('bridge test publisher assertion anchor missing')
-extra = anchor + "    Assert-Bridge ($bridgeSource.Contains(\"`$reviewHandoffModules=@(`$script:AidosRepositoryReviewHandoffModule)\")) 'review publisher normalizes the imported module binding before closure creation'\n    Assert-Bridge ($bridgeSource.Contains(\"`$reviewPublisherCommand=`$reviewHandoffModules[0].ExportedCommands['Publish-AidosRepositoryReviewHandoff']\")) 'review publisher captures exact exported CommandInfo'\n    Assert-Bridge ($bridgeSource.Contains('& $reviewPublisherCommand -Project $Project -Push:$Push')) 'review closure invokes captured CommandInfo directly'\n    Assert-Bridge (-not$bridgeSource.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'review closure no longer resolves bridge script scope after GetNewClosure'\n"
+extra = anchor + "    Assert-Bridge ($bridgeSource.Contains(\"`$reviewHandoffModules=@(`$script:AidosRepositoryReviewHandoffModule)\")) 'review publisher normalizes the imported module binding before closure creation'\n    Assert-Bridge ($bridgeSource.Contains(\"`$reviewPublisherCommand=`$reviewHandoffModules[0].ExportedCommands['Publish-AidosRepositoryReviewHandoff']\")) 'review publisher captures exact exported CommandInfo'\n    Assert-Bridge ($bridgeSource.Contains('& $reviewPublisherCommand -Project $Project -Push:$Push')) 'review closure invokes captured CommandInfo directly'\n"
 if "review publisher captures exact exported CommandInfo" not in test:
     test = test.replace(anchor, extra)
 
