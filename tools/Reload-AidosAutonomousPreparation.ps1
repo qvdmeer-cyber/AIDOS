@@ -126,11 +126,6 @@ if($repositoryTask -and $repositoryConfigPresent){
     Import-Module $repositoryInstallation -Force -DisableNameChecking
     $repositoryLauncher=Get-AidosRepositoryHandoffHostPath -StateRoot $repositoryHostStateRoot -Kind launcher
     New-AidosRepositoryHandoffLauncherText|Set-Content -LiteralPath $repositoryLauncher -Encoding utf8NoBOM
-    $repositoryInstallation=Join-Path $aidosRoot 'bridge/AidosRepositoryHandoffInstallation.psm1'
-    if(-not(Test-Path -LiteralPath $repositoryInstallation -PathType Leaf)){throw "Repository handoff installation module is unavailable: $repositoryInstallation"}
-    Import-Module $repositoryInstallation -Force -DisableNameChecking
-    $repositoryLauncher=Get-AidosRepositoryHandoffHostPath -StateRoot $repositoryHostStateRoot -Kind launcher
-    New-AidosRepositoryHandoffLauncherText|Set-Content -LiteralPath $repositoryLauncher -Encoding utf8NoBOM
 
     if($repositoryWasRunning){
         $previousRepositoryHostPid=0
