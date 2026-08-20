@@ -10,6 +10,14 @@ $script:passed=0
 function Assert-Binding([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
 function Assert-BindingThrows([scriptblock]$Action,[string]$Pattern,[string]$Message){$thrown=$false;try{& $Action}catch{$thrown=$true;if($_.Exception.Message-notmatch$Pattern){throw "ASSERTION FAILED: $Message; unexpected error: $($_.Exception.Message)"}};if(-not$thrown){throw "ASSERTION FAILED: $Message; no exception"};$script:passed++}
 
+$bindingSource=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosRepositoryThinkerBinding.psm1') -Raw -Encoding UTF8
+Assert-Binding ($bindingSource.Contains("[System.Windows.Forms.SendKeys]::SendWait('^a')") -and $bindingSource.Contains("[System.Windows.Forms.SendKeys]::SendWait('^v')")) 'Repository Thinker rehydrates the composer through real keyboard/clipboard input events'
+Assert-Binding ($bindingSource.Contains("@('composer-submit-button')") -and $bindingSource.Contains("@('send-button','composer-send-button')")) 'Repository Thinker supports bounded current and alternate send automation identifiers'
+Assert-Binding ($bindingSource.Contains("@('Send prompt','Send message','Send')")) 'Repository Thinker has a bounded accessible-name send fallback'
+Assert-Binding ($bindingSource.Contains("SendWait('{ENTER}')")) 'Repository Thinker has a keyboard Enter fallback after exact composer proof'
+Assert-Binding ($bindingSource.Contains('committed-send proof is absent')) 'Repository Thinker remains fail-closed unless the outbound payload leaves the composer'
+Assert-Binding (-not$bindingSource.Contains('SendPrompt=$desktop.SendPrompt')) 'Repository Thinker no longer delegates trigger sending to the legacy Desktop sender'
+
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aidos-thinker-binding-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force|Out-Null
 try{
