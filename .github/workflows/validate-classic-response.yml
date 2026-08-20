@@ -43,34 +43,55 @@ jobs:
   windows-self-update-schedule-probe:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Prove five-minute recurring Task Scheduler trigger
+      - name: Prove exact five-minute recurring Task Scheduler semantics
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference='Stop'
-          $taskName='AIDOS Host Self Update'
+          $taskName='AIDOS Host Self Update Probe'
           $stateRoot=Join-Path $env:RUNNER_TEMP ('aidos-self-update-probe-'+[guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $stateRoot -Force|Out-Null
+          $launcherPath=Join-Path $stateRoot 'SELF_UPDATE_LAUNCHER.vbs'
+          @'
+          Option Explicit
+          WScript.Quit 0
+          '@|Set-Content -LiteralPath $launcherPath -Encoding ascii
           $authorizedUser=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+          $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+          $action=New-ScheduledTaskAction -Execute $wscript -Argument "`"$launcherPath`""
+          $principal=New-ScheduledTaskPrincipal -UserId $authorizedUser -LogonType Interactive -RunLevel Limited
+          $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+          $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
           try {
-              $result=& ./tools/Install-AidosHostSelfUpdate.ps1 -Distribution 'AIDOS-NOT-INSTALLED' -WslReposRoot '/tmp/aidos-not-installed' -StateRoot $stateRoot -AuthorizedUser $authorizedUser -IntervalMinutes 5
+              Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'Validation-only mirror of the AIDOS self-update recurrence contract.'|Out-Null
+              Enable-ScheduledTask -TaskName $taskName|Out-Null
+              Start-ScheduledTask -TaskName $taskName
+              $deadline=(Get-Date).AddSeconds(20)
+              do {
+                  Start-Sleep -Milliseconds 250
+                  $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                  $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+                  if($task.State -ne 'Running'){break}
+              } while((Get-Date)-lt$deadline)
               $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
               $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-              $trigger=@($task.Triggers)[0]
-              $action=@($task.Actions)[0]
+              $persistedTrigger=@($task.Triggers)[0]
+              $persistedAction=@($task.Actions)[0]
               [pscustomobject]@{
                   state=$task.State
+                  last_result=$info.LastTaskResult
                   next_run_time=$info.NextRunTime
-                  execute=$action.Execute
-                  arguments=$action.Arguments
-                  start_boundary=$trigger.StartBoundary
-                  repetition_interval=$trigger.Repetition.Interval
-                  repetition_duration=$trigger.Repetition.Duration
-                  installer_status=$result.status
+                  execute=$persistedAction.Execute
+                  arguments=$persistedAction.Arguments
+                  start_boundary=$persistedTrigger.StartBoundary
+                  repetition_interval=$persistedTrigger.Repetition.Interval
+                  repetition_duration=$persistedTrigger.Repetition.Duration
               }|Format-List
-              if([string]$action.Execute -notmatch 'wscript\.exe$'){throw 'Self-update task does not use hidden wscript launcher.'}
-              if([string]$trigger.Repetition.Interval -ne 'PT5M'){throw "Unexpected repetition interval: $($trigger.Repetition.Interval)"}
-              if($info.NextRunTime -le (Get-Date).AddSeconds(-5)){throw "Self-update task has no future NextRunTime: $($info.NextRunTime)"}
+              if([string]$persistedAction.Execute -notmatch 'wscript\.exe$'){throw 'Task does not use the hidden wscript action.'}
+              if([string]$persistedTrigger.Repetition.Interval -ne 'PT5M'){throw "Unexpected repetition interval: $($persistedTrigger.Repetition.Interval)"}
+              if($task.State -eq 'Disabled'){throw 'Task became disabled after manual start.'}
+              if($info.LastTaskResult -ne 0){throw "Manual task run failed: $($info.LastTaskResult)"}
+              if($info.NextRunTime -le (Get-Date).AddSeconds(-5)){throw "Recurring task has no future NextRunTime: $($info.NextRunTime)"}
           } finally {
               Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
               Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
