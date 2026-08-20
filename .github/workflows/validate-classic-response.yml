@@ -22,3 +22,11 @@ jobs:
       - name: Independent review authority recovery regression
         shell: pwsh
         run: ./tests/ReviewAuthorityRecovery.Tests.ps1
+
+  windows-portable-review-loop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run exact host candidate validator
+        shell: pwsh
+        run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot $PWD
