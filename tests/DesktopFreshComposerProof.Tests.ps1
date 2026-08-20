@@ -5,10 +5,14 @@ $ErrorActionPreference='Stop'
 
 $root=Split-Path $PSScriptRoot -Parent
 $path=Join-Path $root 'bridge/AidosDesktopChatGPTWindowDiscovery.psm1'
-$source=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+$basePath=Join-Path $root 'bridge/AidosDesktopChatGPTWindowDiscovery.Base.ps1'
+$layerSource=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+$baseSource=Get-Content -LiteralPath $basePath -Raw -Encoding UTF8
+$source=$baseSource+"`n"+$layerSource
 $script:passed=0
 function Assert-Fresh([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
 
+Assert-Fresh ($layerSource.IndexOf(". (Join-Path `$PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.Base.ps1')",[StringComparison]::Ordinal) -ge 0) 'window discovery loads the preserved base implementation before response-capture layering'
 Assert-Fresh ($source.IndexOf('function ConvertTo-AidosDesktopChatGPTComposerSemanticText',[StringComparison]::Ordinal) -ge 0) 'composer semantic normalization helper exists'
 Assert-Fresh ($source.IndexOf("[string]::Equals(`$Text,'Vraag het aan ChatGPT',[StringComparison]::Ordinal)",[StringComparison]::Ordinal) -ge 0) 'observed Dutch empty-composer placeholder is normalized by exact ordinal match only'
 Assert-Fresh ($source.IndexOf('$text=ConvertTo-AidosDesktopChatGPTComposerSemanticText -Text $text',[StringComparison]::Ordinal) -ge 0) 'fresh composer observation normalizes placeholder text before hashing and classification'
