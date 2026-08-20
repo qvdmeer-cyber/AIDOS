@@ -92,6 +92,7 @@ function Invoke-AidosRuntimeProjectManagerTick {
                 }catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}
             }
             elseif([string]$selection.actor_identity-eq'WORKER_AGENT' -and [string]$selection.action-eq'REVIEW' -and [string]$selection.project_state-eq'REVIEW_READY'){try{$activation=if($ReviewPublisher){& $ReviewPublisher $candidate.project}else{Publish-AidosAutonomousReview -Project $candidate.project};$status='REVIEW_PUBLISHED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
+            elseif([string]$selection.actor_identity-eq'WORKER_AGENT' -and [string]$selection.action-eq'RECONCILE_REVIEW' -and [string]$selection.project_state-eq'GPT_REVIEWING' -and $ReviewPublisher){try{$activation=& $ReviewPublisher $candidate.project;$status='REVIEW_RECONCILED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
             elseif([string]$selection.actor_identity-eq'WORKER_AGENT' -and [string]$selection.action-eq'PLAN_REPAIR'){try{$activation=if($RepairPlanner){& $RepairPlanner $candidate.project}else{Invoke-AidosAutonomousValidationRepairPlan -Project $candidate.project -Push:$Push};$status='REPAIR_PLANNED'}catch{$status='ACTIVATION_ERROR';$activation=[pscustomobject]@{error=$_.Exception.Message}}}
             else{$status='ACTOR_ADAPTER_REQUIRED'}
             $processed++
