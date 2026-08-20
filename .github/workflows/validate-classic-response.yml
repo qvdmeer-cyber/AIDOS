@@ -5,38 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/capture-runtime-review-publisher-command
-          fetch-depth: 0
-      - name: Update bootstrap review publisher assertion
-        shell: bash
-        run: python tools/TEMP-UpdateBootstrapReviewPublisherAssertion.py
-      - name: Validate bootstrap review publisher contract
-        shell: pwsh
-        run: |
-          ./tests/RepositoryHandoffBootstrap.Tests.ps1
-          ./tests/RepositoryHandoffBridge.Tests.ps1
-          ./tests/RuntimeProjectManager.Tests.ps1
-      - name: Commit bootstrap review publisher regression
-        shell: bash
-        run: |
-          git add -- tests/RepositoryHandoffBootstrap.Tests.ps1
-          if git diff --cached --quiet; then
-            echo "No bootstrap review publisher changes"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Align bootstrap review publisher regression"
-            git push origin HEAD:fix/capture-runtime-review-publisher-command
-          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
