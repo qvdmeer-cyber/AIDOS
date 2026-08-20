@@ -5,57 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
-      - name: Apply exact desktop evidence patch for hardening PR
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/review-evidence-and-self-update-hardening'
-        shell: pwsh
-        run: |
-          Set-StrictMode -Version Latest
-          $ErrorActionPreference='Stop'
-          $modulePath='./bridge/AidosDesktopChatGPT.psm1'
-          $patchPath='./tools/.AidosDesktopReviewEvidenceFunction.patch.txt'
-          $source=[IO.File]::ReadAllText($modulePath)
-          if($source -match 'transport_chunk_index=\$index\+1'){
-              Write-Host 'Desktop evidence patch already present.'
-              exit 0
-          }
-          $replacement=[IO.File]::ReadAllText($patchPath).TrimEnd()+"`n`nfunction New-AidosDesktopChatGPTPrompt"
-          $pattern='(?s)function Get-AidosDesktopChatGPTReviewEvidenceDocuments \{.*?\r?\n\}\r?\n\r?\nfunction New-AidosDesktopChatGPTPrompt'
-          $matches=[regex]::Matches($source,$pattern)
-          if($matches.Count -ne 1){throw "Expected exactly one desktop evidence function block, found $($matches.Count)."}
-          $updated=[regex]::Replace($source,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($m);$replacement},1)
-          [IO.File]::WriteAllText($modulePath,$updated,[Text.UTF8Encoding]::new($false))
-          git diff --check
-      - name: Evidence chunking regression
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/review-evidence-and-self-update-hardening'
-        shell: pwsh
-        run: ./tests/DesktopReviewEvidenceChunking.Tests.ps1
-      - name: Hidden self-update launcher contract
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/review-evidence-and-self-update-hardening'
-        shell: pwsh
-        run: ./tests/HostSelfUpdateContract.Tests.ps1
-      - name: Commit validated desktop evidence patch
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/review-evidence-and-self-update-hardening'
-        shell: pwsh
-        run: |
-          if(git diff --quiet -- bridge/AidosDesktopChatGPT.psm1){
-              Write-Host 'No desktop module change to commit.'
-              exit 0
-          }
-          git config user.email 'aidos-hardening@example.invalid'
-          git config user.name 'AIDOS Hardening Validation'
-          git add -- bridge/AidosDesktopChatGPT.psm1
-          git commit -m 'Chunk oversized desktop review evidence'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
