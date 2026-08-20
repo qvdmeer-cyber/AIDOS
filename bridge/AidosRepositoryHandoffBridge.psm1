@@ -145,7 +145,7 @@ function Publish-AidosPendingRepositoryActorHandoffs {
         }
     }
     [pscustomobject][ordered]@{
-        status=if(@($results|Where-Object status -eq'ERROR').Count){'ERROR'}elseif($processed){'PROCESSED'}else{'IDLE'}
+        status=if(@($results|Where-Object { $_.status -eq 'ERROR' }).Count){'ERROR'}elseif($processed){'PROCESSED'}else{'IDLE'}
         processed=$processed
         results=$results.ToArray()
     }
@@ -197,7 +197,7 @@ function Invoke-AidosCurrentRepositoryThinkerTriggers {
         }
     }
     [pscustomobject][ordered]@{
-        status=if(@($results|Where-Object status -eq'ERROR').Count){'ERROR'}elseif($processed){'PROCESSED'}else{'IDLE'}
+        status=if(@($results|Where-Object { $_.status -eq 'ERROR' }).Count){'ERROR'}elseif($processed){'PROCESSED'}else{'IDLE'}
         processed=$processed
         results=$results.ToArray()
     }
