@@ -41,9 +41,16 @@ if([string]$a.missing_evidence -in @('MEDIUM','HIGH')){$errors+='missing evidenc
 [pscustomobject]@{pass=($errors.Count-eq0);decision_allowed=($errors.Count-eq0);errors=$errors}
 '@|Set-Content -LiteralPath (Join-Path $contracts 'tools/Test-AidosDecisionAssessment.ps1') -Encoding utf8NoBOM
 
-    & (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEF-CONSUMER' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson '[]' -AidosRoot $root|Out-Null
+    $projectProfile=& (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEF-CONSUMER' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson '[]' -AidosRoot $root
+    $projectOverrides=@($projectProfile.resolved_surfaces|Where-Object {[string]$_.state-eq'UNRESOLVED'}|ForEach-Object {
+        [ordered]@{surface_id=[string]$_.surface_id;state='APPLICABLE';reason='Definition result consumer fixture explicitly resolves project applicability before Definition.';source_ref='docs/PRODUCT.md'}
+    })
+    if($projectOverrides.Count){
+        & (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEF-CONSUMER' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson ($projectOverrides|ConvertTo-Json -Depth 20 -Compress) -AidosRoot $root|Out-Null
+    }
     $project=[pscustomobject]@{project_id='DEF-CONSUMER';local_root=$projectRoot}
     $start=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
+    Assert-DefinitionConsumer ([string]$start.action-eq'START_DEFINITION') 'fully resolved project applicability unlocks START_DEFINITION'
     $created=New-AidosRuntimeActorAssignment -Project $project -Selection $start;$a=$created.assignment
     $profile=Get-Content -LiteralPath (Join-Path $projectRoot '.aidos/profile/PROJECT_APPLICABILITY.json') -Raw|ConvertFrom-Json -Depth 100
     $appSurface=@($profile.resolved_surfaces|Where-Object {[string]$_.state -in @('APPLICABLE','CONDITIONAL')}|Select-Object -First 1)[0]
