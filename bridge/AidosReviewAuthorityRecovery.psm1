@@ -14,6 +14,7 @@ function Test-AidosReviewAuthorityValueResolved {
         if([string]::Equals($text,'Replace with the evidence-based review reason.',[StringComparison]::Ordinal)){return $false}
         return $true
     }
+    if($Value -is [char] -or $Value -is [bool] -or $Value -is [ValueType]){return $true}
     if($Value -is [Collections.IDictionary]){
         foreach($key in @($Value.Keys)){if(-not(Test-AidosReviewAuthorityValueResolved -Value $Value[$key])){return $false}}
         return $true
