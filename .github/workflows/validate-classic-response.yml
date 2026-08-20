@@ -22,25 +22,3 @@ jobs:
       - name: Independent review authority recovery regression
         shell: pwsh
         run: ./tests/ReviewAuthorityRecovery.Tests.ps1
-
-  hardening-portable-validation:
-    if: github.event_name == 'pull_request' && github.head_ref == 'fix/review-evidence-and-self-update-hardening'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Evidence chunking regression
-        shell: pwsh
-        run: ./tests/DesktopReviewEvidenceChunking.Tests.ps1
-      - name: Hidden self-update launcher contract
-        shell: pwsh
-        run: ./tests/HostSelfUpdateContract.Tests.ps1
-      - name: Mark host-only WSL path fixture unavailable on GitHub runner
-        shell: pwsh
-        run: |
-          $path='./tests/PORTABILITY.json'
-          $config=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -AsHashtable
-          $config.windows_candidate_validation_skip['WindowsPath.Tests.ps1']='GitHub-hosted Windows has no Ubuntu WSL distribution; authoritative host validation still runs this unchanged test.'
-          $config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $path -Encoding utf8NoBOM
-      - name: Portable Core validation
-        shell: pwsh
-        run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot .
