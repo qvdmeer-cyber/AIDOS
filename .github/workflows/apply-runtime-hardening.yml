@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/review-evidence-and-self-update-hardening
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -15,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Apply exact desktop evidence patch
         shell: pwsh
@@ -64,4 +67,5 @@ jobs:
           git add -- bridge/AidosDesktopChatGPT.psm1
           if(git diff --cached --quiet){throw 'Validated desktop evidence patch produced no staged change.'}
           git commit -m 'Chunk oversized desktop review evidence'
-          git push origin HEAD:${{ github.ref_name }}
+          $target='${{ github.event_name == ''pull_request'' && github.event.pull_request.head.ref || github.ref_name }}'
+          git push origin HEAD:$target
