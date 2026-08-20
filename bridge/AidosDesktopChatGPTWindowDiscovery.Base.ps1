@@ -188,7 +188,7 @@ function Add-AidosDesktopChatGPTFreshComposerProof {
         $before=& $freshComposerObservation -Context $Context
         try{return & $primarySend $Context $Enrollment $PromptText $Assignment}catch{
             $message=$_.Exception.Message
-            if($message -ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof remains fail-closed.'){throw}
+            if($message -ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'){throw}
         }
         $fresh=& $freshComposerCleared -Context $Context -PromptText $PromptText
         [pscustomobject][ordered]@{
@@ -381,8 +381,7 @@ function Add-AidosDesktopChatGPTConversationProofRecovery {
         param($Context,[string]$ProofText,$Enrollment)
         try{return & $primaryLocate $Context $ProofText $Enrollment}catch{$primaryError=$_.Exception.Message}
         if(-not$Context -or [string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw $primaryError}
-        if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
-        }
+        if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
         $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
         if(-not$root){throw $primaryError}
         $accountProof=''
@@ -409,10 +408,9 @@ function New-AidosDesktopChatGPTResilientWindowsBackend {
     param([string]$ProcessName='ChatGPT Classic')
     $backend=& $script:BaseDesktopChatGPTWindowsBackendCommand -ProcessName $ProcessName
     $primaryResolver=$backend.GetProcessContext
-    $resilientProcessContext=Get-Command Get-AidosDesktopChatGPTResilientProcessContext -CommandType Function -ErrorAction Stop
     $backend.GetProcessContext=({
         param([string]$RequestedProcessName)
-        & $resilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
+        Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
     }).GetNewClosure()
     $backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
     $backend=Add-AidosDesktopChatGPTFreshComposerProof -Backend $backend
