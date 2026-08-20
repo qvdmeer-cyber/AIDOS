@@ -49,10 +49,101 @@ function Stop-AidosLeasedHostAgentProcess {
     [pscustomobject]@{status='LEASED_AGENT_STOPPED';pid=[int]$lease.pid;owner_id=[string]$lease.owner_id}
 }
 
-# The scheduled task is a stable bootstrap. Reloads terminate only the exactly
-# leased AIDOS child; task registration/ACLs are never changed during upgrades.
+function Disable-AidosLegacyDesktopTransportTask {
+    param([Parameter(Mandatory)][string]$TaskName)
+    $task=Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if(-not$task){return [pscustomobject]@{status='NOT_INSTALLED';task_name=$TaskName}}
+    if([string]$task.State -eq 'Running'){Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop}
+    Disable-ScheduledTask -TaskName $TaskName -ErrorAction Stop|Out-Null
+    [pscustomobject]@{status='DISABLED';task_name=$TaskName}
+}
+
+function Wait-AidosRepositoryHostReload {
+    param(
+        [Parameter(Mandatory)][string]$StatusPath,
+        [Parameter(Mandatory)][DateTimeOffset]$StartedAt,
+        [int]$TimeoutSeconds=20
+    )
+    $deadline=[DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 250
+        if(Test-Path -LiteralPath $StatusPath -PathType Leaf){
+            try{
+                $status=Get-Content -LiteralPath $StatusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+                if([string]$status.status -eq 'RUNNING' -and -not[string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)){
+                    $heartbeat=[DateTimeOffset]::Parse([string]$status.heartbeat_at)
+                    if($heartbeat -ge $StartedAt){return $status}
+                }
+            }catch{}
+        }
+    }while([DateTimeOffset]::UtcNow -lt $deadline)
+    throw 'Repository handoff host did not publish a fresh RUNNING heartbeat within the bounded reload window.'
+}
+
+$aidosRoot=Split-Path $PSScriptRoot -Parent
+$repositoryHostStateRoot=Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-host'
+$repositoryHostConfigPath=Join-Path $repositoryHostStateRoot 'CONFIG.json'
+$repositoryHostStatusPath=Join-Path $repositoryHostStateRoot 'STATUS.json'
+$repositoryHostTaskName='AIDOS Repository Handoff Host'
+$legacyTaskName='AIDOS Persistent Local Desktop Agent'
+$repositoryTask=Get-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction SilentlyContinue
+$repositoryConfigPresent=Test-Path -LiteralPath $repositoryHostConfigPath -PathType Leaf
+
+if(($null-ne$repositoryTask) -xor $repositoryConfigPresent){
+    throw 'Repository handoff authority is partially installed; refusing to fall back to legacy desktop transport during Core reload.'
+}
+
+# Always stop only an exactly leased legacy agent process. When Repository Handoff
+# is installed it is the transport authority, so the legacy task is then disabled
+# and must not be reinstalled by the old autonomous-preparation bootstrap.
 $stopped=Stop-AidosLeasedHostAgentProcess -Root $StateRoot
 
-$enable=Join-Path (Split-Path $PSScriptRoot -Parent) 'tools/Enable-AidosAutonomousPreparation.ps1'
+if($repositoryTask -and $repositoryConfigPresent){
+    $repositoryWasRunning=([string]$repositoryTask.State -eq 'Running')
+    $legacyTask=Disable-AidosLegacyDesktopTransportTask -TaskName $legacyTaskName
+    $repositoryBootstrap=Join-Path $aidosRoot 'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1'
+    if(-not(Test-Path -LiteralPath $repositoryBootstrap -PathType Leaf)){throw "Repository handoff host bootstrap is unavailable: $repositoryBootstrap"}
+
+    if($repositoryWasRunning){
+        & $repositoryBootstrap -Command Stop -StateRoot $repositoryHostStateRoot|Out-Null
+        $deadline=[DateTimeOffset]::UtcNow.AddSeconds(15)
+        do{
+            Start-Sleep -Milliseconds 250
+            $current=Get-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction SilentlyContinue
+            if(-not$current -or [string]$current.State -ne 'Running'){break}
+        }while([DateTimeOffset]::UtcNow -lt $deadline)
+        $current=Get-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction SilentlyContinue
+        if(-not$current){throw 'Repository handoff host scheduled task disappeared during reload.'}
+        if([string]$current.State -eq 'Running'){throw 'Repository handoff host scheduled task did not stop within the bounded reload window.'}
+
+        $restartStartedAt=[DateTimeOffset]::UtcNow
+        Start-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction Stop
+        $repositoryStatus=Wait-AidosRepositoryHostReload -StatusPath $repositoryHostStatusPath -StartedAt $restartStartedAt
+    }else{
+        $repositoryStatus=if(Test-Path -LiteralPath $repositoryHostStatusPath -PathType Leaf){
+            try{Get-Content -LiteralPath $repositoryHostStatusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50}catch{$null}
+        }else{$null}
+    }
+
+    $selfUpdateInstaller=Join-Path $aidosRoot 'tools/Install-AidosHostSelfUpdate.ps1'
+    if(-not(Test-Path -LiteralPath $selfUpdateInstaller -PathType Leaf)){throw 'AIDOS host self-update installer is unavailable.'}
+    $selfUpdate=& $selfUpdateInstaller -Distribution $Distribution -WslReposRoot $WslReposRoot -StateRoot $StateRoot -AuthorizedUser $AuthorizedUser
+
+    [pscustomobject][ordered]@{
+        status='RELOADED_REPOSITORY_HANDOFF'
+        repository_host_task=$repositoryHostTaskName
+        repository_host_was_running=$repositoryWasRunning
+        repository_host_status=$repositoryStatus
+        legacy_agent=$stopped
+        legacy_task=$legacyTask
+        host_self_update=$selfUpdate
+    }|ConvertTo-Json -Depth 100
+    exit 0
+}
+
+# Compatibility path for hosts that have not migrated to Repository Handoff yet.
+# In that legacy-only topology the historical autonomous-preparation bootstrap
+# remains authoritative and retains its stable scheduled-task behavior.
+$enable=Join-Path $aidosRoot 'tools/Enable-AidosAutonomousPreparation.ps1'
 if(-not(Test-Path -LiteralPath $enable -PathType Leaf)){throw "AIDOS enable script is unavailable: $enable"}
 & $enable -Distribution $Distribution -WslReposRoot $WslReposRoot -PreparationProjectId $PreparationProjectId -PreparationRepository $PreparationRepository -PreparationProjectName $PreparationProjectName -RuntimeProjectRoot $RuntimeProjectRoot -AuthorizedUser $AuthorizedUser
