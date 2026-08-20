@@ -137,7 +137,7 @@ if($repositoryTask -and $repositoryConfigPresent){
             Start-Sleep -Milliseconds 250
             $current=Get-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction SilentlyContinue
             if(-not$current -or [string]$current.State -ne 'Running'){break}
-        }while([DateTimeOffset]::UtcNow -lt$deadline)
+        }while([DateTimeOffset]::UtcNow -lt $deadline)
         $current=Get-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction SilentlyContinue
         if(-not$current){throw 'Repository handoff host scheduled task disappeared during reload.'}
         if([string]$current.State -eq 'Running'){throw 'Repository handoff host scheduled task did not stop within the bounded reload window.'}
