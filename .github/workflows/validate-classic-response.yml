@@ -41,12 +41,12 @@ jobs:
       - name: Commit chunked source transport
         shell: bash
         run: |
-          if git diff --quiet; then
+          git add -- bridge/AidosRepositoryHandoffGateway.psm1 bridge/AidosRepositoryHandoffOpenApi.psm1 bridge/AidosRepositoryHandoffInstallation.psm1 tests/RepositorySourceChunking.Tests.ps1
+          if git diff --cached --quiet; then
             echo "No source chunking changes"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -- bridge/AidosRepositoryHandoffGateway.psm1 bridge/AidosRepositoryHandoffOpenApi.psm1 bridge/AidosRepositoryHandoffInstallation.psm1 tests/RepositorySourceChunking.Tests.ps1 .github/workflows/validate-repository-handoff.yml
             git commit -m "Chunk large authorized repository sources"
             git push origin HEAD:fix/chunk-authorized-repository-sources
           fi
