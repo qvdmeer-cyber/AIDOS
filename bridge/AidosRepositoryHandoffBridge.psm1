@@ -168,16 +168,25 @@ function Invoke-AidosCurrentRepositoryThinkerTriggers {
             $root=Resolve-AidosFileSystemPath ([string]$project.local_root)
             $handoff=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId ([string]$project.project_id)
             if($null-eq$handoff -or [string]$handoff.metadata.kind-ne'ASSIGNMENT' -or [string]$handoff.metadata.to_actor-ne'THINKER'){continue}
-            $assignmentId=[IO.Path]::GetFileNameWithoutExtension(([string]$handoff.metadata.payload_ref).Replace('/',[IO.Path]::DirectorySeparatorChar))
-            if([string]::IsNullOrWhiteSpace($assignmentId)){throw 'Current Thinker handoff payload_ref does not identify a runtime assignment.'}
-            $pending=@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $root|Where-Object {[string]$_.assignment_id-eq$assignmentId})
-            if($pending.Count-eq0){continue}
-            if($pending.Count-ne1){throw "Current Thinker handoff assignment '$assignmentId' is ambiguous in pending runtime state."}
+            $action=[string]$handoff.metadata.action
+            $assignmentId=$null
+            $reviewId=$null
+            if($action-eq'REVIEW'){
+                $reviewId=if($handoff.metadata.binding -and $handoff.metadata.binding.PSObject.Properties['review_id']){[string]$handoff.metadata.binding.review_id}else{$null}
+                if([string]::IsNullOrWhiteSpace($reviewId)){throw 'Current Thinker review handoff has no review_id binding.'}
+            }else{
+                $assignmentId=[IO.Path]::GetFileNameWithoutExtension(([string]$handoff.metadata.payload_ref).Replace('/',[IO.Path]::DirectorySeparatorChar))
+                if([string]::IsNullOrWhiteSpace($assignmentId)){throw 'Current Thinker handoff payload_ref does not identify a runtime assignment.'}
+                $pending=@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $root|Where-Object {[string]$_.assignment_id-eq$assignmentId})
+                if($pending.Count-eq0){continue}
+                if($pending.Count-ne1){throw "Current Thinker handoff assignment '$assignmentId' is ambiguous in pending runtime state."}
+            }
             $trigger=if($ThinkerTrigger){& $ThinkerTrigger $StateRoot $handoff $ProcessName}else{AidosRepositoryThinkerBinding\Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName}
             $results.Add([pscustomobject][ordered]@{
                 project_id=[string]$project.project_id
                 handoff_id=[string]$handoff.metadata.handoff_id
                 assignment_id=$assignmentId
+                review_id=$reviewId
                 status=[string]$trigger.status
                 trigger=$trigger
             })
