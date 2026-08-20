@@ -30,6 +30,34 @@ function Test-AidosDesktopReviewResponseValueResolved {
     $true
 }
 
+function Resolve-AidosDesktopReviewMessageDirection {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Texts)
+    $assistant=$false
+    $user=$false
+    foreach($text in @($Texts)){
+        if([string]::IsNullOrWhiteSpace([string]$text)){continue}
+        $normalized=([string]$text).Replace("`r`n","`n").Replace("`r","`n")
+        foreach($line in @($normalized -split "`n")){
+            $label=([string]$line).Trim()
+            if([string]::IsNullOrWhiteSpace($label)){continue}
+            if([string]::Equals($label,'You said:',[StringComparison]::OrdinalIgnoreCase) -or
+               [string]::Equals($label,'Jij zei:',[StringComparison]::OrdinalIgnoreCase)){
+                $user=$true
+                continue
+            }
+            if([string]::Equals($label,'ChatGPT said:',[StringComparison]::OrdinalIgnoreCase) -or
+               [string]::Equals($label,'ChatGPT zei:',[StringComparison]::OrdinalIgnoreCase) -or
+               ($label -match '^(?i)(?!You said:$)(?!Jij zei:$).+\s+(?:said|zei):$')){
+                $assistant=$true
+            }
+        }
+    }
+    if($assistant -and -not$user){return 'ASSISTANT'}
+    if($user -and -not$assistant){return 'USER'}
+    'UNKNOWN'
+}
+
 function Select-AidosDesktopStrictReviewResponseText {
     [CmdletBinding()]
     param(
@@ -69,6 +97,71 @@ function Select-AidosDesktopStrictReviewResponseText {
     $responses[$responses.Count-1]
 }
 
+function Select-AidosDesktopStrictReviewResponseSurface {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Surfaces,
+        [Parameter(Mandatory)]$Assignment
+    )
+    $assistantTexts=[Collections.Generic.List[string]]::new()
+    foreach($surface in @($Surfaces)){
+        if($null-eq$surface -or [string]$surface.direction-ne'ASSISTANT'){continue}
+        foreach($text in @($surface.texts)){
+            if(-not[string]::IsNullOrWhiteSpace([string]$text)){$assistantTexts.Add([string]$text)}
+        }
+    }
+    Select-AidosDesktopStrictReviewResponseText -Texts $assistantTexts.ToArray() -Assignment $Assignment
+}
+
+function Get-AidosDesktopReviewMessageSurface {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Element)
+    $candidateTexts=[Collections.Generic.List[string]]::new()
+    $directionTexts=[Collections.Generic.List[string]]::new()
+    $candidateSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $directionSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $values=@()
+    try{
+        $textPattern=$Element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+        if($textPattern){$values+=[string]$textPattern.DocumentRange.GetText(-1)}
+    }catch{}
+    try{
+        $valuePattern=$Element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if($valuePattern){$values+=[string]$valuePattern.Current.Value}
+    }catch{}
+    try{$values+=[string]$Element.Current.Name}catch{}
+    foreach($value in @($values)){
+        if([string]::IsNullOrWhiteSpace([string]$value)){continue}
+        if($candidateSeen.Add([string]$value)){$candidateTexts.Add([string]$value)}
+    }
+
+    $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
+    $current=$Element
+    for($depth=0;$depth-lt16-and$current;$depth++){
+        $controlType=''
+        try{$controlType=[string]$current.Current.ControlType.ProgrammaticName}catch{}
+        if($depth-gt0 -and $controlType -match 'Document$'){break}
+        $metadata=@()
+        try{$metadata+=[string]$current.Current.Name}catch{}
+        try{$metadata+=[string]$current.Current.HelpText}catch{}
+        try{$metadata+=[string]$current.Current.AutomationId}catch{}
+        try{
+            $text=Get-AidosDesktopChatGPTElementText $current
+            if(-not[string]::IsNullOrWhiteSpace([string]$text)){$metadata+=[string]$text}
+        }catch{}
+        foreach($value in @($metadata)){
+            if([string]::IsNullOrWhiteSpace([string]$value)){continue}
+            if($directionSeen.Add([string]$value)){$directionTexts.Add([string]$value)}
+        }
+        try{$current=$walker.GetParent($current)}catch{$current=$null}
+    }
+    [pscustomobject][ordered]@{
+        direction=Resolve-AidosDesktopReviewMessageDirection -Texts $directionTexts.ToArray()
+        texts=$candidateTexts.ToArray()
+        direction_proof_texts=$directionTexts.ToArray()
+    }
+}
+
 function Get-AidosDesktopStrictReviewResponseText {
     param(
         [Parameter(Mandatory)]$Context,
@@ -80,26 +173,13 @@ function Get-AidosDesktopStrictReviewResponseText {
     }
     $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
     if(-not $root){ return $null }
-    $texts=[Collections.Generic.List[string]]::new()
-    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $surfaces=[Collections.Generic.List[object]]::new()
     foreach($element in @($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
         try{if([string]$element.Current.AutomationId-eq'prompt-textarea'){continue}}catch{}
-        $values=@()
-        try{
-            $textPattern=$element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-            if($textPattern){$values+=[string]$textPattern.DocumentRange.GetText(-1)}
-        }catch{}
-        try{
-            $valuePattern=$element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-            if($valuePattern){$values+=[string]$valuePattern.Current.Value}
-        }catch{}
-        try{$values+=[string]$element.Current.Name}catch{}
-        foreach($value in @($values)){
-            if([string]::IsNullOrWhiteSpace([string]$value)){continue}
-            if($seen.Add([string]$value)){$texts.Add([string]$value)}
-        }
+        $surface=Get-AidosDesktopReviewMessageSurface -Element $element
+        if([string]$surface.direction-eq'ASSISTANT' -and @($surface.texts).Count){$surfaces.Add($surface)}
     }
-    Select-AidosDesktopStrictReviewResponseText -Texts $texts.ToArray() -Assignment $Assignment
+    Select-AidosDesktopStrictReviewResponseSurface -Surfaces $surfaces.ToArray() -Assignment $Assignment
 }
 
 function New-AidosDesktopSessionGateDefaultBackend {
@@ -172,7 +252,7 @@ function New-AidosDesktopInteractiveOverlay {
     $s=$Decision.snapshot
     [ordered]@{
         status=$Status
-        reason=if($Status -eq 'AVAILABLE'){'NONE'}else{[string]$Decision.reason}
+        reason=if($Status -eq'AVAILABLE'){'NONE'}else{[string]$Decision.reason}
         policy=[string]$Decision.policy
         observed_session_id=$s.session_id
         process_session_id=$s.process_session_id
@@ -195,11 +275,11 @@ function ConvertTo-AidosDesktopWaitingState {
         [Parameter(Mandatory)]$State,
         [Parameter(Mandatory)]$Decision
     )
-    if([string]$Decision.reason -eq 'NONE'){ throw 'WAITING interactive overlay requires a blocking or transient reason.' }
-    $phase=if([string]$State.delivery_status -in @('PREPARED','SENT')){[string]$State.delivery_status}elseif([string]$State.status -in @('PREPARED','SENT','RECEIVED','VALIDATED','HANDOFF_COMPLETE')){[string]$State.status}else{'PREPARED'}
+    if([string]$Decision.reason-eq'NONE'){throw 'WAITING interactive overlay requires a blocking or transient reason.'}
+    $phase=if([string]$State.delivery_status-in@('PREPARED','SENT')){[string]$State.delivery_status}elseif([string]$State.status-in@('PREPARED','SENT','RECEIVED','VALIDATED','HANDOFF_COMPLETE')){[string]$State.status}else{'PREPARED'}
     $o=[ordered]@{}
     foreach($p in $State.PSObject.Properties){
-        if($p.Name -notin @('delivery_status','interactive_session')){ $o[$p.Name]=$p.Value }
+        if($p.Name-notin@('delivery_status','interactive_session')){$o[$p.Name]=$p.Value}
     }
     $o.status=$phase
     $o.interactive_session=New-AidosDesktopInteractiveOverlay -Decision $Decision -Status WAITING
@@ -216,14 +296,14 @@ function Set-AidosDesktopInteractiveOverlay {
         [ValidateSet('AVAILABLE','WAITING')][string]$Status='AVAILABLE'
     )
     $state=Read-AidosDesktopChatGPTState $ProjectRoot $ReviewId
-    if(-not $state){ return $null }
+    if(-not$state){return $null}
     $o=[ordered]@{}
     foreach($p in $state.PSObject.Properties){
-        if($p.Name -ne 'interactive_session'){ $o[$p.Name]=$p.Value }
+        if($p.Name-ne'interactive_session'){$o[$p.Name]=$p.Value}
     }
     $o.interactive_session=New-AidosDesktopInteractiveOverlay -Decision $Decision -Status $Status
     $lastError=if($o.Contains('last_error')){[string]$o['last_error']}else{''}
-    if($Status -eq 'AVAILABLE' -and $lastError -in @('SESSION_LOCKED','SESSION_DISCONNECTED','NO_INTERACTIVE_SESSION','INPUT_DESKTOP_UNAVAILABLE','SESSION_STATE_UNKNOWN','DESKTOP_TRANSITION_UNAVAILABLE')){
+    if($Status-eq'AVAILABLE' -and $lastError-in@('SESSION_LOCKED','SESSION_DISCONNECTED','NO_INTERACTIVE_SESSION','INPUT_DESKTOP_UNAVAILABLE','SESSION_STATE_UNKNOWN','DESKTOP_TRANSITION_UNAVAILABLE')){
         [void]$o.Remove('last_error')
     }
     $o.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
@@ -233,7 +313,7 @@ function Set-AidosDesktopInteractiveOverlay {
 
 function Add-AidosDesktopInteractiveWaitEvent {
     param([string]$ProjectRoot,[string]$EventType,[string]$ReviewId,$State,$Decision)
-    try {
+    try{
         $record=Read-AidosReviewRecord $ProjectRoot $ReviewId
         Add-AidosEvent $ProjectRoot $EventType 'BRIDGE' @{
             review_id=$ReviewId
@@ -244,8 +324,8 @@ function Add-AidosDesktopInteractiveWaitEvent {
             session_id=$Decision.snapshot.session_id
             session_kind=$Decision.snapshot.session_kind
             reason=$Decision.reason
-        } | Out-Null
-    } catch {}
+        }|Out-Null
+    }catch{}
 }
 
 function Invoke-AidosDesktopChatGPTEnroll {
@@ -260,8 +340,8 @@ function Invoke-AidosDesktopChatGPTEnroll {
         [scriptblock]$SessionSnapshotProvider
     )
     $realBackend=$Backend
-    if(-not $realBackend){ $realBackend=New-AidosDesktopSessionGateDefaultBackend -ProcessName $ProcessName }
-    if($Backend -and -not $SessionSnapshotProvider){
+    if(-not$realBackend){$realBackend=New-AidosDesktopSessionGateDefaultBackend -ProcessName $ProcessName}
+    if($Backend -and -not$SessionSnapshotProvider){
         return AidosDesktopChatGPT\Invoke-AidosDesktopChatGPTEnroll -ProjectRoot $ProjectRoot -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -Backend $realBackend
     }
     $gateState=[pscustomobject]@{snapshot=$null;decision=$null}
@@ -288,45 +368,45 @@ function Invoke-AidosDesktopChatGPTReview {
     $ProjectRoot=Resolve-AidosFileSystemPath $ProjectRoot
     $reviewId=[string](Split-Path -Leaf (Split-Path -Parent $AssignmentPath))
     $realBackend=$Backend
-    $useStrictUiResponseReader=(-not $Backend)
-    if(-not $realBackend){ $realBackend=New-AidosDesktopSessionGateDefaultBackend -ProcessName $ProcessName }
-    $useNativeGate=(-not $Backend) -or $null -ne $SessionSnapshotProvider
+    $useStrictUiResponseReader=(-not$Backend)
+    if(-not$realBackend){$realBackend=New-AidosDesktopSessionGateDefaultBackend -ProcessName $ProcessName}
+    $useNativeGate=(-not$Backend)-or$null-ne$SessionSnapshotProvider
     $waitStarted=[DateTimeOffset]::UtcNow
 
     while($true){
-        $before=if(-not [string]::IsNullOrWhiteSpace($reviewId)){ Read-AidosDesktopChatGPTState $ProjectRoot $reviewId }else{$null}
+        $before=if(-not[string]::IsNullOrWhiteSpace($reviewId)){Read-AidosDesktopChatGPTState $ProjectRoot $reviewId}else{$null}
         $gateState=[pscustomobject]@{snapshot=$null;decision=$null}
-        $effectiveBackend=if($useNativeGate){ New-AidosDesktopSessionGateBackend -Backend $realBackend -Policy $SessionPolicy -SnapshotProvider $SessionSnapshotProvider -GateState $gateState -UseStrictUiResponseReader:$useStrictUiResponseReader }else{$realBackend}
+        $effectiveBackend=if($useNativeGate){New-AidosDesktopSessionGateBackend -Backend $realBackend -Policy $SessionPolicy -SnapshotProvider $SessionSnapshotProvider -GateState $gateState -UseStrictUiResponseReader:$useStrictUiResponseReader}else{$realBackend}
         $result=AidosDesktopChatGPT\Invoke-AidosDesktopChatGPTReview -ProjectRoot $ProjectRoot -AssignmentPath $AssignmentPath -ConversationProofText $ConversationProofText -AccountProofText $AccountProofText -ProcessName $ProcessName -ResponseTimeoutSeconds $ResponseTimeoutSeconds -Backend $effectiveBackend
         $reviewId=[string]$result.review_id
 
-        if([string]$result.status -eq 'WAITING_INTERACTIVE_SESSION'){
+        if([string]$result.status-eq'WAITING_INTERACTIVE_SESSION'){
             $decision=$gateState.decision
-            if(-not $decision){
-                $snapshot=if($SessionSnapshotProvider){ & $SessionSnapshotProvider }else{ Get-AidosInteractiveSessionSnapshot }
+            if(-not$decision){
+                $snapshot=if($SessionSnapshotProvider){&$SessionSnapshotProvider}else{Get-AidosInteractiveSessionSnapshot}
                 $decision=Test-AidosInteractiveSessionPolicy -Snapshot $snapshot -Policy $SessionPolicy
             }
-            if(-not $decision -or [string]$decision.reason -eq 'NONE'){
+            if(-not$decision -or [string]$decision.reason-eq'NONE'){
                 throw 'Interactive wait was requested without a blocking or transient session reason.'
             }
             $raw=Read-AidosDesktopChatGPTState $ProjectRoot $reviewId
             $normalized=ConvertTo-AidosDesktopWaitingState -State $raw -Decision $decision
             Write-AidosDesktopChatGPTStateAtomic $ProjectRoot $reviewId $normalized
-            if(-not $before -or -not $before.PSObject.Properties['interactive_session'] -or [string]$before.interactive_session.status -ne 'WAITING'){
+            if(-not$before -or -not$before.PSObject.Properties['interactive_session'] -or [string]$before.interactive_session.status-ne'WAITING'){
                 Add-AidosDesktopInteractiveWaitEvent $ProjectRoot 'INTERACTIVE_SESSION_WAIT_STARTED' $reviewId $normalized $decision
             }
-            if(-not $WaitForInteractiveSession){
+            if(-not$WaitForInteractiveSession){
                 return [pscustomobject]@{review_id=$reviewId;status=[string]$normalized.status;waiting_interactive_session=$true;idempotent=$false;adapter_state=$normalized}
             }
-            if([string]$decision.reason -eq 'DESKTOP_TRANSITION_UNAVAILABLE'){
-                if($InteractiveSessionWaitTimeoutSeconds -gt 0 -and ([DateTimeOffset]::UtcNow-$waitStarted).TotalSeconds -ge $InteractiveSessionWaitTimeoutSeconds){
+            if([string]$decision.reason-eq'DESKTOP_TRANSITION_UNAVAILABLE'){
+                if($InteractiveSessionWaitTimeoutSeconds-gt0 -and ([DateTimeOffset]::UtcNow-$waitStarted).TotalSeconds-ge$InteractiveSessionWaitTimeoutSeconds){
                     return [pscustomobject]@{review_id=$reviewId;status=[string]$normalized.status;waiting_interactive_session=$true;wait_timeout=$true;transient_desktop_transition=$true;idempotent=$false;adapter_state=$normalized}
                 }
                 Start-Sleep -Seconds ([Math]::Max(1,$InteractiveSessionPollSeconds))
                 continue
             }
             $ready=Wait-AidosInteractiveSession -Policy $SessionPolicy -PollSeconds $InteractiveSessionPollSeconds -TimeoutSeconds $InteractiveSessionWaitTimeoutSeconds -SnapshotProvider $SessionSnapshotProvider
-            if(-not $ready.allowed){
+            if(-not$ready.allowed){
                 return [pscustomobject]@{review_id=$reviewId;status=[string]$normalized.status;waiting_interactive_session=$true;wait_timeout=$true;idempotent=$false;adapter_state=$normalized}
             }
             $available=Set-AidosDesktopInteractiveOverlay $ProjectRoot $reviewId $ready AVAILABLE
@@ -336,10 +416,10 @@ function Invoke-AidosDesktopChatGPTReview {
 
         if($useNativeGate -and $gateState.decision -and $gateState.decision.allowed){
             $updated=Set-AidosDesktopInteractiveOverlay $ProjectRoot $reviewId $gateState.decision AVAILABLE
-            if($updated){ $result.adapter_state=$updated }
+            if($updated){$result.adapter_state=$updated}
         }
         return $result
     }
 }
 
-Export-ModuleMember -Function Test-AidosDesktopReviewResponseValueResolved,Select-AidosDesktopStrictReviewResponseText,Get-AidosDesktopStrictReviewResponseText,New-AidosDesktopSessionGateDefaultBackend,New-AidosDesktopSessionGateBackend,New-AidosDesktopInteractiveOverlay,ConvertTo-AidosDesktopWaitingState,Set-AidosDesktopInteractiveOverlay,Invoke-AidosDesktopChatGPTEnroll,Invoke-AidosDesktopChatGPTReview
+Export-ModuleMember -Function Test-AidosDesktopReviewResponseValueResolved,Resolve-AidosDesktopReviewMessageDirection,Select-AidosDesktopStrictReviewResponseText,Select-AidosDesktopStrictReviewResponseSurface,Get-AidosDesktopReviewMessageSurface,Get-AidosDesktopStrictReviewResponseText,New-AidosDesktopSessionGateDefaultBackend,New-AidosDesktopSessionGateBackend,New-AidosDesktopInteractiveOverlay,ConvertTo-AidosDesktopWaitingState,Set-AidosDesktopInteractiveOverlay,Invoke-AidosDesktopChatGPTEnroll,Invoke-AidosDesktopChatGPTReview
