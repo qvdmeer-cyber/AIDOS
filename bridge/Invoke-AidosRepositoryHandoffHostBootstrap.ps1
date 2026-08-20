@@ -155,7 +155,7 @@ $bridgeReplacements=[ordered]@{
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Force -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeActorHandoffName') -Force -DisableNameChecking"
-    "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -Global -DisableNameChecking"
+    "`$script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -PassThru -DisableNameChecking" = "`$script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -Global -PassThru -DisableNameChecking"
 }
 foreach($pair in $bridgeReplacements.GetEnumerator()){
     $matches=[regex]::Matches($bridgeSource,[regex]::Escape([string]$pair.Key)).Count

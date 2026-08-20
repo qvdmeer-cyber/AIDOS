@@ -9,7 +9,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorAssignments.psm1') -Dis
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryWorkerHandoff.psm1') -Global -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -DisableNameChecking
+$script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -PassThru -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryThinkerBinding.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHumanInputTransport.psm1') -Global -DisableNameChecking
 
@@ -268,7 +268,7 @@ function Invoke-AidosRepositoryHandoffBridgeTick {
     }.GetNewClosure()
     $reviewPublisher={
         param($Project)
-        AidosRepositoryReviewHandoff\Publish-AidosRepositoryReviewHandoff -Project $Project -Push:$Push
+        & $script:AidosRepositoryReviewHandoffModule { param($ReviewProject,$ReviewPush) Publish-AidosRepositoryReviewHandoff -Project $ReviewProject -Push:$ReviewPush } $Project ([bool]$Push)
     }.GetNewClosure()
     $runtimeAdapter={
         param($RuntimeRegistryRoot,$RuntimeMaxProjects,$RuntimePush)
