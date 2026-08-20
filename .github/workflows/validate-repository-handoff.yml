@@ -53,6 +53,7 @@ jobs:
             'tests/RepositoryWorkerHandoff.Tests.ps1',
             'tests/RepositoryWorkerRuntimeIntegration.Tests.ps1',
             'tests/RepositoryHandoffGateway.Tests.ps1',
+            'tests/RepositorySourceChunking.Tests.ps1',
             'tests/RepositoryThinkerBinding.Tests.ps1',
             'tests/RepositoryThinkerCustomGptBinding.Tests.ps1',
             'tests/RepositoryThinkerOptionalLegacyPattern.Tests.ps1',
@@ -127,6 +128,9 @@ jobs:
       - name: Repository handoff gateway
         shell: pwsh
         run: ./tests/RepositoryHandoffGateway.Tests.ps1
+      - name: Chunked authorized source transport
+        shell: pwsh
+        run: ./tests/RepositorySourceChunking.Tests.ps1
       - name: Project Thinker binding and trigger
         shell: pwsh
         run: ./tests/RepositoryThinkerBinding.Tests.ps1

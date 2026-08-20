@@ -76,7 +76,7 @@ function Initialize-AidosRepositoryHandoffGateway {
     $keyPath=Get-AidosRepositoryHandoffGatewayPath -StateRoot $state -Kind key
     if($RotateKey-or-not(Test-Path -LiteralPath $keyPath -PathType Leaf)){New-AidosRepositoryHandoffGatewayKey|Set-Content -LiteralPath $keyPath -Encoding ascii -NoNewline}
     $config=[pscustomobject][ordered]@{
-        schema_version='0.2';registry_root=[IO.Path]::GetFullPath($RegistryRoot);aidos_root=[IO.Path]::GetFullPath($AidosRoot);state_root=$state;bridge_state_root=[IO.Path]::GetFullPath($BridgeStateRoot);listen_prefix="http://127.0.0.1:$Port/";port=$Port;maximum_request_bytes=1048576;maximum_source_bytes=262144;configured_at=[DateTimeOffset]::UtcNow.ToString('o')
+        schema_version='0.2';registry_root=[IO.Path]::GetFullPath($RegistryRoot);aidos_root=[IO.Path]::GetFullPath($AidosRoot);state_root=$state;bridge_state_root=[IO.Path]::GetFullPath($BridgeStateRoot);listen_prefix="http://127.0.0.1:$Port/";port=$Port;maximum_request_bytes=1048576;maximum_source_bytes=524288;maximum_source_chunk_characters=65536;configured_at=[DateTimeOffset]::UtcNow.ToString('o')
     }
     Write-AidosRepositoryHandoffGatewayJsonAtomic -Path (Get-AidosRepositoryHandoffGatewayPath -StateRoot $state -Kind config) -Value $config
     [pscustomobject][ordered]@{status='CONFIGURED';config=$config;api_key=(Get-Content -LiteralPath $keyPath -Raw -Encoding ASCII)}
@@ -159,7 +159,18 @@ function Resolve-AidosRepositoryHandoffGatewaySourcePath {
 }
 function Get-AidosRepositoryHandoffGatewaySource {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$AidosRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)][string]$SourceRef,[int]$MaximumBytes=262144)
+    param(
+        [Parameter(Mandatory)][string]$RegistryRoot,
+        [Parameter(Mandatory)][string]$AidosRoot,
+        [Parameter(Mandatory)][string]$ProjectId,
+        [Parameter(Mandatory)][string]$SourceRef,
+        [int]$MaximumBytes=524288,
+        [int]$StartCharacter=0,
+        [int]$MaximumCharacters=65536
+    )
+    if($MaximumBytes-lt1){throw 'Authorized source byte limit must be positive.'}
+    if($StartCharacter-lt0){throw 'Authorized source startCharacter must be non-negative.'}
+    if($MaximumCharacters-lt1-or$MaximumCharacters-gt65536){throw 'Authorized source maxCharacters must be between 1 and 65536.'}
     $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
     $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
     if($null-eq$handoff-or[string]$handoff.metadata.kind-ne'ASSIGNMENT'){throw 'No active assignment handoff authorizes source access.'}
@@ -169,10 +180,30 @@ function Get-AidosRepositoryHandoffGatewaySource {
     $resolved=Resolve-AidosRepositoryHandoffGatewaySourcePath -Project $project -AidosRoot $AidosRoot -SourceRef $SourceRef
     $bytes=[IO.File]::ReadAllBytes($resolved.path)
     if($bytes.Length-gt$MaximumBytes){throw "Authorized source exceeds the $MaximumBytes byte limit: $SourceRef"}
-    $text=[Text.Encoding]::UTF8.GetString($bytes)
+    $decoder=[Text.UTF8Encoding]::new($false,$true)
+    try{$text=$decoder.GetString($bytes)}catch{throw "Authorized source is not valid UTF-8 text: $SourceRef"}
     if($text.IndexOf([char]0)-ge0){throw "Authorized source is not UTF-8 text: $SourceRef"}
     if($text-match'(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*\S+'){throw "Authorized source is not secret-free: $SourceRef"}
-    [pscustomobject][ordered]@{project_id=[string]$project.project_id;source_ref=$SourceRef;sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant();byte_length=$bytes.Length;content=$text}
+    if($StartCharacter-gt$text.Length){throw "Authorized source startCharacter exceeds source length: $SourceRef"}
+    if($StartCharacter-gt0-and$StartCharacter-lt$text.Length-and[char]::IsLowSurrogate($text[$StartCharacter])-and[char]::IsHighSurrogate($text[$StartCharacter-1])){throw 'Authorized source startCharacter splits a UTF-16 surrogate pair.'}
+    $end=[Math]::Min($text.Length,$StartCharacter+$MaximumCharacters)
+    if($end-lt$text.Length-and$end-gt$StartCharacter-and[char]::IsHighSurrogate($text[$end-1])-and[char]::IsLowSurrogate($text[$end])){$end--}
+    $length=$end-$StartCharacter
+    $content=if($length-gt0){$text.Substring($StartCharacter,$length)}else{''}
+    $complete=$end-eq$text.Length
+    $next=if($complete){$null}else{$end}
+    [pscustomobject][ordered]@{
+        project_id=[string]$project.project_id
+        source_ref=$SourceRef
+        sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+        byte_length=$bytes.Length
+        character_length=$text.Length
+        chunk_start=$StartCharacter
+        chunk_length=$length
+        next_start=$next
+        complete=$complete
+        content=$content
+    }
 }
 
 function Assert-AidosRepositoryHandoffGatewayHumanInputBinding {
@@ -344,7 +375,15 @@ function Invoke-AidosRepositoryHandoffGatewayRequest {
         }
         if($Method-eq'GET'-and$Path-match'^/v1/projects/([^/]+)/sources$'){
             $sourceRef=[string]$Query['path'];if([string]::IsNullOrWhiteSpace($sourceRef)){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='SOURCE_PATH_REQUIRED'})}
-            return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewaySource -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -SourceRef $sourceRef)
+            $startCharacter=0
+            if($Query.ContainsKey('startCharacter')-and-not[string]::IsNullOrWhiteSpace([string]$Query['startCharacter'])){
+                if(-not[int]::TryParse([string]$Query['startCharacter'],[ref]$startCharacter)-or$startCharacter-lt0){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='SOURCE_CHUNK_RANGE_INVALID';detail='startCharacter must be a non-negative integer.'})}
+            }
+            $maxCharacters=65536
+            if($Query.ContainsKey('maxCharacters')-and-not[string]::IsNullOrWhiteSpace([string]$Query['maxCharacters'])){
+                if(-not[int]::TryParse([string]$Query['maxCharacters'],[ref]$maxCharacters)-or$maxCharacters-lt1-or$maxCharacters-gt65536){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='SOURCE_CHUNK_RANGE_INVALID';detail='maxCharacters must be an integer between 1 and 65536.'})}
+            }
+            return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewaySource -RegistryRoot $RegistryRoot -AidosRoot $AidosRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -SourceRef $sourceRef -StartCharacter $startCharacter -MaximumCharacters $maxCharacters)
         }
         if($Method-eq'POST'-and$Path-match'^/v1/projects/([^/]+)/results$'){
             if($null-eq$Body){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
