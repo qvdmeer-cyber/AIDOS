@@ -56,5 +56,8 @@ try{
     $stop=Stop-AidosRepositoryHandoffBridge -StateRoot $state
     Assert-Bridge ([string]$stop.status-eq'STOP_REQUESTED') 'bridge stop request is durable'
 
+    $runtimeManagerRegression=@(& (Join-Path $root 'tests/RuntimeProjectManager.Tests.ps1'))
+    Assert-Bridge (@($runtimeManagerRegression|Where-Object {[string]$_ -match '^PASS: [0-9]+ runtime project manager assertions$'}).Count-eq1) 'repository bridge executes the runtime review reconciliation regression'
+
     Write-Output "PASS: $passed repository handoff bridge assertions"
 }finally{Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}
