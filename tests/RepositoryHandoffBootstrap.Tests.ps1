@@ -119,6 +119,8 @@ foreach($pair in $hostReplacements.GetEnumerator()){
 }
 Assert-Bootstrap ($runtimeHost.Contains($runtimeBridgeName)) 'runtime host imports corrected runtime bridge'
 Assert-Bootstrap ($runtimeHost.Contains($runtimeGatewayName)) 'runtime host imports restart-safe runtime gateway'
+Assert-Bootstrap ($hostText.Contains('$stop=Stop-AidosRepositoryHostTask')) 'Stop command delegates to the bounded canonical host-stop lifecycle'
+Assert-Bootstrap (-not$hostText.Contains("status='STOP_REQUESTED'")) 'Stop command no longer returns before host shutdown completes'
 $tokens=$null
 $errors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($runtimeHost,[ref]$tokens,[ref]$errors)
