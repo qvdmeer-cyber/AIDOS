@@ -16,3 +16,9 @@ jobs:
       - name: Parent message-range recovery regression
         shell: pwsh
         run: ./tests/DesktopActorMessageRangeRecovery.Tests.ps1
+      - name: Desktop review authority regression
+        shell: pwsh
+        run: ./tests/DesktopReviewAuthority.Tests.ps1
+      - name: Independent review authority recovery regression
+        shell: pwsh
+        run: ./tests/ReviewAuthorityRecovery.Tests.ps1

@@ -118,6 +118,9 @@ jobs:
       - name: Autonomous Review Repair regression tests
         shell: pwsh
         run: ./tests/AutonomousReviewRepair.Tests.ps1
+      - name: Review Authority Recovery regression tests
+        shell: pwsh
+        run: ./tests/ReviewAuthorityRecovery.Tests.ps1
       - name: Review Integration Closure regression tests
         shell: pwsh
         run: ./tests/ReviewIntegrationClosure.Tests.ps1
@@ -127,6 +130,9 @@ jobs:
       - name: Desktop Conversation Proof regression tests
         shell: pwsh
         run: ./tests/DesktopConversationProof.Tests.ps1
+      - name: Desktop Review Authority regression tests
+        shell: pwsh
+        run: ./tests/DesktopReviewAuthority.Tests.ps1
       - name: Desktop Thinker Source Binding regression tests
         shell: pwsh
         run: ./tests/DesktopThinkerSourceBinding.Tests.ps1
