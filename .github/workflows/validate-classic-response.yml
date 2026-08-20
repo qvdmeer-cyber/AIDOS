@@ -5,32 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/repository-stop-command-bounded
-          fetch-depth: 0
-      - name: Apply bounded Repository Stop patch
-        shell: pwsh
-        run: ./tools/TEMP-ApplyBoundedRepositoryStop.ps1
-      - name: Commit bounded Repository Stop patch
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            echo "No bounded Stop changes"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -- bridge/Invoke-AidosRepositoryHandoffHost.ps1 tests/RepositoryHandoffBootstrap.Tests.ps1
-            git commit -m "Make Repository Stop lifecycle bounded"
-            git push origin HEAD:fix/repository-stop-command-bounded
-          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
