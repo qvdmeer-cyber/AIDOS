@@ -81,6 +81,7 @@ $gatewayErrors=$null
 Assert-Bootstrap (@($gatewayErrors).Count-eq0) ('runtime gateway parses: '+(@($gatewayErrors|ForEach-Object Message)-join'; '))
 
 $runtimeHandoffName='AidosRepositoryHandoff.runtime.test.psm1'
+$runtimeReviewHandoffName='AidosRepositoryReviewHandoff.runtime.test.psm1'
 $bridgeRuntime=$bridgeText
 Assert-Bootstrap (-not$bridgeText.Contains("Where-Object status -eq'ERROR'")) 'canonical bridge no longer contains the invalid shorthand error filter'
 Assert-Bootstrap ([regex]::Matches($bridgeText,[regex]::Escape("Where-Object { `$_.status -eq 'ERROR' }")).Count-ge2) 'canonical bridge contains explicit error-filter scriptblocks'
@@ -88,6 +89,7 @@ $bridgeTransforms=[ordered]@{
     '$assignment=$pending.assignment' = '$assignment=$pending'
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Force -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
+    "`$script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -PassThru -DisableNameChecking" = "`$script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -Global -PassThru -DisableNameChecking"
 }
 foreach($pair in $bridgeTransforms.GetEnumerator()){
     $expected=1
@@ -98,6 +100,9 @@ Assert-Bootstrap (-not$bridgeRuntime.Contains('$assignment=$pending.assignment')
 Assert-Bootstrap ($bridgeRuntime.Contains('$assignment=$pending')) 'runtime bridge consumes raw pending assignment records'
 Assert-Bootstrap ($bridgeRuntime.Contains("AidosRuntimeProjectManager.psm1') -Force -Global")) 'runtime manager is force-refreshed and exported into bridge-visible session scope'
 Assert-Bootstrap ($bridgeRuntime.Contains($runtimeHandoffName)) 'runtime bridge imports the WSL-compatible handoff module'
+Assert-Bootstrap ($bridgeRuntime.Contains("`$script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -Global -PassThru")) 'runtime bridge stores the exact temporary review module object'
+Assert-Bootstrap ($bridgeRuntime.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'runtime bridge invokes review publication through the imported module object'
+Assert-Bootstrap (-not$bridgeRuntime.Contains('AidosRepositoryReviewHandoff\Publish-AidosRepositoryReviewHandoff')) 'runtime bridge no longer uses the stale canonical review module qualifier'
 $bridgeTokens=$null
 $bridgeErrors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($bridgeRuntime,[ref]$bridgeTokens,[ref]$bridgeErrors)
