@@ -25,8 +25,11 @@ try{
     $runtimeManagerSource=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosRuntimeProjectManager.psm1') -Raw -Encoding UTF8
     $bridgeSource=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosRepositoryHandoffBridge.psm1') -Raw -Encoding UTF8
     Assert-Bridge ($bridgeSource.Contains('$script:AidosRepositoryReviewHandoffModule=Import-Module')) 'bridge stores the imported review module object'
-    Assert-Bridge ($bridgeSource.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'review publisher executes in the imported review module scope'
+    Assert-Bridge (-not$bridgeSource.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'review publisher closure does not resolve the bridge script-scope module binding after GetNewClosure'
     Assert-Bridge (-not$bridgeSource.Contains('AidosRepositoryReviewHandoff\Publish-AidosRepositoryReviewHandoff')) 'bridge does not depend on the canonical review module qualifier'
+    Assert-Bridge ($bridgeSource.Contains("`$reviewHandoffModules=@(`$script:AidosRepositoryReviewHandoffModule)")) 'review publisher normalizes the imported module binding before closure creation'
+    Assert-Bridge ($bridgeSource.Contains("`$reviewPublisherCommand=`$reviewHandoffModules[0].ExportedCommands['Publish-AidosRepositoryReviewHandoff']")) 'review publisher captures exact exported CommandInfo'
+    Assert-Bridge ($bridgeSource.Contains('& $reviewPublisherCommand -Project $Project -Push:$Push')) 'review closure invokes captured CommandInfo directly'
     Assert-Bridge ($runtimeManagerSource.Contains("action-eq'RECONCILE_REVIEW' -and [string]`$selection.project_state-eq'GPT_REVIEWING' -and `$ReviewPublisher")) 'repository runtime routes existing GPT reviews through the configured publisher'
     Assert-Bridge ($runtimeManagerSource.Contains("`$status='REVIEW_RECONCILED'")) 'repository review reconciliation exposes an explicit manager result'
 
@@ -62,6 +65,20 @@ try{
 
     $runtimeManagerRegression=@(& (Join-Path $root 'tests/RuntimeProjectManager.Tests.ps1'))
     Assert-Bridge (@($runtimeManagerRegression|Where-Object {[string]$_ -match '^PASS: [0-9]+ runtime project manager assertions$'}).Count-eq1) 'repository bridge executes the runtime review reconciliation regression'
+
+    $commandModule=New-Module -Name AidosReviewClosureFixture -ScriptBlock {
+        function Invoke-AidosReviewClosureFixture { param([string]$Value) "MODULE::$Value" }
+        Export-ModuleMember -Function Invoke-AidosReviewClosureFixture
+    }
+    try {
+        $modules=@($commandModule)
+        $command=$modules[0].ExportedCommands['Invoke-AidosReviewClosureFixture']
+        $value='BOUND'
+        $closure={ & $command -Value $value }.GetNewClosure()
+        Assert-Bridge ((& $closure) -eq 'MODULE::BOUND') 'GetNewClosure preserves captured exported CommandInfo invocation'
+    } finally {
+        Remove-Module AidosReviewClosureFixture -Force -ErrorAction SilentlyContinue
+    }
 
     Write-Output "PASS: $passed repository handoff bridge assertions"
 }finally{Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}

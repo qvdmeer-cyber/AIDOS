@@ -266,9 +266,13 @@ function Invoke-AidosRepositoryHandoffBridgeTick {
         param($Project,$ExecutionPath)
         AidosRepositoryWorkerHandoff\Invoke-AidosRepositoryWorkerHandoff -Project $Project -ExecutionPath $ExecutionPath -Push:$Push -CodexInvoker $CodexInvoker
     }.GetNewClosure()
+    $reviewHandoffModules=@($script:AidosRepositoryReviewHandoffModule)
+    if($reviewHandoffModules.Count-ne1){throw 'Repository review module binding must resolve to exactly one imported module.'}
+    $reviewPublisherCommand=$reviewHandoffModules[0].ExportedCommands['Publish-AidosRepositoryReviewHandoff']
+    if($null-eq$reviewPublisherCommand){throw 'Repository review publisher command is unavailable from the imported module.'}
     $reviewPublisher={
         param($Project)
-        & $script:AidosRepositoryReviewHandoffModule { param($ReviewProject,$ReviewPush) Publish-AidosRepositoryReviewHandoff -Project $ReviewProject -Push:$ReviewPush } $Project ([bool]$Push)
+        & $reviewPublisherCommand -Project $Project -Push:$Push
     }.GetNewClosure()
     $runtimeAdapter={
         param($RuntimeRegistryRoot,$RuntimeMaxProjects,$RuntimePush)
