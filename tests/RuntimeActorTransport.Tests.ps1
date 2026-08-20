@@ -51,7 +51,7 @@ try {
     Assert-Transport ($saved.status -eq 'SAVED') 'exact-bound actor result is saved'
     $completed=Read-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id)
     Assert-Transport ($completed.status -eq 'COMPLETED' -and -not[string]::IsNullOrWhiteSpace([string]$completed.result_ref)) 'saved result reaches completed transport state'
-    Assert-Transport (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 1) 'COMPLETED result remains pending until Core consumption'
+    Assert-Transport (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 0) 'COMPLETED result is excluded from the pending dispatch scheduler before Core consumption'
     $again=Save-AidosRuntimeActorResult -ProjectRoot $projectRoot -Result $result
     Assert-Transport ($again.status -eq 'ALREADY_SAVED') 'identical actor result replay is idempotent'
 
@@ -69,7 +69,7 @@ try {
 
     $consumed=Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$assignment.assignment_id) -Status CONSUMED
     Assert-Transport ($consumed.status -eq 'CONSUMED') 'Core may explicitly close completed result as consumed'
-    Assert-Transport (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 0) 'CONSUMED removes assignment from pending scheduler set'
+    Assert-Transport (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 0) 'CONSUMED keeps assignment out of pending scheduler set'
 } finally {
     if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force}
 }
