@@ -22,6 +22,10 @@ try{
     $loaded=Read-AidosRepositoryHandoffBridgeConfiguration -StateRoot $state
     Assert-Bridge ([int]$loaded.max_projects_per_tick-eq4) 'bridge configuration round-trips'
 
+    $runtimeManagerSource=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosRuntimeProjectManager.psm1') -Raw -Encoding UTF8
+    Assert-Bridge ($runtimeManagerSource.Contains("action-eq'RECONCILE_REVIEW' -and [string]`$selection.project_state-eq'GPT_REVIEWING' -and `$ReviewPublisher")) 'repository runtime routes existing GPT reviews through the configured publisher'
+    Assert-Bridge ($runtimeManagerSource.Contains("`$status='REVIEW_RECONCILED'")) 'repository review reconciliation exposes an explicit manager result'
+
     $calls=[pscustomobject]@{preparation=0;runtime=0;worker_adapter=$null;review_adapter=$null}
     $runtimeManager=({
         param($RuntimeRegistryRoot,$RuntimeMaxProjects,$RuntimePush,$WorkerInvoker,$ReviewPublisher)
