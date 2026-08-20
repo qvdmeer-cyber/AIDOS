@@ -127,6 +127,9 @@ jobs:
       - name: Desktop Conversation Proof regression tests
         shell: pwsh
         run: ./tests/DesktopConversationProof.Tests.ps1
+      - name: Desktop Review Authority regression tests
+        shell: pwsh
+        run: ./tests/DesktopReviewAuthority.Tests.ps1
       - name: Desktop Thinker Source Binding regression tests
         shell: pwsh
         run: ./tests/DesktopThinkerSourceBinding.Tests.ps1
