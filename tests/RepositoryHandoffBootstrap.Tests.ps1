@@ -86,7 +86,7 @@ Assert-Bootstrap (-not$bridgeText.Contains("Where-Object status -eq'ERROR'")) 'c
 Assert-Bootstrap ([regex]::Matches($bridgeText,[regex]::Escape("Where-Object { `$_.status -eq 'ERROR' }")).Count-ge2) 'canonical bridge contains explicit error-filter scriptblocks'
 $bridgeTransforms=[ordered]@{
     '$assignment=$pending.assignment' = '$assignment=$pending'
-    "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Force -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
 }
 foreach($pair in $bridgeTransforms.GetEnumerator()){
@@ -96,7 +96,7 @@ foreach($pair in $bridgeTransforms.GetEnumerator()){
 }
 Assert-Bootstrap (-not$bridgeRuntime.Contains('$assignment=$pending.assignment')) 'runtime bridge removes wrapper-style pending assignment access'
 Assert-Bootstrap ($bridgeRuntime.Contains('$assignment=$pending')) 'runtime bridge consumes raw pending assignment records'
-Assert-Bootstrap ($bridgeRuntime.Contains("AidosRuntimeProjectManager.psm1') -Global")) 'runtime manager command is exported into bridge-visible session scope'
+Assert-Bootstrap ($bridgeRuntime.Contains("AidosRuntimeProjectManager.psm1') -Force -Global")) 'runtime manager is force-refreshed and exported into bridge-visible session scope'
 Assert-Bootstrap ($bridgeRuntime.Contains($runtimeHandoffName)) 'runtime bridge imports the WSL-compatible handoff module'
 $bridgeTokens=$null
 $bridgeErrors=$null
@@ -126,5 +126,21 @@ $tokens=$null
 $errors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($runtimeHost,[ref]$tokens,[ref]$errors)
 Assert-Bootstrap (@($errors).Count-eq0) ('runtime host parses: '+(@($errors|ForEach-Object Message)-join'; '))
+
+
+$refreshRoot=Join-Path ([IO.Path]::GetTempPath()) ('aidos-runtime-manager-refresh-'+[guid]::NewGuid().ToString('N'))
+$refreshModulePath=Join-Path $refreshRoot 'AidosRuntimeProjectManager.psm1'
+try {
+    New-Item -ItemType Directory -Path $refreshRoot -Force|Out-Null
+    "function Get-AidosRuntimeManagerRefreshSentinel { 'OLD' }`nExport-ModuleMember -Function Get-AidosRuntimeManagerRefreshSentinel"|Set-Content -LiteralPath $refreshModulePath -Encoding utf8NoBOM
+    Import-Module $refreshModulePath -Global -DisableNameChecking
+    Assert-Bootstrap ((Get-AidosRuntimeManagerRefreshSentinel) -eq 'OLD') 'runtime manager refresh fixture starts with the preloaded implementation'
+    "function Get-AidosRuntimeManagerRefreshSentinel { 'NEW' }`nExport-ModuleMember -Function Get-AidosRuntimeManagerRefreshSentinel"|Set-Content -LiteralPath $refreshModulePath -Encoding utf8NoBOM
+    Import-Module $refreshModulePath -Force -Global -DisableNameChecking
+    Assert-Bootstrap ((Get-AidosRuntimeManagerRefreshSentinel) -eq 'NEW') 'force-global import replaces a preloaded runtime manager implementation'
+} finally {
+    Remove-Module AidosRuntimeProjectManager -Force -ErrorAction SilentlyContinue
+    if(Test-Path -LiteralPath $refreshRoot){Remove-Item -LiteralPath $refreshRoot -Recurse -Force}
+}
 
 Write-Output "PASS: $passed repository handoff bootstrap assertions"
