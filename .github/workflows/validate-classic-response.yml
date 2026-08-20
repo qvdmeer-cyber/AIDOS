@@ -5,98 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/trigger-repository-review-handoff
-          fetch-depth: 0
-      - name: Remove obsolete runtime filter transformation
-        shell: python
-        run: |
-          from pathlib import Path
-
-          bootstrap_path = Path('bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1')
-          bootstrap = bootstrap_path.read_text(encoding='utf-8')
-          obsolete = '    "Where-Object status -eq\'ERROR\'" = "Where-Object { `$_.status -eq \'ERROR\' }"\n'
-          if obsolete in bootstrap:
-              if bootstrap.count(obsolete) != 1:
-                  raise RuntimeError(f'Expected one obsolete bootstrap filter transform, found {bootstrap.count(obsolete)}')
-              bootstrap = bootstrap.replace(obsolete, '')
-          elif "Where-Object status -eq'ERROR'" in bootstrap:
-              raise RuntimeError('Obsolete bootstrap filter transform remains in an unexpected form')
-
-          old_expected = '    $expected=if([string]$pair.Key -eq "Where-Object status -eq\'ERROR\'"){2}else{1}\n'
-          new_expected = '    $expected=1\n'
-          if old_expected in bootstrap:
-              if bootstrap.count(old_expected) != 1:
-                  raise RuntimeError(f'Expected one conditional bridge match count, found {bootstrap.count(old_expected)}')
-              bootstrap = bootstrap.replace(old_expected, new_expected)
-          elif new_expected not in bootstrap:
-              raise RuntimeError('Bootstrap match-count update was not found')
-          bootstrap_path.write_text(bootstrap, encoding='utf-8')
-
-          test_path = Path('tests/RepositoryHandoffBootstrap.Tests.ps1')
-          test = test_path.read_text(encoding='utf-8')
-          obsolete_test = '    "Where-Object status -eq\'ERROR\'" = "Where-Object { `$_.status -eq \'ERROR\' }"\n'
-          if obsolete_test in test:
-              if test.count(obsolete_test) != 1:
-                  raise RuntimeError(f'Expected one obsolete test transform, found {test.count(obsolete_test)}')
-              test = test.replace(obsolete_test, '')
-          old_test_expected = '    $expected=if([string]$pair.Key -eq "Where-Object status -eq\'ERROR\'"){2}else{1}\n'
-          if old_test_expected in test:
-              if test.count(old_test_expected) != 1:
-                  raise RuntimeError(f'Expected one conditional test match count, found {test.count(old_test_expected)}')
-              test = test.replace(old_test_expected, '    $expected=1\n')
-
-          anchor = "$bridgeRuntime=$bridgeText\n"
-          assertions = (
-              "$bridgeRuntime=$bridgeText\n"
-              "Assert-Bootstrap (-not$bridgeText.Contains(\"Where-Object status -eq'ERROR'\")) 'canonical bridge no longer contains the invalid shorthand error filter'\n"
-              "Assert-Bootstrap ([regex]::Matches($bridgeText,[regex]::Escape(\"Where-Object { `$_.status -eq 'ERROR' }\")).Count-ge2) 'canonical bridge contains explicit error-filter scriptblocks'\n"
-          )
-          if 'canonical bridge no longer contains the invalid shorthand error filter' not in test:
-              if test.count(anchor) != 1:
-                  raise RuntimeError(f'Expected one bridge runtime test anchor, found {test.count(anchor)}')
-              test = test.replace(anchor, assertions)
-          test_path.write_text(test, encoding='utf-8')
-
-      - name: Validate bootstrap and review trigger regressions
-        shell: pwsh
-        run: |
-          $paths=@(
-            'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1',
-            'bridge/AidosRepositoryHandoffBridge.psm1',
-            'tests/RepositoryHandoffBootstrap.Tests.ps1',
-            'tests/RepositoryCurrentThinkerTriggerGuard.Tests.ps1'
-          )
-          foreach($path in $paths){
-            $tokens=$null
-            $errors=$null
-            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
-            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
-          }
-          ./tests/RepositoryHandoffBootstrap.Tests.ps1
-          ./tests/RepositoryCurrentThinkerTriggerGuard.Tests.ps1
-
-      - name: Commit canonical bootstrap update
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            echo "No bootstrap changes"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -- bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1 tests/RepositoryHandoffBootstrap.Tests.ps1
-            git commit -m "Remove obsolete repository bridge filter transform"
-            git push origin HEAD:fix/trigger-repository-review-handoff
-          fi
-
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
