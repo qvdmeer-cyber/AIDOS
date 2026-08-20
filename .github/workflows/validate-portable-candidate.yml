@@ -1,0 +1,14 @@
+name: Validate Portable Core Candidate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  portable-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run exact host portable validator
+        shell: pwsh
+        run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot .
