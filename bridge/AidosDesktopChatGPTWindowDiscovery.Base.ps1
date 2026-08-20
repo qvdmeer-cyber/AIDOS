@@ -188,7 +188,7 @@ function Add-AidosDesktopChatGPTFreshComposerProof {
         $before=& $freshComposerObservation -Context $Context
         try{return & $primarySend $Context $Enrollment $PromptText $Assignment}catch{
             $message=$_.Exception.Message
-            if($message-ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'){throw}
+            if($message -ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof remains fail-closed.'){throw}
         }
         $fresh=& $freshComposerCleared -Context $Context -PromptText $PromptText
         [pscustomobject][ordered]@{
@@ -381,7 +381,8 @@ function Add-AidosDesktopChatGPTConversationProofRecovery {
         param($Context,[string]$ProofText,$Enrollment)
         try{return & $primaryLocate $Context $ProofText $Enrollment}catch{$primaryError=$_.Exception.Message}
         if(-not$Context -or [string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw $primaryError}
-        if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+        if(-not ('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+        }
         $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
         if(-not$root){throw $primaryError}
         $accountProof=''
