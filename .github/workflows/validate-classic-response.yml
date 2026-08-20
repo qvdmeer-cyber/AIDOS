@@ -5,11 +5,47 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: fix/force-runtime-project-manager-refresh
+          fetch-depth: 0
+      - name: Apply forced runtime manager refresh
+        shell: bash
+        run: python tools/TEMP-ApplyRuntimeManagerRefresh.py
+      - name: Validate forced runtime manager refresh
+        shell: pwsh
+        run: |
+          $paths=@(
+            'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1',
+            'tests/RepositoryHandoffBootstrap.Tests.ps1'
+          )
+          foreach($path in $paths){
+            $tokens=$null
+            $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
+          }
+          ./tests/RepositoryHandoffBootstrap.Tests.ps1
+          ./tests/RuntimeProjectManager.Tests.ps1
+      - name: Commit forced runtime manager refresh
+        shell: bash
+        run: |
+          git add -- bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1 tests/RepositoryHandoffBootstrap.Tests.ps1
+          if git diff --cached --quiet; then
+            echo "No runtime manager refresh changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Force-refresh repository runtime project manager"
+            git push origin HEAD:fix/force-runtime-project-manager-refresh
+          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
