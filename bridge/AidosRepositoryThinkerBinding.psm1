@@ -114,6 +114,29 @@ function Get-AidosRepositoryThinkerComposerElement {
     if($matches.Count-ne1){throw "Expected exactly one ChatGPT composer control, found $($matches.Count)."}
     $matches[0]
 }
+function Test-AidosRepositoryThinkerComposerFocusProof {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Composer)
+    try{if([bool]$Composer.Current.HasKeyboardFocus){return $true}}catch{}
+    $focused=$null
+    try{$focused=[System.Windows.Automation.AutomationElement]::FocusedElement}catch{}
+    if(-not$focused){return $false}
+    $composerProcess=$null
+    try{$composerProcess=[int]$Composer.Current.ProcessId}catch{return $false}
+    $walker=[System.Windows.Automation.TreeWalker]::RawViewWalker
+    $current=$focused
+    for($level=0;$level-lt20 -and $current;$level++){
+        try{
+            if(
+                [int]$current.Current.ProcessId -eq $composerProcess -and
+                [string]$current.Current.AutomationId -eq 'prompt-textarea'
+            ){return $true}
+            $current=$walker.GetParent($current)
+        }catch{return $false}
+    }
+    $false
+}
+
 function Find-AidosRepositoryThinkerSubmitElement {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$RootElement)
@@ -146,8 +169,13 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     $before=Get-AidosDesktopChatGPTElementText $composer
     $mutationOccurred=([string]$before-ne[string]$PromptText)
     $composer.SetFocus()
-    Start-Sleep -Milliseconds 100
-    if(-not[bool]$composer.Current.HasKeyboardFocus){throw 'ChatGPT composer keyboard focus proof is required before send.'}
+    $focusProven=$false
+    for($attempt=0;$attempt-lt10;$attempt++){
+        Start-Sleep -Milliseconds 100
+        if(Test-AidosRepositoryThinkerComposerFocusProof -Composer $composer){$focusProven=$true;break}
+        try{$composer.SetFocus()}catch{}
+    }
+    if(-not$focusProven){throw 'ChatGPT composer keyboard focus proof is required before send.'}
 
     # Always hydrate through actual keyboard/clipboard input, even when a prior
     # failed attempt left matching visible text. Chromium/React may expose
@@ -178,7 +206,10 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     }else{
         # Enter is bounded fallback only after exact composer text and focus are
         # proven. If it inserts a newline, post-send proof below fails closed.
+        $composer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
         $composer.SetFocus()
+        Start-Sleep -Milliseconds 100
+        if(-not(Test-AidosRepositoryThinkerComposerFocusProof -Composer $composer)){throw 'ChatGPT composer keyboard focus proof is required before Enter fallback.'}
         [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
         $sendMethod='KEYBOARD_ENTER'
     }
