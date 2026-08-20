@@ -10,6 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Repository reload supervisor health regression
+        shell: pwsh
+        run: |
+          $files=@('./tools/Reload-AidosAutonomousPreparation.ps1','./tests/HostAgentReload.Tests.ps1')
+          foreach($file in $files){
+            $tokens=$null
+            $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
+            if($errors.Count){throw "PowerShell parse errors in ${file}: $($errors.Message -join '; ')"}
+          }
+          ./tests/HostAgentReload.Tests.ps1
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
