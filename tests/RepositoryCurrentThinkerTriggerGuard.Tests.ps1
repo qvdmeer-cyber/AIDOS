@@ -1,4 +1,5 @@
-[CmdletBinding()]
+[CmdletBinding()
+]
 param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -16,8 +17,8 @@ function Assert-Trigger([bool]$Condition,[string]$Message){
 Assert-Trigger ($text -match 'Invoke-AidosCurrentRepositoryThinkerTriggers') 'current Thinker trigger function exists'
 Assert-Trigger ($text -match 'Get-AidosPendingRuntimeActorAssignments -ProjectRoot \$root') 'non-review Thinker trigger still consults pending runtime assignments'
 Assert-Trigger ($text -match 'if\(\$pending\.Count-eq0\)\{continue\}') 'non-pending ordinary Thinker assignments remain guarded'
-Assert-Trigger ($text -match "if\(\$action-eq'REVIEW'\)") 'review handoffs have an explicit trigger route'
-Assert-Trigger ($text -match "Current Thinker review handoff has no review_id binding") 'review handoffs require an exact review binding'
+Assert-Trigger ($text.Contains("if(`$action-eq'REVIEW')")) 'review handoffs have an explicit trigger route'
+Assert-Trigger ($text -match 'Current Thinker review handoff has no review_id binding') 'review handoffs require an exact review binding'
 Assert-Trigger ($text -match 'review_id=\$reviewId') 'review trigger result preserves review identity'
 
 Import-Module (Join-Path $root 'bridge/AidosRepositoryHandoff.psm1') -Force -DisableNameChecking
