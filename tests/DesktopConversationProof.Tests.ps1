@@ -6,6 +6,7 @@ $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $proofModulePath=Join-Path $root 'bridge/AidosDesktopChatGPTConversationProof.psm1'
 $windowModulePath=[IO.Path]::GetFullPath((Join-Path $root 'bridge/AidosDesktopChatGPTWindowDiscovery.psm1'))
+$windowBasePath=[IO.Path]::GetFullPath((Join-Path $root 'bridge/AidosDesktopChatGPTWindowDiscovery.Base.ps1'))
 Import-Module $proofModulePath -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Force -DisableNameChecking
 $script:passed=0
@@ -87,10 +88,12 @@ Assert-Proof ($proofSource.IndexOf('remains ambiguous after most-specific UIA se
 Assert-Proof ($proofSource.IndexOf('is ambiguous in the active ChatGPT document',[StringComparison]::Ordinal) -lt 0) 'one UIA-bound conversation document accepts repeated enrollment marker representations'
 
 $windowSource=Get-Content -LiteralPath $windowModulePath -Raw -Encoding UTF8
-Assert-Proof ($windowSource.IndexOf('function Add-AidosDesktopChatGPTConversationProofRecovery',[StringComparison]::Ordinal) -ge 0) 'Windows backend contains a final recovery layer for a non-conversation Document surface'
-Assert-Proof ($windowSource.IndexOf('try{return & $primaryLocate $Context $ProofText $Enrollment}catch{$primaryError=$_.Exception.Message}',[StringComparison]::Ordinal) -ge 0) 'recovery is attempted only after the primary conversation proof actually fails'
-Assert-Proof ($windowSource.IndexOf('Get-AidosDesktopChatGPTElementConversationProof',[StringComparison]::Ordinal) -ge 0) 'recovery re-proves the enrollment marker through the established most-specific UIA element proof'
-Assert-Proof ($windowSource.IndexOf('conversation_fingerprint_sha256=[string]$Enrollment.conversation_fingerprint_sha256',[StringComparison]::Ordinal) -ge 0) 'successful recovery retains the already-enrolled durable conversation identity'
-Assert-Proof ($windowSource.IndexOf('$backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend',[StringComparison]::Ordinal) -ge 0 -and $windowSource.IndexOf('Add-AidosDesktopChatGPTConversationProofRecovery -Backend $backend',[StringComparison]::Ordinal) -ge 0) 'Windows backend composes primary resilient proof before final recovery proof'
+$windowBaseSource=Get-Content -LiteralPath $windowBasePath -Raw -Encoding UTF8
+Assert-Proof ($windowSource.IndexOf(". (Join-Path `$PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.Base.ps1')",[StringComparison]::Ordinal) -ge 0) 'window-discovery module loads the preserved base implementation before layered response recovery'
+Assert-Proof ($windowBaseSource.IndexOf('function Add-AidosDesktopChatGPTConversationProofRecovery',[StringComparison]::Ordinal) -ge 0) 'Windows backend contains a final recovery layer for a non-conversation Document surface'
+Assert-Proof ($windowBaseSource.IndexOf('try{return & $primaryLocate $Context $ProofText $Enrollment}catch{$primaryError=$_.Exception.Message}',[StringComparison]::Ordinal) -ge 0) 'recovery is attempted only after the primary conversation proof actually fails'
+Assert-Proof ($windowBaseSource.IndexOf('Get-AidosDesktopChatGPTElementConversationProof',[StringComparison]::Ordinal) -ge 0) 'recovery re-proves the enrollment marker through the established most-specific UIA element proof'
+Assert-Proof ($windowBaseSource.IndexOf('conversation_fingerprint_sha256=[string]$Enrollment.conversation_fingerprint_sha256',[StringComparison]::Ordinal) -ge 0) 'successful recovery retains the already-enrolled durable conversation identity'
+Assert-Proof ($windowBaseSource.IndexOf('$backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend',[StringComparison]::Ordinal) -ge 0 -and $windowBaseSource.IndexOf('Add-AidosDesktopChatGPTConversationProofRecovery -Backend $backend',[StringComparison]::Ordinal) -ge 0) 'Windows backend composes primary resilient proof before final recovery proof'
 
 Write-Output "PASS: $passed resilient conversation proof assertions"
