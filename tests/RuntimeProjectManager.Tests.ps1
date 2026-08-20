@@ -84,4 +84,40 @@ try {
     Remove-Variable -Name AidosActivatedProject -Scope Global -ErrorAction SilentlyContinue
     if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force}
 }
+
+$reviewBase=Join-Path ([IO.Path]::GetTempPath()) ('aidos-runtime-review-reconcile-'+[guid]::NewGuid().ToString('N'))
+$reviewRegistry=Join-Path $reviewBase 'registry'
+try {
+    New-Item -ItemType Directory -Path (Join-Path $reviewRegistry 'projects') -Force|Out-Null
+    $reviewRoot=New-TestRuntimeProject -Base $reviewBase -ProjectId 'RUNTIME-REVIEW' -State GPT_REVIEWING -DefinitionId 'DEF-REVIEW'
+    $reviewStatePath=Join-Path $reviewRoot '.aidos/STATE.json'
+    $reviewState=Get-Content -LiteralPath $reviewStatePath -Raw|ConvertFrom-Json -Depth 20
+    $reviewState.execution_id='EXEC-REVIEW'
+    $reviewState.revision=4
+    $reviewState.review_id='11111111-1111-4111-8111-111111111111'
+    $reviewState|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $reviewStatePath -Encoding utf8NoBOM
+    & git -C $reviewRoot add .aidos/STATE.json
+    & git -C $reviewRoot commit -q -m review-state
+    [ordered]@{schema_version='0.2';project_id='RUNTIME-REVIEW';repository='https://example.invalid/runtime-review.git';local_root=$reviewRoot;stage='RUNTIME';preparation_phase='RUNTIME';status='PROMOTED';project_mode='NEW_PROJECT';default_branch='main';runner_policy='UNATTENDED_ALLOWED';git_runtime=[ordered]@{kind='NATIVE';project_root=$reviewRoot;git_path='git'};allowed_persistence_paths=@('.aidos');registered_at='2026-08-20T00:00:00Z';updated_at='2026-08-20T00:00:00Z';promoted_at='2026-08-20T00:00:00Z'}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $reviewRegistry 'projects/RUNTIME-REVIEW.json') -Encoding utf8NoBOM
+
+    $reviewSelection=Get-AidosRuntimeNextActor -ProjectRoot $reviewRoot
+    Assert-RuntimeManager ($reviewSelection.action -eq 'RECONCILE_REVIEW' -and $reviewSelection.actor_identity -eq 'WORKER_AGENT' -and $reviewSelection.activatable) 'GPT_REVIEWING selects an activatable review reconciliation'
+
+    $global:AidosReconciledReviewProject=$null
+    $idleStage={param($a,$b,$c,$d);[pscustomobject][ordered]@{status='IDLE';processed=0;results=@()}}
+    $reviewTick=Invoke-AidosRuntimeProjectManagerTick -RegistryRoot $reviewRegistry -MaxProjects 1 -ReviewPublisher {
+        param($project)
+        $global:AidosReconciledReviewProject=[string]$project.project_id
+        [pscustomobject][ordered]@{status='PUBLISHED';review_id='11111111-1111-4111-8111-111111111111'}
+    } -IntegrationProcessor $idleStage -ReviewBlockerResumer $idleStage -ResultConsumer $idleStage -FinalAcceptanceResumer $idleStage -HumanInputResumer $idleStage -DefinitionCloser $idleStage
+    $reviewResult=@($reviewTick.results|Where-Object {$_.project_id -eq 'RUNTIME-REVIEW'})[0]
+    Assert-RuntimeManager ($reviewTick.status -eq 'ACTIONABLE' -and $reviewTick.processed -eq 1) 'GPT_REVIEWING reconciliation is actionable'
+    Assert-RuntimeManager ($reviewResult.status -eq 'REVIEW_RECONCILED') 'GPT_REVIEWING invokes the configured review publisher'
+    Assert-RuntimeManager ($global:AidosReconciledReviewProject -eq 'RUNTIME-REVIEW') 'review reconciliation targets the exact selected project'
+    Assert-RuntimeManager ($reviewResult.activation.status -eq 'PUBLISHED') 'review reconciliation preserves publisher evidence'
+} finally {
+    Remove-Variable -Name AidosReconciledReviewProject -Scope Global -ErrorAction SilentlyContinue
+    if(Test-Path -LiteralPath $reviewBase){Remove-Item -LiteralPath $reviewBase -Recurse -Force}
+}
+
 Write-Output "PASS: $passed runtime project manager assertions"
