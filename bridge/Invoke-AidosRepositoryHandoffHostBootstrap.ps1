@@ -152,7 +152,7 @@ try{$runtimeGatewayStream.Write($runtimeGatewayBytes,0,$runtimeGatewayBytes.Leng
 $bridgeSource=Get-Content -LiteralPath $bridgeOriginal -Raw -Encoding UTF8
 $bridgeReplacements=[ordered]@{
     '$assignment=$pending.assignment' = '$assignment=$pending'
-    "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
+    "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Force -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeActorHandoffName') -Force -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -Global -DisableNameChecking"
