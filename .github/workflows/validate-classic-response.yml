@@ -5,11 +5,44 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: fix/repository-thinker-focused-descendant
+          fetch-depth: 0
+      - name: Apply focused-descendant composer proof
+        shell: bash
+        run: python tools/TEMP-PatchRepositoryThinkerFocusedDescendant.py
+      - name: Validate focused-descendant composer proof
+        shell: pwsh
+        run: |
+          $paths=@('bridge/AidosRepositoryThinkerBinding.psm1','tests/RepositoryThinkerBinding.Tests.ps1')
+          foreach($path in $paths){
+            $tokens=$null
+            $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
+          }
+          ./tests/RepositoryThinkerBinding.Tests.ps1
+      - name: Commit focused-descendant composer proof
+        shell: bash
+        run: |
+          git add -- bridge/AidosRepositoryThinkerBinding.psm1 tests/RepositoryThinkerBinding.Tests.ps1
+          if git diff --cached --quiet; then
+            echo "No focused-descendant composer changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Recognize focused descendants of ChatGPT composer"
+            git pull --rebase origin fix/repository-thinker-focused-descendant
+            git push origin HEAD:fix/repository-thinker-focused-descendant
+          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
