@@ -49,7 +49,7 @@ function Resolve-AidosDesktopReviewMessageDirection {
             }
             if([string]::Equals($label,'ChatGPT said:',[StringComparison]::OrdinalIgnoreCase) -or
                [string]::Equals($label,'ChatGPT zei:',[StringComparison]::OrdinalIgnoreCase) -or
-               ($label -match '^(?i)(?!You said:$)(?!Jij zei:$).+\s+(?:said|zei):$')){
+               ($label -match "^(?i)[\p{L}\p{N}][\p{L}\p{N}\p{M}\s._'’()\-–—&/:]{0,160}\s+(?:said|zei):$")){
                 $assistant=$true
             }
         }
@@ -148,10 +148,8 @@ function Get-AidosDesktopReviewMessageSurface {
         try{$raw+=[string]$current.Current.Name}catch{}
         try{$raw+=[string]$current.Current.HelpText}catch{}
         try{$raw+=[string]$current.Current.AutomationId}catch{}
-        try{
-            $text=Get-AidosDesktopChatGPTElementText $current
-            if(-not[string]::IsNullOrWhiteSpace([string]$text)){$raw+=[string]$text}
-        }catch{}
+        try{$raw+=[string]$current.Current.ClassName}catch{}
+        try{$raw+=[string]$current.Current.LocalizedControlType}catch{}
         foreach($value in @($raw)){
             if([string]::IsNullOrWhiteSpace([string]$value)){continue}
             if($metadataSeen.Add([string]$value)){$metadata.Add([string]$value)}
