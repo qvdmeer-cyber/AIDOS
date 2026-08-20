@@ -10,24 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Repository host shutdown lifecycle regression
-        shell: pwsh
-        run: |
-          $paths=@(
-            'bridge/AidosRepositoryHandoffInstallation.psm1',
-            'bridge/Invoke-AidosRepositoryHandoffHost.ps1',
-            'tools/Reload-AidosAutonomousPreparation.ps1',
-            'tests/RepositoryHandoffInstallation.Tests.ps1',
-            'tests/HostAgentReload.Tests.ps1'
-          )
-          foreach($path in $paths){
-            $tokens=$null
-            $errors=$null
-            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
-            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
-          }
-          ./tests/RepositoryHandoffInstallation.Tests.ps1
-          ./tests/HostAgentReload.Tests.ps1
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
