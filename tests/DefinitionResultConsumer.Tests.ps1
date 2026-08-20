@@ -48,7 +48,7 @@ if([string]$a.missing_evidence -in @('MEDIUM','HIGH')){$errors+='missing evidenc
     if($projectOverrides.Count){
         & (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEF-CONSUMER' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson ($projectOverrides|ConvertTo-Json -Depth 20 -Compress) -AidosRoot $root|Out-Null
     }
-    $project=[pscustomobject]@{project_id='DEF-CONSUMER';local_root=$projectRoot}
+    $project=[pscustomobject]@{project_id='DEF-CONSUMER';local_root=$projectRoot;project_mode='NEW_PROJECT'}
     $start=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
     Assert-DefinitionConsumer ([string]$start.action-eq'START_DEFINITION') 'fully resolved project applicability unlocks START_DEFINITION'
     $created=New-AidosRuntimeActorAssignment -Project $project -Selection $start;$a=$created.assignment
