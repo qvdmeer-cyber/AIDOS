@@ -210,6 +210,7 @@ function New-AidosRepositoryThinkerWindowsBackend {
     [CmdletBinding()]
     param([string]$ProcessName='ChatGPT Classic')
     $desktop=New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName
+    $desktopFocus=$desktop.FocusConversation
     [pscustomobject]@{
         GetProcessContext=$desktop.GetProcessContext
         GetCurrentConversation={
@@ -249,7 +250,22 @@ function New-AidosRepositoryThinkerWindowsBackend {
             }
             throw "ChatGPT conversation '$($Binding.conversation_title)' was invoked but its bound URL did not become active."
         }
-        FocusConversation=$desktop.FocusConversation
+        FocusConversation=({
+            param($Context,$Binding)
+            if($Context -and $Context.PSObject.Properties['process_id'] -and -not[string]::IsNullOrWhiteSpace([string]$Context.process_id)){
+                $shell=$null
+                try{
+                    $shell=New-Object -ComObject WScript.Shell
+                    for($attempt=0;$attempt-lt5;$attempt++){
+                        if([bool]$shell.AppActivate([int]$Context.process_id)){break}
+                        Start-Sleep -Milliseconds 100
+                    }
+                }catch{}finally{
+                    if($shell){try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)}catch{}}
+                }
+            }
+            & $desktopFocus $Context $Binding
+        }).GetNewClosure()
         SendPrompt={param($Context,$Binding,$PromptText,$Assignment);Invoke-AidosRepositoryThinkerPromptSend -Context $Context -Binding $Binding -PromptText $PromptText -Assignment $Assignment}
     }
 }
