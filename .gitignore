@@ -1,0 +1,8 @@
+# Repository Handoff runtime materializations are generated per live host/bridge/gateway process.
+# They remain on disk for the process lifetime and are removed by bootstrap finally blocks on stop.
+bridge/AidosRepositoryHandoff.runtime.*.psm1
+bridge/AidosRepositoryActorHandoff.runtime.*.psm1
+bridge/AidosRepositoryReviewHandoff.runtime.*.psm1
+bridge/AidosRepositoryHandoffGateway.runtime.*.psm1
+bridge/AidosRepositoryHandoffBridge.runtime.*.psm1
+bridge/Invoke-AidosRepositoryHandoffHost.runtime.*.ps1
