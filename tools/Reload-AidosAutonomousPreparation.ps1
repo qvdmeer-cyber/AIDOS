@@ -62,25 +62,40 @@ function Wait-AidosRepositoryHostReload {
     param(
         [Parameter(Mandatory)][string]$StatusPath,
         [Parameter(Mandatory)][DateTimeOffset]$StartedAt,
+        [int]$PreviousHostPid=0,
         [int]$TimeoutSeconds=60
     )
     $deadline=[DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         Start-Sleep -Milliseconds 250
         if(Test-Path -LiteralPath $StatusPath -PathType Leaf){
-            try{
-                $status=Get-Content -LiteralPath $StatusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+            $status=$null
+            try{$status=Get-Content -LiteralPath $StatusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50}catch{}
+            if($null-ne$status){
+                $bridgeError=$status.PSObject.Properties['bridge'] -and $null-ne$status.bridge -and [string]$status.bridge.status -eq 'ERROR'
+                $gatewayError=$status.PSObject.Properties['gateway'] -and $null-ne$status.gateway -and [string]$status.gateway.status -eq 'ERROR'
+                if($bridgeError -or $gatewayError){throw 'Repository handoff child entered ERROR during reload.'}
+
                 $hostRunning=[string]$status.status -eq 'RUNNING'
-                $bridgeRunning=$status.PSObject.Properties['bridge'] -and $null-ne$status.bridge -and [string]$status.bridge.status -eq 'RUNNING'
-                $gatewayRunning=$status.PSObject.Properties['gateway'] -and $null-ne$status.gateway -and [string]$status.gateway.status -eq 'RUNNING'
-                if($hostRunning -and $bridgeRunning -and $gatewayRunning -and -not[string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)){
+                $hostPid=if($status.PSObject.Properties['pid']){[int]$status.pid}else{0}
+                $bridgePid=if($status.PSObject.Properties['bridge_pid']){[int]$status.bridge_pid}else{0}
+                $gatewayPid=if($status.PSObject.Properties['gateway_pid']){[int]$status.gateway_pid}else{0}
+                $freshHostIdentity=$hostPid-gt0 -and ($PreviousHostPid-le0 -or $hostPid-ne$PreviousHostPid)
+                $hostProcess=if($hostPid-gt0){Get-Process -Id $hostPid -ErrorAction SilentlyContinue}else{$null}
+                $bridgeProcess=if($bridgePid-gt0){Get-Process -Id $bridgePid -ErrorAction SilentlyContinue}else{$null}
+                $gatewayProcess=if($gatewayPid-gt0){Get-Process -Id $gatewayPid -ErrorAction SilentlyContinue}else{$null}
+                $hostAlive=$null-ne$hostProcess -and [string]$hostProcess.ProcessName -in @('pwsh','pwsh.exe')
+                $bridgeAlive=$null-ne$bridgeProcess -and [string]$bridgeProcess.ProcessName -in @('pwsh','pwsh.exe')
+                $gatewayAlive=$null-ne$gatewayProcess -and [string]$gatewayProcess.ProcessName -in @('pwsh','pwsh.exe')
+
+                if($hostRunning -and $freshHostIdentity -and $hostAlive -and $bridgeAlive -and $gatewayAlive -and -not[string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)){
                     $heartbeat=[DateTimeOffset]::Parse([string]$status.heartbeat_at)
                     if($heartbeat -ge $StartedAt){return $status}
                 }
-            }catch{}
+            }
         }
     }while([DateTimeOffset]::UtcNow -lt $deadline)
-    throw 'Repository handoff host did not publish a fresh healthy RUNNING heartbeat within the bounded reload window.'
+    throw 'Repository handoff host did not publish a fresh RUNNING supervisor with live bridge and gateway processes within the bounded reload window.'
 }
 
 $aidosRoot=Split-Path $PSScriptRoot -Parent
@@ -108,6 +123,14 @@ if($repositoryTask -and $repositoryConfigPresent){
     if(-not(Test-Path -LiteralPath $repositoryBootstrap -PathType Leaf)){throw "Repository handoff host bootstrap is unavailable: $repositoryBootstrap"}
 
     if($repositoryWasRunning){
+        $previousRepositoryHostPid=0
+        if(Test-Path -LiteralPath $repositoryHostStatusPath -PathType Leaf){
+            try{
+                $previousStatus=Get-Content -LiteralPath $repositoryHostStatusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+                if($previousStatus.PSObject.Properties['pid']){$previousRepositoryHostPid=[int]$previousStatus.pid}
+            }catch{}
+        }
+
         & $repositoryBootstrap -Command Stop -StateRoot $repositoryHostStateRoot|Out-Null
         $deadline=[DateTimeOffset]::UtcNow.AddSeconds(15)
         do{
@@ -121,7 +144,7 @@ if($repositoryTask -and $repositoryConfigPresent){
 
         $restartStartedAt=[DateTimeOffset]::UtcNow
         Start-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction Stop
-        $repositoryStatus=Wait-AidosRepositoryHostReload -StatusPath $repositoryHostStatusPath -StartedAt $restartStartedAt
+        $repositoryStatus=Wait-AidosRepositoryHostReload -StatusPath $repositoryHostStatusPath -StartedAt $restartStartedAt -PreviousHostPid $previousRepositoryHostPid
     }else{
         $repositoryStatus=if(Test-Path -LiteralPath $repositoryHostStatusPath -PathType Leaf){
             try{Get-Content -LiteralPath $repositoryHostStatusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50}catch{$null}
