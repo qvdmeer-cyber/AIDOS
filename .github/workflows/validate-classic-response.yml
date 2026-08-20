@@ -5,51 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/chunk-authorized-repository-sources
-          fetch-depth: 0
-      - name: Apply chunked authorized source transport
-        shell: bash
-        run: python tools/TEMP-ApplyRepositorySourceChunking.py
-      - name: Validate chunked source transport
-        shell: pwsh
-        run: |
-          $paths=@(
-            'bridge/AidosRepositoryHandoffGateway.psm1',
-            'bridge/AidosRepositoryHandoffOpenApi.psm1',
-            'bridge/AidosRepositoryHandoffInstallation.psm1',
-            'tests/RepositorySourceChunking.Tests.ps1'
-          )
-          foreach($path in $paths){
-            $tokens=$null
-            $errors=$null
-            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
-            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
-          }
-          ./tests/RepositorySourceChunking.Tests.ps1
-          ./tests/RepositoryHandoffGateway.Tests.ps1
-          ./tests/RepositoryHandoffOpenApi.Tests.ps1
-          ./tests/RepositoryHandoffInstallation.Tests.ps1
-      - name: Commit chunked source transport
-        shell: bash
-        run: |
-          git add -- bridge/AidosRepositoryHandoffGateway.psm1 bridge/AidosRepositoryHandoffOpenApi.psm1 bridge/AidosRepositoryHandoffInstallation.psm1 tests/RepositorySourceChunking.Tests.ps1
-          if git diff --cached --quiet; then
-            echo "No source chunking changes"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Chunk large authorized repository sources"
-            git push origin HEAD:fix/chunk-authorized-repository-sources
-          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
