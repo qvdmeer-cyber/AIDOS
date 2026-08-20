@@ -182,7 +182,7 @@ try {
     $config=Get-Content -LiteralPath $configPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
     if(-not(Test-Path -LiteralPath ([string]$config.entry_point) -PathType Leaf)){throw "Repository handoff host entrypoint is unavailable: $($config.entry_point)"}
     & ([string]$config.entry_point) -Command Start -StateRoot $root
-    exit $LASTEXITCODE
+    exit 0
 } catch {
     $detail=$_.Exception.ToString()
     $detail|Set-Content -LiteralPath $errorPath -Encoding utf8NoBOM
