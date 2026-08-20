@@ -76,6 +76,7 @@ Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Tex
 Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('ChatGPT said:')) -eq 'ASSISTANT') 'ChatGPT accessibility heading is classified as ASSISTANT'
 Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('AIDOS Repository Thinker said:')) -eq 'ASSISTANT') 'custom GPT accessibility heading is classified as ASSISTANT'
 Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('You said:','ChatGPT said:')) -eq 'UNKNOWN') 'mixed ancestor conversation text fails direction closed'
+Assert-ReviewAuthority ([string](Resolve-AidosDesktopReviewMessageDirection -Texts @('{"reason":"Anything said:"}')) -eq 'UNKNOWN') 'JSON response content cannot impersonate an accessibility role heading'
 
 $userSurface=[pscustomobject]@{direction='USER';texts=@($resolved)}
 $unknownSurface=[pscustomobject]@{direction='UNKNOWN';texts=@($resolved)}
@@ -98,5 +99,7 @@ $source=Get-Content -LiteralPath $modulePath -Raw -Encoding UTF8
 Assert-ReviewAuthority ($source -match 'New-AidosDesktopChatGPTResilientWindowsBackend') 'default desktop review path is wired to the resilient conversation backend'
 Assert-ReviewAuthority ($source -match '\$\{function:Get-AidosDesktopStrictReviewResponseText\}') 'strict reader is captured before the persistent callback closure is created'
 Assert-ReviewAuthority ($source -match "direction-ne'ASSISTANT'") 'strict extraction requires a proven assistant-message surface'
+$surfaceFunction=[regex]::Match($source,'(?s)function Get-AidosDesktopReviewMessageSurface.*?function Get-AidosDesktopStrictReviewResponseText').Value
+Assert-ReviewAuthority (-not$surfaceFunction.Contains('Get-AidosDesktopChatGPTElementText $current')) 'message direction is derived from accessibility metadata, never candidate response content'
 
 Write-Output "PASS: $passed desktop review authority assertions"
