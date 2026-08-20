@@ -22,6 +22,10 @@ try{
     $loaded=Read-AidosRepositoryHandoffBridgeConfiguration -StateRoot $state
     Assert-Bridge ([int]$loaded.max_projects_per_tick-eq4) 'bridge configuration round-trips'
 
+    $runtimeManagerSource=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosRuntimeProjectManager.psm1') -Raw -Encoding UTF8
+    Assert-Bridge ($runtimeManagerSource.Contains("action-eq'RECONCILE_REVIEW' -and [string]`$selection.project_state-eq'GPT_REVIEWING' -and `$ReviewPublisher")) 'repository runtime routes existing GPT reviews through the configured publisher'
+    Assert-Bridge ($runtimeManagerSource.Contains("`$status='REVIEW_RECONCILED'")) 'repository review reconciliation exposes an explicit manager result'
+
     $calls=[pscustomobject]@{preparation=0;runtime=0;worker_adapter=$null;review_adapter=$null}
     $runtimeManager=({
         param($RuntimeRegistryRoot,$RuntimeMaxProjects,$RuntimePush,$WorkerInvoker,$ReviewPublisher)
@@ -51,6 +55,9 @@ try{
     Assert-Bridge (Test-Path -LiteralPath (Get-AidosRepositoryHandoffBridgePath -StateRoot $state -Kind wake) -PathType Leaf) 'bridge wake signal is durable'
     $stop=Stop-AidosRepositoryHandoffBridge -StateRoot $state
     Assert-Bridge ([string]$stop.status-eq'STOP_REQUESTED') 'bridge stop request is durable'
+
+    $runtimeManagerRegression=@(& (Join-Path $root 'tests/RuntimeProjectManager.Tests.ps1'))
+    Assert-Bridge (@($runtimeManagerRegression|Where-Object {[string]$_ -match '^PASS: [0-9]+ runtime project manager assertions$'}).Count-eq1) 'repository bridge executes the runtime review reconciliation regression'
 
     Write-Output "PASS: $passed repository handoff bridge assertions"
 }finally{Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}
