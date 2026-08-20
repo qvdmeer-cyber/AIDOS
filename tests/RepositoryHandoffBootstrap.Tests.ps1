@@ -101,7 +101,9 @@ Assert-Bootstrap ($bridgeRuntime.Contains('$assignment=$pending')) 'runtime brid
 Assert-Bootstrap ($bridgeRuntime.Contains("AidosRuntimeProjectManager.psm1') -Force -Global")) 'runtime manager is force-refreshed and exported into bridge-visible session scope'
 Assert-Bootstrap ($bridgeRuntime.Contains($runtimeHandoffName)) 'runtime bridge imports the WSL-compatible handoff module'
 Assert-Bootstrap ($bridgeRuntime.Contains("`$script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path `$PSScriptRoot '$runtimeReviewHandoffName') -Force -Global -PassThru")) 'runtime bridge stores the exact temporary review module object'
-Assert-Bootstrap ($bridgeRuntime.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'runtime bridge invokes review publication through the imported module object'
+Assert-Bootstrap ($bridgeRuntime.Contains("`$reviewPublisherCommand=`$reviewHandoffModules[0].ExportedCommands['Publish-AidosRepositoryReviewHandoff']")) 'runtime bridge captures the exact review publisher CommandInfo before closure creation'
+Assert-Bootstrap ($bridgeRuntime.Contains('& $reviewPublisherCommand -Project $Project -Push:$Push')) 'runtime bridge invokes the captured review publisher CommandInfo'
+Assert-Bootstrap (-not$bridgeRuntime.Contains('& $script:AidosRepositoryReviewHandoffModule {')) 'runtime bridge does not resolve bridge script scope inside the review closure'
 Assert-Bootstrap (-not$bridgeRuntime.Contains('AidosRepositoryReviewHandoff\Publish-AidosRepositoryReviewHandoff')) 'runtime bridge no longer uses the stale canonical review module qualifier'
 $bridgeTokens=$null
 $bridgeErrors=$null
