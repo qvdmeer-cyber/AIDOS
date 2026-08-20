@@ -147,7 +147,7 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     $mutationOccurred=([string]$before-ne[string]$PromptText)
     $composer.SetFocus()
     Start-Sleep -Milliseconds 100
-    if(-not[bool]$composer.Current.HasKeyboardFocus -and -not[bool]$Context.window_is_foreground){throw 'ChatGPT composer focus proof is required before send.'}
+    if(-not[bool]$composer.Current.HasKeyboardFocus){throw 'ChatGPT composer keyboard focus proof is required before send.'}
 
     # Always hydrate through actual keyboard/clipboard input, even when a prior
     # failed attempt left matching visible text. Chromium/React may expose
