@@ -40,6 +40,43 @@ jobs:
         shell: pwsh
         run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot $PWD
 
+  windows-self-update-schedule-probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove five-minute recurring Task Scheduler trigger
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          $taskName='AIDOS Host Self Update'
+          $stateRoot=Join-Path $env:RUNNER_TEMP ('aidos-self-update-probe-'+[guid]::NewGuid().ToString('N'))
+          $authorizedUser=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+          try {
+              $result=& ./tools/Install-AidosHostSelfUpdate.ps1 -Distribution 'AIDOS-NOT-INSTALLED' -WslReposRoot '/tmp/aidos-not-installed' -StateRoot $stateRoot -AuthorizedUser $authorizedUser -IntervalMinutes 5
+              $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+              $trigger=@($task.Triggers)[0]
+              $action=@($task.Actions)[0]
+              [pscustomobject]@{
+                  state=$task.State
+                  next_run_time=$info.NextRunTime
+                  execute=$action.Execute
+                  arguments=$action.Arguments
+                  start_boundary=$trigger.StartBoundary
+                  repetition_interval=$trigger.Repetition.Interval
+                  repetition_duration=$trigger.Repetition.Duration
+                  installer_status=$result.status
+              }|Format-List
+              if([string]$action.Execute -notmatch 'wscript\.exe$'){throw 'Self-update task does not use hidden wscript launcher.'}
+              if([string]$trigger.Repetition.Interval -ne 'PT5M'){throw "Unexpected repetition interval: $($trigger.Repetition.Interval)"}
+              if($info.NextRunTime -le (Get-Date).AddSeconds(-5)){throw "Self-update task has no future NextRunTime: $($info.NextRunTime)"}
+          } finally {
+              Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+              Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $stateRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
   live-repository-gateway-probe:
     runs-on: ubuntu-latest
     steps:
@@ -47,7 +84,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --connect-timeout 10 --max-time 20 --silent --show-error --output /tmp/aidos-gateway-body.txt --write-out '%{http_code}' 'https://aidos.tail561ce5.ts.net/health')"
+          code="$(curl --connect-timeout 10 --max-time 20 --silent --show-error --header 'Authorization: Bearer invalid-probe-key' --output /tmp/aidos-gateway-body.txt --write-out '%{http_code}' 'https://aidos.tail561ce5.ts.net/health')"
           cat /tmp/aidos-gateway-body.txt || true
           echo "HTTP_STATUS=$code"
           test "$code" = "401"
