@@ -1,0 +1,71 @@
+function Get-AidosDesktopChatGPTReviewEvidenceDocuments {
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)]$Assignment,
+        [Parameter(Mandatory)]$Manifest,
+        [int]$MaximumDocumentBytes=131072,
+        [int]$MaximumTotalBytes=524288
+    )
+    if($MaximumDocumentBytes -lt 4){ throw 'Desktop review per-document transport limit must be at least 4 bytes.' }
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $comparison=if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+    $prefix=$root+[IO.Path]::DirectorySeparatorChar
+    $documents=[System.Collections.Generic.List[object]]::new()
+    $total=0
+    $utf8=[Text.UTF8Encoding]::new($false,$true)
+    $references=@([pscustomobject]@{kind='MANIFEST';path=[string]$Assignment.package_manifest_path;sha256=[string]$Assignment.package_manifest_sha256}) + @($Assignment.evidence_refs)
+    foreach($reference in $references){
+        $relative=[string]$reference.path
+        if([IO.Path]::IsPathRooted($relative)){ throw "Desktop review evidence path must be project-relative: $relative" }
+        $path=[IO.Path]::GetFullPath((Join-Path $root $relative))
+        if(-not $path.StartsWith($prefix,$comparison)){ throw "Desktop review evidence path escapes project root: $relative" }
+        if(-not(Test-Path -LiteralPath $path -PathType Leaf)){ throw "Desktop review evidence is missing: $relative" }
+        $bytes=[IO.File]::ReadAllBytes($path)
+        $total+=$bytes.Length
+        if($total -gt $MaximumTotalBytes){ throw 'Desktop review evidence exceeds the total transport limit.' }
+        $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+        if($sha -ne [string]$reference.sha256){ throw "Desktop review evidence hash mismatch: $relative" }
+        try{$text=$utf8.GetString($bytes)}catch{throw "Desktop review evidence is not UTF-8 text: $relative"}
+        if($text.IndexOf([char]0) -ge 0){ throw "Desktop review evidence is not UTF-8 text: $relative" }
+        if($text -match '(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*\S+'){
+            throw "Desktop review evidence is not secret-free: $relative"
+        }
+        if($bytes.Length -le $MaximumDocumentBytes){
+            $null=$documents.Add([ordered]@{kind=[string]$reference.kind;path=$relative;sha256=$sha;content=$text})
+            continue
+        }
+
+        $chunks=[System.Collections.Generic.List[object]]::new()
+        $offset=0
+        while($offset -lt $bytes.Length){
+            $end=[Math]::Min($offset+$MaximumDocumentBytes,$bytes.Length)
+            if($end -lt $bytes.Length){
+                while($end -gt $offset -and (($bytes[$end] -band 0xC0) -eq 0x80)){$end--}
+            }
+            if($end -le $offset){ throw "Desktop review evidence cannot be chunked on a UTF-8 boundary within the per-document transport limit: $relative" }
+            $length=$end-$offset
+            $chunkBytes=[byte[]]::new($length)
+            [Array]::Copy($bytes,$offset,$chunkBytes,0,$length)
+            try{$chunkText=$utf8.GetString($chunkBytes)}catch{throw "Desktop review evidence chunk is not UTF-8 text: $relative"}
+            $chunkSha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($chunkBytes)).ToLowerInvariant()
+            $null=$chunks.Add([pscustomobject]@{content=$chunkText;sha256=$chunkSha})
+            $offset=$end
+        }
+
+        $chunkCount=$chunks.Count
+        for($index=0;$index -lt $chunkCount;$index++){
+            $chunk=$chunks[$index]
+            $null=$documents.Add([ordered]@{
+                kind=[string]$reference.kind
+                path=$relative
+                sha256=$sha
+                source_bytes=$bytes.Length
+                transport_chunk_index=$index+1
+                transport_chunk_count=$chunkCount
+                transport_chunk_sha256=[string]$chunk.sha256
+                content=[string]$chunk.content
+            })
+        }
+    }
+    @($documents)
+}
