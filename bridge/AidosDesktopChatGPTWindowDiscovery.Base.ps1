@@ -188,7 +188,7 @@ function Add-AidosDesktopChatGPTFreshComposerProof {
         $before=& $freshComposerObservation -Context $Context
         try{return & $primarySend $Context $Enrollment $PromptText $Assignment}catch{
             $message=$_.Exception.Message
-            if($message -ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'){throw}
+            if($message-ne 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'){throw}
         }
         $fresh=& $freshComposerCleared -Context $Context -PromptText $PromptText
         [pscustomobject][ordered]@{
@@ -408,9 +408,10 @@ function New-AidosDesktopChatGPTResilientWindowsBackend {
     param([string]$ProcessName='ChatGPT Classic')
     $backend=& $script:BaseDesktopChatGPTWindowsBackendCommand -ProcessName $ProcessName
     $primaryResolver=$backend.GetProcessContext
+    $resilientProcessContext=Get-Command Get-AidosDesktopChatGPTResilientProcessContext -CommandType Function -ErrorAction Stop
     $backend.GetProcessContext=({
         param([string]$RequestedProcessName)
-        Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
+        & $resilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
     }).GetNewClosure()
     $backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
     $backend=Add-AidosDesktopChatGPTFreshComposerProof -Backend $backend
