@@ -1,0 +1,24 @@
+name: Validate Review Transport Scope
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  review-transport-scope:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desktop resilient discovery regression
+        shell: pwsh
+        run: ./tests/DesktopChatGPTWindowDiscovery.Tests.ps1
+      - name: Mark host-only WSL fixture unavailable in GitHub runner
+        shell: pwsh
+        run: |
+          $path = './tests/PORTABILITY.json'
+          $config = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
+          $config.windows_candidate_validation_skip['WindowsPath.Tests.ps1'] = 'GitHub-hosted Windows has no Ubuntu WSL distribution; authoritative host validation still runs this unchanged test.'
+          $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding utf8NoBOM
+      - name: Portable Core validation
+        shell: pwsh
+        run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot .
