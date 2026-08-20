@@ -15,6 +15,7 @@ Assert-Binding ($bindingSource.Contains("[System.Windows.Forms.SendKeys]::SendWa
 Assert-Binding ($bindingSource.Contains("@('composer-submit-button')") -and $bindingSource.Contains("@('send-button','composer-send-button')")) 'Repository Thinker supports bounded current and alternate send automation identifiers'
 Assert-Binding ($bindingSource.Contains("@('Send prompt','Send message','Send')")) 'Repository Thinker has a bounded accessible-name send fallback'
 Assert-Binding ($bindingSource.Contains("SendWait('{ENTER}')")) 'Repository Thinker has a keyboard Enter fallback after exact composer proof'
+Assert-Binding ($bindingSource.Contains("if(-not[bool]`$composer.Current.HasKeyboardFocus){throw 'ChatGPT composer keyboard focus proof is required before send.'}")) 'Repository Thinker requires explicit composer keyboard focus before clipboard or Enter input'
 Assert-Binding ($bindingSource.Contains('committed-send proof is absent')) 'Repository Thinker remains fail-closed unless the outbound payload leaves the composer'
 Assert-Binding (-not$bindingSource.Contains('SendPrompt=$desktop.SendPrompt')) 'Repository Thinker no longer delegates trigger sending to the legacy Desktop sender'
 
