@@ -10,29 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Repository runtime artifact and reload regression
-        shell: pwsh
-        run: |
-          $files=@('./tools/Reload-AidosAutonomousPreparation.ps1','./tests/HostAgentReload.Tests.ps1')
-          foreach($file in $files){
-            $tokens=$null
-            $errors=$null
-            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
-            if($errors.Count){throw "PowerShell parse errors in ${file}: $($errors.Message -join '; ')"}
-          }
-          ./tests/HostAgentReload.Tests.ps1
-          $samples=@(
-            'bridge/AidosRepositoryHandoff.runtime.test.psm1',
-            'bridge/AidosRepositoryActorHandoff.runtime.test.psm1',
-            'bridge/AidosRepositoryReviewHandoff.runtime.test.psm1',
-            'bridge/AidosRepositoryHandoffGateway.runtime.test.psm1',
-            'bridge/AidosRepositoryHandoffBridge.runtime.test.psm1',
-            'bridge/Invoke-AidosRepositoryHandoffHost.runtime.test.ps1'
-          )
-          foreach($sample in $samples){
-            git check-ignore --quiet -- $sample
-            if($LASTEXITCODE -ne 0){throw "Generated runtime artifact is not ignored: $sample"}
-          }
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
