@@ -29,6 +29,17 @@ Assert-Reload ($text.IndexOf("Get-Process -Id `$hostPid",[StringComparison]::Ord
 Assert-Reload ($text.IndexOf("`$hostAlive=",[StringComparison]::Ordinal) -ge 0 -and $text.IndexOf("`$bridgeAlive=",[StringComparison]::Ordinal) -ge 0 -and $text.IndexOf("`$gatewayAlive=",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload validates all runtime PIDs as live PowerShell processes'
 Assert-Reload ($text.IndexOf("`$bridgeError=",[StringComparison]::Ordinal) -ge 0 -and $text.IndexOf("`$gatewayError=",[StringComparison]::Ordinal) -ge 0 -and $text.IndexOf("child entered ERROR",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload fails immediately on explicit child ERROR state'
 Assert-Reload ($text.IndexOf("`$hostRunning -and `$freshHostIdentity -and `$hostAlive -and `$bridgeAlive -and `$gatewayAlive",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload accepts a fresh live supervisor without waiting for the first complete bridge tick'
+Assert-Reload ($text.IndexOf('$heartbeat=[DateTimeOffset]$status.heartbeat_at',[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload casts materialized heartbeat values directly to DateTimeOffset'
+Assert-Reload ($text.IndexOf('Parse([string]$status.heartbeat_at',[StringComparison]::Ordinal) -lt 0) 'Repository Handoff reload never round-trips heartbeat values through culture-dependent string parsing'
+$previousCulture=[Threading.Thread]::CurrentThread.CurrentCulture
+try{
+    [Threading.Thread]::CurrentThread.CurrentCulture=[Globalization.CultureInfo]::GetCultureInfo('nl-NL')
+    $materializedHeartbeat=[datetime]::new(2026,8,20,16,53,38,[DateTimeKind]::Local)
+    $cultureIndependentHeartbeat=[DateTimeOffset]$materializedHeartbeat
+    Assert-Reload ($cultureIndependentHeartbeat.Year-eq2026 -and $cultureIndependentHeartbeat.Month-eq8 -and $cultureIndependentHeartbeat.Day-eq20 -and $cultureIndependentHeartbeat.Hour-eq16) 'materialized DateTime heartbeat converts under nl-NL without culture-dependent reparsing'
+}finally{
+    [Threading.Thread]::CurrentThread.CurrentCulture=$previousCulture
+}
 Assert-Reload ($text.IndexOf("-PreviousHostPid `$previousRepositoryHostPid",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff restart passes the pre-stop supervisor PID into the health gate'
 Assert-Reload ($text.IndexOf("fresh RUNNING supervisor with live bridge and gateway processes",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff timeout explains the process-identity health contract'
 Assert-Reload ($text.IndexOf("Install-AidosHostSelfUpdate.ps1",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload still reapplies the self-update watchdog installer'
