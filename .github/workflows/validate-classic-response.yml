@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
       - name: Apply repository host shutdown lifecycle patch
         shell: pwsh
-        run: ./tools/TEMP-ApplyHostShutdownLifecyclePatch.ps1
+        run: ./tools/TEMP-RunHostShutdownLifecyclePatch.ps1
       - name: Commit lifecycle patch
         shell: bash
         run: |
