@@ -118,6 +118,9 @@ jobs:
       - name: Autonomous Review Repair regression tests
         shell: pwsh
         run: ./tests/AutonomousReviewRepair.Tests.ps1
+      - name: Review Authority Recovery regression tests
+        shell: pwsh
+        run: ./tests/ReviewAuthorityRecovery.Tests.ps1
       - name: Review Integration Closure regression tests
         shell: pwsh
         run: ./tests/ReviewIntegrationClosure.Tests.ps1
