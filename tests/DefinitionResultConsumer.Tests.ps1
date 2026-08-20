@@ -41,9 +41,16 @@ if([string]$a.missing_evidence -in @('MEDIUM','HIGH')){$errors+='missing evidenc
 [pscustomobject]@{pass=($errors.Count-eq0);decision_allowed=($errors.Count-eq0);errors=$errors}
 '@|Set-Content -LiteralPath (Join-Path $contracts 'tools/Test-AidosDecisionAssessment.ps1') -Encoding utf8NoBOM
 
-    & (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEF-CONSUMER' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson '[]' -AidosRoot $root|Out-Null
-    $project=[pscustomobject]@{project_id='DEF-CONSUMER';local_root=$projectRoot}
+    $projectProfile=& (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEF-CONSUMER' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson '[]' -AidosRoot $root
+    $projectOverrides=@($projectProfile.resolved_surfaces|Where-Object {[string]$_.state-eq'UNRESOLVED'}|ForEach-Object {
+        [ordered]@{surface_id=[string]$_.surface_id;state='APPLICABLE';reason='Definition result consumer fixture explicitly resolves project applicability before Definition.';source_ref='docs/PRODUCT.md'}
+    })
+    if($projectOverrides.Count){
+        & (Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1') -ProjectRoot $projectRoot -ProjectId 'DEF-CONSUMER' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson ($projectOverrides|ConvertTo-Json -Depth 20 -Compress) -AidosRoot $root|Out-Null
+    }
+    $project=[pscustomobject]@{project_id='DEF-CONSUMER';local_root=$projectRoot;project_mode='NEW_PROJECT'}
     $start=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
+    Assert-DefinitionConsumer ([string]$start.action-eq'START_DEFINITION') 'fully resolved project applicability unlocks START_DEFINITION'
     $created=New-AidosRuntimeActorAssignment -Project $project -Selection $start;$a=$created.assignment
     $profile=Get-Content -LiteralPath (Join-Path $projectRoot '.aidos/profile/PROJECT_APPLICABILITY.json') -Raw|ConvertFrom-Json -Depth 100
     $appSurface=@($profile.resolved_surfaces|Where-Object {[string]$_.state -in @('APPLICABLE','CONDITIONAL')}|Select-Object -First 1)[0]
@@ -60,7 +67,8 @@ if([string]$a.missing_evidence -in @('MEDIUM','HIGH')){$errors+='missing evidenc
         );
         human_input_request=[ordered]@{surface_id='functional_behavior';request_type='PRODUCT_DECISION';context_summary='One material interaction behavior remains ambiguous.';question='Which interaction behavior should V1 use?';options=@([ordered]@{option_id='A';label='Option A';description='First material behavior.'},[ordered]@{option_id='B';label='Option B';description='Second material behavior.'});authority_classification='HUMAN_REQUIRED';auto_define_stop_reason='Material product behavior requires owner choice.';decision_assessment_ref=$null;evidence_refs=@();source_refs=@('docs/PRODUCT.md')}
     }
-    $result=[pscustomobject][ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$a.assignment_id;assignment_sha256=[string]$created.assignment_sha256;project_id=[string]$a.project_id;actor_role=[string]$a.actor_role;actor_identity=[string]$a.actor_identity;action=[string]$a.action;binding=$a.binding;outcome='COMPLETED';result=[pscustomobject]$output;responded_at=[DateTimeOffset]::UtcNow.ToString('o')}
+    $output=$output|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $result=[pscustomobject][ordered]@{schema_version='0.1';envelope_type='RUNTIME_ACTOR_RESULT';assignment_id=[string]$a.assignment_id;assignment_sha256=[string]$created.assignment_sha256;project_id=[string]$a.project_id;actor_role=[string]$a.actor_role;actor_identity=[string]$a.actor_identity;action=[string]$a.action;binding=$a.binding;outcome='COMPLETED';result=$output;responded_at=[DateTimeOffset]::UtcNow.ToString('o')}
     Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id) -Status ACTIVATED -TransportType TEST|Out-Null
     Save-AidosRuntimeActorResult -ProjectRoot $projectRoot -Result $result|Out-Null
     $consumed=Invoke-AidosDefinitionThinkerResultConsumer -Project $project -ActorResult $result -ContractsRoot $contracts -AidosRoot $root

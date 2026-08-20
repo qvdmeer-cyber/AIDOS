@@ -36,10 +36,16 @@ try {
 
     Set-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$appAssignment.assignment.assignment_id) -Status ABANDONED|Out-Null
     $resolve=Join-Path $root 'tools/Resolve-AidosProjectApplicability.ps1'
-    & $resolve -ProjectRoot $projectRoot -ProjectId 'RUNTIME-ACTOR' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson '[]' -AidosRoot $root|Out-Null
+    $profile=& $resolve -ProjectRoot $projectRoot -ProjectId 'RUNTIME-ACTOR' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson '[]' -AidosRoot $root
+    $overrides=@($profile.resolved_surfaces|Where-Object {[string]$_.state-eq'UNRESOLVED'}|ForEach-Object {
+        [ordered]@{surface_id=[string]$_.surface_id;state='APPLICABLE';reason='Runtime actor fixture explicitly resolves project applicability before Definition.';source_ref='.aidos/PROJECT.json'}
+    })
+    if($overrides.Count){
+        & $resolve -ProjectRoot $projectRoot -ProjectId 'RUNTIME-ACTOR' -PresetIds @('WEB_APPLICATION') -SelectionSource BASELINE_DERIVED -OverridesJson ($overrides|ConvertTo-Json -Depth 20 -Compress) -AidosRoot $root|Out-Null
+    }
 
     $start=Get-AidosRuntimeNextActor -ProjectRoot $projectRoot
-    Assert-Actor ($start.action -eq 'START_DEFINITION') 'resolved Project Applicability unlocks Definition assignment'
+    Assert-Actor ($start.action -eq 'START_DEFINITION') 'fully resolved Project Applicability unlocks Definition assignment'
     $created=New-AidosRuntimeActorAssignment -Project $project -Selection $start
     Assert-Actor ($created.status -eq 'PENDING') 'Definition start creates pending assignment'
     Assert-Actor (-not[string]::IsNullOrWhiteSpace([string]$created.assignment.binding.definition_id) -and [int]$created.assignment.binding.definition_version -eq 1) 'Definition assignment owns exact Definition binding'

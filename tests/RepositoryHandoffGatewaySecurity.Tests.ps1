@@ -16,7 +16,8 @@ try{
     foreach($safe in @('AIDOS','AIDOS-INTERFACE','PROJECT_1','project.v2')){
         Assert-GatewaySecurity ((Test-AidosRepositoryHandoffGatewayProjectId -ProjectId $safe)-eq$safe) "safe project_id is accepted: $safe"
     }
-    foreach($unsafe in @('',' ','..','../outside','..\outside','/absolute','C:/outside','project/name','project\name','.hidden','-leading','project:name',('A'*129))){
+    Assert-GatewaySecurityThrows {Test-AidosRepositoryHandoffGatewayProjectId -ProjectId ''} 'empty string|project_id is invalid' 'empty project_id fails closed before registry access'
+    foreach($unsafe in @(' ','..','../outside','..\outside','/absolute','C:/outside','project/name','project\name','.hidden','-leading','project:name',('A'*129))){
         Assert-GatewaySecurityThrows {Test-AidosRepositoryHandoffGatewayProjectId -ProjectId $unsafe} 'project_id is invalid' "unsafe project_id is rejected: $unsafe"
     }
 

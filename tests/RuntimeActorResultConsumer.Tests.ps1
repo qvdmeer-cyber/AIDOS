@@ -51,7 +51,7 @@ This product is an interactive browser-based web application with a responsive o
         result=[pscustomobject][ordered]@{result_type='PROJECT_APPLICABILITY_PROPOSAL';authority_classification='REPO_VERIFIABLE';preset_ids=@('WEB_APPLICATION');selection_source='BASELINE_DERIVED';overrides=@();rationale='Canonical product documentation explicitly describes an interactive browser-based web application.';source_refs=@('docs/PRODUCT.md')};responded_at='2026-08-18T00:00:01Z'
     }
     Save-AidosRuntimeActorResult -ProjectRoot $projectRoot -Result $result|Out-Null
-    Assert-Consumer (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 1) 'completed applicability result remains pending before Core consumption'
+    Assert-Consumer (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 0) 'completed applicability result is excluded from pending dispatch before Core consumption'
 
     $consumed=Invoke-AidosRuntimeActorResultConsumerTick -RegistryRoot $registry -AidosRoot $root -MaxItems 1
     $detail=if($consumed.results.Count -gt 0 -and $consumed.results[0].PSObject.Properties['error']){[string]$consumed.results[0].error}else{($consumed|ConvertTo-Json -Depth 20 -Compress)}
@@ -62,7 +62,7 @@ This product is an interactive browser-based web application with a responsive o
     Assert-Consumer (@($profile.selected_presets|Where-Object {$_.preset_id -eq 'WEB_APPLICATION' -and $_.category -eq 'PRODUCT_ARCHETYPE'}).Count -eq 1) 'WEB_APPLICATION is persisted as exactly one product archetype'
     Assert-Consumer ((Read-AidosRuntimeActorTransportState -ProjectRoot $projectRoot -AssignmentId ([string]$a.assignment_id)).status -eq 'CONSUMED') 'actor transport closes only after Core consumption'
     Assert-Consumer (@(Get-AidosPendingRuntimeActorAssignments -ProjectRoot $projectRoot).Count -eq 0) 'consumed applicability assignment leaves pending scheduler set'
-    Assert-Consumer ((Get-AidosRuntimeNextActor -ProjectRoot $projectRoot).action -eq 'START_DEFINITION') 'Definition start is unlocked only after applicability consumption'
+    Assert-Consumer ((Get-AidosRuntimeNextActor -ProjectRoot $projectRoot).action -eq 'RESOLVE_PROJECT_APPLICABILITY') 'partial applicability result keeps Definition gated until remaining surfaces are resolved'
 
     $commits=@(& git -C $projectRoot log --format=%s -n 1)
     Assert-Consumer ([string]$commits[0] -match '^AIDOS consume actor result ') 'consumer commits durable result-derived project state'
