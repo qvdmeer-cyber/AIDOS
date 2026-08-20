@@ -117,9 +117,7 @@ function Get-AidosDesktopReviewMessageSurface {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Element)
     $candidateTexts=[Collections.Generic.List[string]]::new()
-    $directionTexts=[Collections.Generic.List[string]]::new()
     $candidateSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    $directionSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $values=@()
     try{
         $textPattern=$Element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
@@ -135,30 +133,40 @@ function Get-AidosDesktopReviewMessageSurface {
         if($candidateSeen.Add([string]$value)){$candidateTexts.Add([string]$value)}
     }
 
+    $direction='UNKNOWN'
+    $proofTexts=@()
     $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
     $current=$Element
     for($depth=0;$depth-lt16-and$current;$depth++){
         $controlType=''
         try{$controlType=[string]$current.Current.ControlType.ProgrammaticName}catch{}
-        if($depth-gt0 -and $controlType -match 'Document$'){break}
-        $metadata=@()
-        try{$metadata+=[string]$current.Current.Name}catch{}
-        try{$metadata+=[string]$current.Current.HelpText}catch{}
-        try{$metadata+=[string]$current.Current.AutomationId}catch{}
+        if($controlType -match 'Document$'){break}
+        $metadata=[Collections.Generic.List[string]]::new()
+        $metadataSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $raw=@()
+        try{$raw+=[string]$current.Current.Name}catch{}
+        try{$raw+=[string]$current.Current.HelpText}catch{}
+        try{$raw+=[string]$current.Current.AutomationId}catch{}
         try{
             $text=Get-AidosDesktopChatGPTElementText $current
-            if(-not[string]::IsNullOrWhiteSpace([string]$text)){$metadata+=[string]$text}
+            if(-not[string]::IsNullOrWhiteSpace([string]$text)){$raw+=[string]$text}
         }catch{}
-        foreach($value in @($metadata)){
+        foreach($value in @($raw)){
             if([string]::IsNullOrWhiteSpace([string]$value)){continue}
-            if($directionSeen.Add([string]$value)){$directionTexts.Add([string]$value)}
+            if($metadataSeen.Add([string]$value)){$metadata.Add([string]$value)}
+        }
+        $nodeDirection=Resolve-AidosDesktopReviewMessageDirection -Texts $metadata.ToArray()
+        if([string]$nodeDirection-ne'UNKNOWN'){
+            $direction=[string]$nodeDirection
+            $proofTexts=$metadata.ToArray()
+            break
         }
         try{$current=$walker.GetParent($current)}catch{$current=$null}
     }
     [pscustomobject][ordered]@{
-        direction=Resolve-AidosDesktopReviewMessageDirection -Texts $directionTexts.ToArray()
+        direction=$direction
         texts=$candidateTexts.ToArray()
-        direction_proof_texts=$directionTexts.ToArray()
+        direction_proof_texts=@($proofTexts)
     }
 }
 
@@ -252,7 +260,7 @@ function New-AidosDesktopInteractiveOverlay {
     $s=$Decision.snapshot
     [ordered]@{
         status=$Status
-        reason=if($Status -eq'AVAILABLE'){'NONE'}else{[string]$Decision.reason}
+        reason=if($Status-eq'AVAILABLE'){'NONE'}else{[string]$Decision.reason}
         policy=[string]$Decision.policy
         observed_session_id=$s.session_id
         process_session_id=$s.process_session_id
