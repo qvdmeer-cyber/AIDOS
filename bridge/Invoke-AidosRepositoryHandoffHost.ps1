@@ -397,13 +397,8 @@ switch($Command){
     'StartBridge' {$config=Read-AidosRepositoryHostConfiguration;Start-AidosRepositoryHandoffBridge -StateRoot ([string]$config.bridge_state_root) -Push:([bool]$config.push)}
     'StartGateway' {$config=Read-AidosRepositoryHostConfiguration;Start-AidosRepositoryHandoffGateway -StateRoot ([string]$config.gateway_state_root) -Push:([bool]$config.push)}
     'Stop' {
-        $config=Read-AidosRepositoryHostConfiguration
-        $stopPath=Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind stop
-        if(-not(Test-Path -LiteralPath $StateRoot -PathType Container)){New-Item -ItemType Directory -Path $StateRoot -Force|Out-Null}
-        Set-Content -LiteralPath $stopPath -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM
-        Stop-AidosRepositoryHandoffBridge -StateRoot ([string]$config.bridge_state_root)|Out-Null
-        Stop-AidosRepositoryHandoffGateway -StateRoot ([string]$config.gateway_state_root)|Out-Null
-        [pscustomobject][ordered]@{status='STOP_REQUESTED';task=(Get-AidosRepositoryHostTaskStatus);state_root=$StateRoot}|ConvertTo-Json -Depth 50
+        $stop=Stop-AidosRepositoryHostTask
+        [pscustomobject][ordered]@{status=if($stop -and $stop.PSObject.Properties['status']){[string]$stop.status}else{'STOPPED'};stop=$stop;task=(Get-AidosRepositoryHostTaskStatus);state_root=$StateRoot}|ConvertTo-Json -Depth 50
     }
     'Status' {
         $config=$null
