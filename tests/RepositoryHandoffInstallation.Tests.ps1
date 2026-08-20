@@ -48,6 +48,8 @@ try{
 
     $launcher=New-AidosRepositoryHandoffLauncherText
     Assert-Install ($launcher.Contains('-Command Start -StateRoot $root')) 'stable launcher starts the host from local configuration'
+    Assert-Install ($launcher.Contains('    exit 0')) 'stable launcher treats normal host script return as success under StrictMode'
+    Assert-Install (-not$launcher.Contains('exit $LASTEXITCODE')) 'stable launcher never depends on an unset LASTEXITCODE after PowerShell script return'
     Assert-Install (-not$launcher.Contains('api_key')) 'stable launcher contains no API key'
     $vbs=New-AidosRepositoryHandoffVbsText
     Assert-Install ($vbs.Contains('LAUNCHER.ps1') -and $vbs.Contains('shell.Run(command, 0, True)')) 'VBS bootstrap starts PowerShell hidden and waits'

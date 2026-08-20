@@ -121,6 +121,11 @@ if($repositoryTask -and $repositoryConfigPresent){
     $legacyTask=Disable-AidosLegacyDesktopTransportTask -TaskName $legacyTaskName
     $repositoryBootstrap=Join-Path $aidosRoot 'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1'
     if(-not(Test-Path -LiteralPath $repositoryBootstrap -PathType Leaf)){throw "Repository handoff host bootstrap is unavailable: $repositoryBootstrap"}
+    $repositoryInstallation=Join-Path $aidosRoot 'bridge/AidosRepositoryHandoffInstallation.psm1'
+    if(-not(Test-Path -LiteralPath $repositoryInstallation -PathType Leaf)){throw "Repository handoff installation module is unavailable: $repositoryInstallation"}
+    Import-Module $repositoryInstallation -Force -DisableNameChecking
+    $repositoryLauncher=Get-AidosRepositoryHandoffHostPath -StateRoot $repositoryHostStateRoot -Kind launcher
+    New-AidosRepositoryHandoffLauncherText|Set-Content -LiteralPath $repositoryLauncher -Encoding utf8NoBOM
 
     if($repositoryWasRunning){
         $previousRepositoryHostPid=0
@@ -131,16 +136,10 @@ if($repositoryTask -and $repositoryConfigPresent){
             }catch{}
         }
 
-        & $repositoryBootstrap -Command Stop -StateRoot $repositoryHostStateRoot|Out-Null
-        $deadline=[DateTimeOffset]::UtcNow.AddSeconds(15)
-        do{
-            Start-Sleep -Milliseconds 250
-            $current=Get-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction SilentlyContinue
-            if(-not$current -or [string]$current.State -ne 'Running'){break}
-        }while([DateTimeOffset]::UtcNow -lt $deadline)
+        $repositoryStop=& $repositoryBootstrap -Command Stop -StateRoot $repositoryHostStateRoot
         $current=Get-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction SilentlyContinue
         if(-not$current){throw 'Repository handoff host scheduled task disappeared during reload.'}
-        if([string]$current.State -eq 'Running'){throw 'Repository handoff host scheduled task did not stop within the bounded reload window.'}
+        if([string]$current.State -eq 'Running'){throw 'Canonical Repository Handoff stop returned while the scheduled task was still Running.'}
 
         $restartStartedAt=[DateTimeOffset]::UtcNow
         Start-ScheduledTask -TaskName $repositoryHostTaskName -ErrorAction Stop

@@ -167,21 +167,63 @@ function Get-AidosRepositoryHostTaskStatus {
 }
 
 function Stop-AidosRepositoryHostTask {
-    param([int]$TimeoutSeconds=15)
+    param([int]$TimeoutSeconds=30)
     $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    if(-not$task){return}
+    if(-not$task){return [pscustomobject][ordered]@{status='NOT_INSTALLED';previous_pid=$null;task_state=$null}}
+
+    $leasePath=Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind lease
+    $previousPid=0
+    $previousStartedAt=$null
+    if(Test-Path -LiteralPath $leasePath -PathType Leaf){
+        try{
+            $lease=Get-Content -LiteralPath $leasePath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
+            if($lease.PSObject.Properties['pid']){$previousPid=[int]$lease.pid}
+            if($lease.PSObject.Properties['process_started_at']){$previousStartedAt=[DateTimeOffset]$lease.process_started_at}
+        }catch{}
+    }
+
     $stopPath=Get-AidosRepositoryHandoffHostPath -StateRoot $StateRoot -Kind stop
     $stopDir=Split-Path -Parent $stopPath
     if(-not(Test-Path -LiteralPath $stopDir -PathType Container)){New-Item -ItemType Directory -Path $stopDir -Force|Out-Null}
     Set-Content -LiteralPath $stopPath -Value ([DateTimeOffset]::UtcNow.ToString('o')) -Encoding utf8NoBOM
     try{$config=Read-AidosRepositoryHostConfiguration;Stop-AidosRepositoryHandoffBridge -StateRoot ([string]$config.bridge_state_root)|Out-Null;Stop-AidosRepositoryHandoffGateway -StateRoot ([string]$config.gateway_state_root)|Out-Null}catch{}
+
     $deadline=[DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
-    while([DateTimeOffset]::UtcNow-lt$deadline){
-        $current=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        if(-not$current -or [string]$current.State-ne'Running'){return}
+    do {
+        $leasePresent=Test-Path -LiteralPath $leasePath -PathType Leaf
+        $previousProcessAlive=$false
+        if($previousPid-gt0){
+            $process=Get-Process -Id $previousPid -ErrorAction SilentlyContinue
+            if($process){
+                if($null-ne$previousStartedAt){$previousProcessAlive=$process.StartTime.ToUniversalTime().Ticks-eq$previousStartedAt.UtcDateTime.Ticks}else{$previousProcessAlive=$true}
+            }
+        }
+        if(-not$leasePresent -and -not$previousProcessAlive){break}
         Start-Sleep -Milliseconds 250
+    }while([DateTimeOffset]::UtcNow-lt$deadline)
+
+    $leaseStillPresent=Test-Path -LiteralPath $leasePath -PathType Leaf
+    $previousProcessStillAlive=$false
+    if($previousPid-gt0){
+        $process=Get-Process -Id $previousPid -ErrorAction SilentlyContinue
+        if($process){
+            if($null-ne$previousStartedAt){$previousProcessStillAlive=$process.StartTime.ToUniversalTime().Ticks-eq$previousStartedAt.UtcDateTime.Ticks}else{$previousProcessStillAlive=$true}
+        }
     }
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if($leaseStillPresent -or $previousProcessStillAlive){throw 'Repository handoff supervisor did not release its lease and terminate within the bounded shutdown window.'}
+
+    $current=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if(-not$current){return [pscustomobject][ordered]@{status='STOPPED';previous_pid=if($previousPid-gt0){$previousPid}else{$null};task_state=$null}}
+    if([string]$current.State-eq'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+    $taskDeadline=[DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $current=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if(-not$current -or [string]$current.State-ne'Running'){break}
+        Start-Sleep -Milliseconds 250
+    }while([DateTimeOffset]::UtcNow-lt$taskDeadline)
+    $current=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if($current -and [string]$current.State-eq'Running'){throw 'Repository handoff scheduled task remained Running after supervisor termination.'}
+    [pscustomobject][ordered]@{status='STOPPED';previous_pid=if($previousPid-gt0){$previousPid}else{$null};task_state=if($current){[string]$current.State}else{$null}}
 }
 
 function Retire-AidosClassicTransportTask {
