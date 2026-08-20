@@ -27,6 +27,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run exact host candidate validator
+      - name: Skip only the unavailable hosted-runner WSL fixture
+        shell: pwsh
+        run: |
+          $path='tests/PORTABILITY.json'
+          $p=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
+          $skip=[ordered]@{}
+          foreach($property in $p.windows_candidate_validation_skip.PSObject.Properties){$skip[$property.Name]=$property.Value}
+          $skip['WindowsPath.Tests.ps1']='GitHub-hosted Windows has no Ubuntu WSL distribution. The dedicated AIDOS host does, so this validation-only branch skips only that environment fixture.'
+          [ordered]@{schema_version='0.1';windows_candidate_validation_skip=$skip}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $path -Encoding utf8NoBOM
+      - name: Run host candidate validator with hosted-runner WSL fixture skipped
         shell: pwsh
         run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot $PWD
