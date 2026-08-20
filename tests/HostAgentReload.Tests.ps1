@@ -24,7 +24,7 @@ Assert-Reload ($text.IndexOf("Wait-AidosRepositoryHostReload",[StringComparison]
 Assert-Reload ($text.IndexOf("Install-AidosHostSelfUpdate.ps1",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload still reapplies the self-update watchdog installer'
 Assert-Reload ($text.IndexOf("status='RELOADED_REPOSITORY_HANDOFF'",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload reports its selected transport authority explicitly'
 
-$repoBranch=[regex]::Match($text,"(?s)if\(\$repositoryTask -and \$repositoryConfigPresent\)\{.*?exit 0\s*\}").Value
+$repoBranch=[regex]::Match($text,'(?s)if\(\$repositoryTask -and \$repositoryConfigPresent\)\{.*?exit 0\s*\}').Value
 Assert-Reload (-not[string]::IsNullOrWhiteSpace($repoBranch) -and $repoBranch.IndexOf('Enable-AidosAutonomousPreparation.ps1',[StringComparison]::Ordinal) -lt 0) 'Repository Handoff path never calls the legacy enable bootstrap'
 Assert-Reload ($text.IndexOf("Compatibility path for hosts that have not migrated",[StringComparison]::Ordinal) -ge 0 -and $text.IndexOf("Enable-AidosAutonomousPreparation.ps1",[StringComparison]::Ordinal) -ge 0) 'legacy-only hosts retain the historical autonomous-preparation reload fallback'
 
