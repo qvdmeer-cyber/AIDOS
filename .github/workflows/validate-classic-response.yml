@@ -5,11 +5,44 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: fix/require-thinker-composer-focus
+          fetch-depth: 0
+      - name: Apply strict Thinker composer focus
+        shell: bash
+        run: python tools/TEMP-RequireThinkerComposerFocus.py
+      - name: Validate strict Thinker composer focus
+        shell: pwsh
+        run: |
+          $paths=@('bridge/AidosRepositoryThinkerBinding.psm1','tests/RepositoryThinkerBinding.Tests.ps1')
+          foreach($path in $paths){
+            $tokens=$null
+            $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
+          }
+          ./tests/RepositoryThinkerBinding.Tests.ps1
+      - name: Commit strict Thinker composer focus
+        shell: bash
+        run: |
+          git add -- bridge/AidosRepositoryThinkerBinding.psm1 tests/RepositoryThinkerBinding.Tests.ps1
+          if git diff --cached --quiet; then
+            echo "No strict composer-focus changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Require Repository Thinker composer keyboard focus"
+            git pull --rebase origin fix/require-thinker-composer-focus
+            git push origin HEAD:fix/require-thinker-composer-focus
+          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
