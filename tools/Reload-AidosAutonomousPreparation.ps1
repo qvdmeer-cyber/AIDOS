@@ -62,7 +62,7 @@ function Wait-AidosRepositoryHostReload {
     param(
         [Parameter(Mandatory)][string]$StatusPath,
         [Parameter(Mandatory)][DateTimeOffset]$StartedAt,
-        [int]$TimeoutSeconds=20
+        [int]$TimeoutSeconds=60
     )
     $deadline=[DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
@@ -70,14 +70,17 @@ function Wait-AidosRepositoryHostReload {
         if(Test-Path -LiteralPath $StatusPath -PathType Leaf){
             try{
                 $status=Get-Content -LiteralPath $StatusPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
-                if([string]$status.status -eq 'RUNNING' -and -not[string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)){
+                $hostRunning=[string]$status.status -eq 'RUNNING'
+                $bridgeRunning=$status.PSObject.Properties['bridge'] -and $null-ne$status.bridge -and [string]$status.bridge.status -eq 'RUNNING'
+                $gatewayRunning=$status.PSObject.Properties['gateway'] -and $null-ne$status.gateway -and [string]$status.gateway.status -eq 'RUNNING'
+                if($hostRunning -and $bridgeRunning -and $gatewayRunning -and -not[string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)){
                     $heartbeat=[DateTimeOffset]::Parse([string]$status.heartbeat_at)
                     if($heartbeat -ge $StartedAt){return $status}
                 }
             }catch{}
         }
     }while([DateTimeOffset]::UtcNow -lt $deadline)
-    throw 'Repository handoff host did not publish a fresh RUNNING heartbeat within the bounded reload window.'
+    throw 'Repository handoff host did not publish a fresh healthy RUNNING heartbeat within the bounded reload window.'
 }
 
 $aidosRoot=Split-Path $PSScriptRoot -Parent
