@@ -6,6 +6,8 @@ $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $path=Join-Path $root 'tools/Reload-AidosAutonomousPreparation.ps1'
 $text=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+$ignorePath=Join-Path $root '.gitignore'
+$ignore=Get-Content -LiteralPath $ignorePath -Raw -Encoding UTF8
 $script:passed=0
 function Assert-Reload([bool]$Condition,[string]$Message){if(-not$Condition){throw "ASSERTION FAILED: $Message"};$script:passed++}
 
@@ -25,6 +27,18 @@ Assert-Reload ($text.IndexOf("`$bridgeRunning=",[StringComparison]::Ordinal) -ge
 Assert-Reload ($text.IndexOf("`$hostRunning -and `$bridgeRunning -and `$gatewayRunning",[StringComparison]::Ordinal) -ge 0 -and $text.IndexOf("fresh healthy RUNNING heartbeat",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload requires a fresh healthy post-update host heartbeat before success'
 Assert-Reload ($text.IndexOf("Install-AidosHostSelfUpdate.ps1",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload still reapplies the self-update watchdog installer'
 Assert-Reload ($text.IndexOf("status='RELOADED_REPOSITORY_HANDOFF'",[StringComparison]::Ordinal) -ge 0) 'Repository Handoff reload reports its selected transport authority explicitly'
+
+$runtimeIgnorePatterns=@(
+    'bridge/AidosRepositoryHandoff.runtime.*.psm1',
+    'bridge/AidosRepositoryActorHandoff.runtime.*.psm1',
+    'bridge/AidosRepositoryReviewHandoff.runtime.*.psm1',
+    'bridge/AidosRepositoryHandoffGateway.runtime.*.psm1',
+    'bridge/AidosRepositoryHandoffBridge.runtime.*.psm1',
+    'bridge/Invoke-AidosRepositoryHandoffHost.runtime.*.ps1'
+)
+foreach($pattern in $runtimeIgnorePatterns){
+    Assert-Reload (@($ignore -split "`r?`n"|Where-Object {$_ -ceq $pattern}).Count -eq 1) "live Repository Handoff runtime artifact is ignored exactly once: $pattern"
+}
 
 $repoBranch=[regex]::Match($text,'(?s)if\(\$repositoryTask -and \$repositoryConfigPresent\)\{.*?exit 0\s*\}').Value
 Assert-Reload (-not[string]::IsNullOrWhiteSpace($repoBranch) -and $repoBranch.IndexOf('Enable-AidosAutonomousPreparation.ps1',[StringComparison]::Ordinal) -lt 0) 'Repository Handoff path never calls the legacy enable bootstrap'
