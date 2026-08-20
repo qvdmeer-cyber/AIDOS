@@ -61,7 +61,7 @@ if($existing){
         $provisioning='UPDATED'
     }
 }else{
-    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'AIDOS fail-closed Core update validator and lease-safe host reload watchdog.'|Out-Null
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'AIDOS fail-closed Core update validator and lease-safe host reload watchdog.'|Out-Null
     $provisioning='CREATED'
 }
 if($startTask){Enable-ScheduledTask -TaskName $taskName|Out-Null;Start-ScheduledTask -TaskName $taskName}
