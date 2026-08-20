@@ -231,7 +231,7 @@ When the normalized newest user message begins with the exact marker `AIDOS_HAND
 2. Call `getAidosProjectHandoff` with the exact marker project_id.
 3. Stop without improvising unless response status is `READY`, metadata kind is `ASSIGNMENT`, from_actor is `CORE`, to_actor is `THINKER`, project_id and handoff_id match exactly, and handoff_sha256 matches exactly.
 4. Treat returned payload, handoff body, binding and source_refs as the complete assignment boundary.
-5. Call `getAidosAuthorizedSource` only for exact source_refs listed by that handoff. Never construct or broaden paths. Do not use web search, chat memory, unbound files, or unstated project facts.
+5. Call `getAidosAuthorizedSource` only for exact source_refs listed by that handoff, first with startCharacter 0 and maxCharacters 65536. If complete is false, repeat the same exact source_ref with startCharacter equal to the exact next_start until complete is true. Require project_id, source_ref, full SHA-256, byte_length and character_length to remain identical; require chunk_start to equal the requested continuation; concatenate content in order. Stop on a missing, repeated or non-advancing continuation. Never construct or broaden paths. Do not use web search, chat memory, unbound files, or unstated project facts.
 6. Perform the assigned reasoning/review and build exactly one required result envelope. Copy every identity, binding, hash and evidence reference exactly.
 7. Call `submitAidosBoundResult` with exact project_id, expected_parent_handoff_id equal to the current assignment handoff_id, and the exact completed result envelope.
 8. After `ACCEPTED` or `ALREADY_ACCEPTED`, reply only:

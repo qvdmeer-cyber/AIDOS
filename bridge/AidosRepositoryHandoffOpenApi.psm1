@@ -92,11 +92,13 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                 get=[ordered]@{
                     operationId='getAidosAuthorizedSource'
                     summary='Read one source authorized by the current assignment handoff'
-                    description='Call only for exact source_refs returned by getAidosProjectHandoff. Do not construct or broaden paths.'
+                    description='Call only for exact source_refs returned by getAidosProjectHandoff. Read from startCharacter 0 and follow exact next_start values until complete is true. Do not construct or broaden paths.'
                     'x-openai-isConsequential'=$false
                     parameters=@(
                         [ordered]@{name='projectId';in='path';required=$true;description='Exact AIDOS project_id from the trigger.';schema=[ordered]@{type='string';minLength=1}},
-                        [ordered]@{name='path';in='query';required=$true;description='Exact project-relative source_ref returned by the current handoff.';schema=[ordered]@{type='string';minLength=1}}
+                        [ordered]@{name='path';in='query';required=$true;description='Exact project-relative source_ref returned by the current handoff.';schema=[ordered]@{type='string';minLength=1}},
+                        [ordered]@{name='startCharacter';in='query';required=$false;description='Exact zero-based UTF-16 continuation offset. Start with 0; thereafter copy next_start exactly.';schema=[ordered]@{type='integer';minimum=0;default=0}},
+                        [ordered]@{name='maxCharacters';in='query';required=$false;description='Maximum UTF-16 characters returned in one bounded response.';schema=[ordered]@{type='integer';minimum=1;maximum=65536;default=65536}}
                     )
                     responses=[ordered]@{
                         '200'=[ordered]@{description='Exact UTF-8 source content with its SHA-256.';content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/SourceResponse'}}}}
@@ -237,12 +239,17 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                 SourceResponse=[ordered]@{
                     type='object'
                     additionalProperties=$false
-                    required=@('project_id','source_ref','sha256','byte_length','content')
+                    required=@('project_id','source_ref','sha256','byte_length','character_length','chunk_start','chunk_length','next_start','complete','content')
                     properties=[ordered]@{
                         project_id=[ordered]@{type='string';minLength=1}
                         source_ref=[ordered]@{type='string';minLength=1}
                         sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
-                        byte_length=[ordered]@{type='integer';minimum=0}
+                        byte_length=[ordered]@{type='integer';minimum=0;description='Full source byte length.'}
+                        character_length=[ordered]@{type='integer';minimum=0;description='Full source UTF-16 character length.'}
+                        chunk_start=[ordered]@{type='integer';minimum=0}
+                        chunk_length=[ordered]@{type='integer';minimum=0;maximum=65536}
+                        next_start=[ordered]@{type=@('integer','null');minimum=0}
+                        complete=[ordered]@{type='boolean'}
                         content=[ordered]@{type='string'}
                     }
                 }
