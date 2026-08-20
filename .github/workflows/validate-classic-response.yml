@@ -5,11 +5,50 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: fix/runtime-review-module-binding
+          fetch-depth: 0
+      - name: Apply runtime review module binding fix
+        shell: bash
+        run: python tools/TEMP-ApplyRuntimeReviewModuleBinding.py
+      - name: Validate runtime review module binding
+        shell: pwsh
+        run: |
+          $paths=@(
+            'bridge/AidosRepositoryHandoffBridge.psm1',
+            'bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1',
+            'tests/RepositoryHandoffBootstrap.Tests.ps1',
+            'tests/RepositoryHandoffBridge.Tests.ps1'
+          )
+          foreach($path in $paths){
+            $tokens=$null
+            $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
+          }
+          ./tests/RepositoryHandoffBootstrap.Tests.ps1
+          ./tests/RepositoryHandoffBridge.Tests.ps1
+          ./tests/RuntimeProjectManager.Tests.ps1
+      - name: Commit runtime review module binding fix
+        shell: bash
+        run: |
+          git add -- bridge/AidosRepositoryHandoffBridge.psm1 bridge/Invoke-AidosRepositoryHandoffHostBootstrap.ps1 tests/RepositoryHandoffBootstrap.Tests.ps1 tests/RepositoryHandoffBridge.Tests.ps1
+          if git diff --cached --quiet; then
+            echo "No runtime review module binding changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Bind runtime review publisher to imported module"
+            git push origin HEAD:fix/runtime-review-module-binding
+          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
