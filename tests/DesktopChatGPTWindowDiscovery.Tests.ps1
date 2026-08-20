@@ -21,8 +21,10 @@ $threw=$false
 try{Get-AidosDesktopChatGPTResilientProcessContext -ProcessName 'ChatGPT Classic' -PrimaryResolver {param($name);throw 'primary unavailable'} -FallbackResolver {param($name);@($context,$second)}|Out-Null}catch{$threw=$true}
 Assert-Discovery $threw 'multiple fallback candidates fail closed'
 
+$windowBaseText=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosDesktopChatGPTWindowDiscovery.Base.ps1') -Raw
 $hostText=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosPersistentLocalDesktopAgent.psm1') -Raw
 $thinkerText=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosDesktopThinkerTransport.psm1') -Raw
+Assert-Discovery ($windowBaseText -match 'resilientProcessContext=Get-Command Get-AidosDesktopChatGPTResilientProcessContext' -and $windowBaseText -match '& \$resilientProcessContext -ProcessName \$RequestedProcessName') 'resilient backend binds the exact process-context command before its deferred callback leaves module scope'
 Assert-Discovery ($hostText -match 'ResilientProcessContextCommand=.*ExportedCommands\[''Get-AidosDesktopChatGPTResilientProcessContext''\]' -and $hostText -match '& \$script:ResilientProcessContextCommand') 'host shell health binds the exact exported resilient discovery command'
 Assert-Discovery ($thinkerText -match 'New-AidosDesktopThinkerWindowsBackend' -and $thinkerText -match 'ResilientProcessContextCommand=.*ExportedCommands\[''Get-AidosDesktopChatGPTResilientProcessContext''\]' -and $thinkerText -match '& \$resilientProcessContext') 'Thinker transport backend binds the exact exported resilient discovery command'
 

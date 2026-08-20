@@ -408,9 +408,10 @@ function New-AidosDesktopChatGPTResilientWindowsBackend {
     param([string]$ProcessName='ChatGPT Classic')
     $backend=& $script:BaseDesktopChatGPTWindowsBackendCommand -ProcessName $ProcessName
     $primaryResolver=$backend.GetProcessContext
+    $resilientProcessContext=Get-Command Get-AidosDesktopChatGPTResilientProcessContext -CommandType Function -ErrorAction Stop
     $backend.GetProcessContext=({
         param([string]$RequestedProcessName)
-        Get-AidosDesktopChatGPTResilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
+        & $resilientProcessContext -ProcessName $RequestedProcessName -PrimaryResolver $primaryResolver
     }).GetNewClosure()
     $backend=New-AidosDesktopChatGPTResilientConversationBackend -Backend $backend
     $backend=Add-AidosDesktopChatGPTFreshComposerProof -Backend $backend
