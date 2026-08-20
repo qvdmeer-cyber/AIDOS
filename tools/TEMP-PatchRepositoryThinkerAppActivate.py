@@ -39,7 +39,7 @@ binding_path.write_text(binding, encoding='utf-8')
 test_path = Path('tests/RepositoryThinkerBinding.Tests.ps1')
 test = test_path.read_text(encoding='utf-8')
 anchor = "Assert-Binding (-not$bindingSource.Contains('SendPrompt=$desktop.SendPrompt')) 'Repository Thinker no longer delegates trigger sending to the legacy Desktop sender'\n"
-extra = anchor + "Assert-Binding ($bindingSource.Contains('New-Object -ComObject WScript.Shell') -and $bindingSource.Contains('AppActivate([int]$Context.process_id)')) 'Repository Thinker explicitly activates the bound ChatGPT process before legacy focus proof'\nAssert-Binding ($bindingSource.Contains('`$desktopFocus=`$desktop.FocusConversation') -and -not$bindingSource.Contains('FocusConversation=$desktop.FocusConversation')) 'Repository Thinker wraps the proven Desktop focus routine instead of delegating it directly'\n"
+extra = anchor + "Assert-Binding ($bindingSource.Contains('New-Object -ComObject WScript.Shell') -and $bindingSource.Contains('AppActivate([int]$Context.process_id)')) 'Repository Thinker explicitly activates the bound ChatGPT process before legacy focus proof'\nAssert-Binding ($bindingSource.Contains('$desktopFocus=$desktop.FocusConversation') -and -not$bindingSource.Contains('FocusConversation=$desktop.FocusConversation')) 'Repository Thinker wraps the proven Desktop focus routine instead of delegating it directly'\n"
 if 'Repository Thinker explicitly activates the bound ChatGPT process before legacy focus proof' not in test:
     if test.count(anchor) != 1:
         raise RuntimeError('Repository Thinker test anchor missing or ambiguous')
