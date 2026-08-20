@@ -82,14 +82,15 @@ Assert-Bootstrap (@($gatewayErrors).Count-eq0) ('runtime gateway parses: '+(@($g
 
 $runtimeHandoffName='AidosRepositoryHandoff.runtime.test.psm1'
 $bridgeRuntime=$bridgeText
+Assert-Bootstrap (-not$bridgeText.Contains("Where-Object status -eq'ERROR'")) 'canonical bridge no longer contains the invalid shorthand error filter'
+Assert-Bootstrap ([regex]::Matches($bridgeText,[regex]::Escape("Where-Object { `$_.status -eq 'ERROR' }")).Count-ge2) 'canonical bridge contains explicit error-filter scriptblocks'
 $bridgeTransforms=[ordered]@{
     '$assignment=$pending.assignment' = '$assignment=$pending'
-    "Where-Object status -eq'ERROR'" = "Where-Object { `$_.status -eq 'ERROR' }"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
 }
 foreach($pair in $bridgeTransforms.GetEnumerator()){
-    $expected=if([string]$pair.Key -eq "Where-Object status -eq'ERROR'"){2}else{1}
+    $expected=1
     Assert-Bootstrap ([regex]::Matches($bridgeRuntime,[regex]::Escape([string]$pair.Key)).Count-eq$expected) "canonical bridge contains expected runtime target: $($pair.Key)"
     $bridgeRuntime=$bridgeRuntime.Replace([string]$pair.Key,[string]$pair.Value)
 }

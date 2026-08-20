@@ -152,7 +152,6 @@ try{$runtimeGatewayStream.Write($runtimeGatewayBytes,0,$runtimeGatewayBytes.Leng
 $bridgeSource=Get-Content -LiteralPath $bridgeOriginal -Raw -Encoding UTF8
 $bridgeReplacements=[ordered]@{
     '$assignment=$pending.assignment' = '$assignment=$pending'
-    "Where-Object status -eq'ERROR'" = "Where-Object { `$_.status -eq 'ERROR' }"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot 'AidosRuntimeProjectManager.psm1') -Global -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeHandoffName') -Force -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryActorHandoff.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeActorHandoffName') -Force -DisableNameChecking"
@@ -160,7 +159,7 @@ $bridgeReplacements=[ordered]@{
 }
 foreach($pair in $bridgeReplacements.GetEnumerator()){
     $matches=[regex]::Matches($bridgeSource,[regex]::Escape([string]$pair.Key)).Count
-    $expected=if([string]$pair.Key -eq "Where-Object status -eq'ERROR'"){2}else{1}
+    $expected=1
     if($matches-ne$expected){throw "Repository host bootstrap expected $expected bridge source match(es) for: $($pair.Key); found $matches."}
     $bridgeSource=$bridgeSource.Replace([string]$pair.Key,[string]$pair.Value)
 }
