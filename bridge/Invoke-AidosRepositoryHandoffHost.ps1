@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Install','Start','StartBridge','StartGateway','Stop','Status','BindThinker','UnbindThinker','ResetThinkerTrigger','RotateKey','ShowApiKey','ShowOpenApi','ShowInstructions','FunnelStatus','Tick','Uninstall')]
+    [ValidateSet('Install','Start','StartBridge','StartGateway','Stop','Status','BindThinker','UnbindThinker','RecoverThinkerTrigger','ResetThinkerTrigger','RotateKey','ShowApiKey','ShowOpenApi','ShowInstructions','FunnelStatus','Tick','Uninstall')]
     [string]$Command='Status',
     [string]$StateRoot,
     [string]$RegistryRoot,
@@ -425,6 +425,13 @@ switch($Command){
         if([string]::IsNullOrWhiteSpace($ProjectId) -or [string]::IsNullOrWhiteSpace($HandoffId)){throw 'ResetThinkerTrigger requires ProjectId and HandoffId.'}
         $config=Read-AidosRepositoryHostConfiguration
         Reset-AidosRepositoryThinkerTrigger -StateRoot ([string]$config.bridge_state_root) -ProjectId $ProjectId -HandoffId $HandoffId|ConvertTo-Json -Depth 20
+    }
+    'RecoverThinkerTrigger' {
+        if([string]::IsNullOrWhiteSpace($ProjectId) -or [string]::IsNullOrWhiteSpace($HandoffId)){throw 'RecoverThinkerTrigger requires ProjectId and HandoffId.'}
+        $task=Get-AidosRepositoryHandoffHostTaskStatus
+        if([string]$task.state-eq'Running'){throw 'Interrupted Thinker trigger recovery requires the Repository Handoff Host to be stopped.'}
+        $config=Read-AidosRepositoryHostConfiguration
+        Recover-AidosRepositoryThinkerInterruptedTrigger -StateRoot ([string]$config.bridge_state_root) -ProjectId $ProjectId -HandoffId $HandoffId|ConvertTo-Json -Depth 50
     }
     'RotateKey' {
         $config=Read-AidosRepositoryHostConfiguration
