@@ -10,6 +10,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffSignal.psm1') -Dis
 Import-Module (Join-Path $PSScriptRoot 'AidosRuntimeActorTransport.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosHumanInput.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosOperator.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosProjectGoal.psm1') -DisableNameChecking
 
 function Get-AidosRepositoryHandoffGatewayDefaultStateRoot {
     if([OperatingSystem]::IsWindows()){return (Join-Path $env:LOCALAPPDATA 'AIDOS\repository-handoff-gateway')}
@@ -364,7 +365,8 @@ function Submit-AidosRepositoryHandoffGatewayControl {
         [Parameter(Mandatory)][string]$RegistryRoot,
         [Parameter(Mandatory)][string]$ProjectId,
         [Parameter(Mandatory)]$Request,
-        [string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot)
+        [string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),
+        [switch]$Push
     )
     $properties=@($Request.PSObject.Properties.Name)
     if($properties.Count-ne1-or$properties[0]-ne'command'){throw 'Chat control request must contain exactly one command field.'}
@@ -386,6 +388,7 @@ function Submit-AidosRepositoryHandoffGatewayControl {
     }
     $already=($command-eq'START'-and[string]$before.mode-eq'RUNNING')-or($command-eq'STOP'-and[string]$before.mode-in@('PAUSED','SAFE_STOPPED'))
     $acknowledgement=if($already){if($command-eq'START'){'AIDOS_CONTROL_ALREADY_RUNNING'}else{'AIDOS_CONTROL_ALREADY_PAUSED'}}else{"AIDOS_CONTROL_ACCEPTED::$command"}
+    $null=Invoke-AidosPreparationGitPersistence -Project $project -CommitMessage ("AIDOS apply chat control $($intent.control_id)") -Push:$Push
     Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'CHAT_CONTROL_APPLIED' -ProjectId ([string]$project.project_id)|Out-Null
     [pscustomobject][ordered]@{
         status=if($already){'ALREADY_APPLIED'}else{'ACCEPTED'}
@@ -397,6 +400,18 @@ function Submit-AidosRepositoryHandoffGatewayControl {
         reason=$null
         intent_ref=[string]$submitted.path
     }
+}
+function Submit-AidosRepositoryHandoffGatewayGoal {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)]$Request,[string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),[switch]$Push)
+    $properties=@($Request.PSObject.Properties.Name)
+    if($properties.Count-ne1-or$properties[0]-ne'goal'){throw 'Chat goal request must contain exactly one goal property.'}
+    $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
+    $activeHandoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
+    if($null-ne$activeHandoff){throw 'A new project goal is blocked by an active repository handoff.'}
+    $accepted=Submit-AidosProjectGoal -Project $project -Goal ([string]$Request.goal) -SubmittedBy CHATGPT_OPERATOR -Push:$Push
+    Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'PROJECT_GOAL_ACCEPTED' -ProjectId ([string]$project.project_id)|Out-Null
+    $accepted
 }
 function New-AidosRepositoryHandoffGatewayResponse {
     param([int]$StatusCode,[Parameter(Mandatory)]$Body)
@@ -412,7 +427,11 @@ function Invoke-AidosRepositoryHandoffGatewayRequest {
         if($Method-eq'GET'-and$Path-match'^/v1/projects/([^/]+)/human-input$'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewayHumanInput -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))}
         if($Method-eq'POST'-and$Path-match'^/v1/projects/([^/]+)/control$'){
             if($null-eq$Body){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
-            return New-AidosRepositoryHandoffGatewayResponse 200 (Submit-AidosRepositoryHandoffGatewayControl -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -Request $Body -BridgeStateRoot $BridgeStateRoot)
+            return New-AidosRepositoryHandoffGatewayResponse 200 (Submit-AidosRepositoryHandoffGatewayControl -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -Request $Body -BridgeStateRoot $BridgeStateRoot -Push:$Push)
+        }
+        if($Method-eq'POST'-and$Path-match'^/v1/projects/([^/]+)/goals$'){
+            if($null-eq$Body){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
+            return New-AidosRepositoryHandoffGatewayResponse 200 (Submit-AidosRepositoryHandoffGatewayGoal -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])) -Request $Body -BridgeStateRoot $BridgeStateRoot -Push:$Push)
         }
         if($Method-eq'POST'-and$Path-match'^/v1/projects/([^/]+)/human-input/([^/]+)/response$'){
             if($null-eq$Body){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
@@ -481,4 +500,4 @@ function Stop-AidosRepositoryHandoffGateway {
     [pscustomobject][ordered]@{status='STOP_REQUESTED';state_root=[IO.Path]::GetFullPath($StateRoot)}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Move-AidosRepositoryHandoffGatewayAtomicFile,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Test-AidosRepositoryHandoffGatewayProjectId,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Assert-AidosRepositoryHandoffGatewayHumanInputBinding,Get-AidosRepositoryHandoffGatewayHumanInput,Submit-AidosRepositoryHandoffGatewayHumanInputResponse,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,Submit-AidosRepositoryHandoffGatewayControl,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway
+Export-ModuleMember -Function Get-AidosRepositoryHandoffGatewayDefaultStateRoot,Get-AidosRepositoryHandoffGatewayPath,Move-AidosRepositoryHandoffGatewayAtomicFile,Write-AidosRepositoryHandoffGatewayJsonAtomic,New-AidosRepositoryHandoffGatewayKey,Initialize-AidosRepositoryHandoffGateway,Read-AidosRepositoryHandoffGatewayConfiguration,Test-AidosRepositoryHandoffGatewayKey,Get-AidosRepositoryHandoffGatewayPresentedKey,Test-AidosRepositoryHandoffGatewayProjectId,Get-AidosRepositoryHandoffGatewayProject,Get-AidosRepositoryHandoffGatewayPayload,Get-AidosRepositoryHandoffGatewayCurrentHandoff,Resolve-AidosRepositoryHandoffGatewaySourcePath,Get-AidosRepositoryHandoffGatewaySource,Assert-AidosRepositoryHandoffGatewayHumanInputBinding,Get-AidosRepositoryHandoffGatewayHumanInput,Submit-AidosRepositoryHandoffGatewayHumanInputResponse,Ensure-AidosRepositoryRuntimeActorActivated,Submit-AidosRepositoryRuntimeActorResult,Submit-AidosRepositoryHandoffGatewayResult,Submit-AidosRepositoryHandoffGatewayControl,Submit-AidosRepositoryHandoffGatewayGoal,New-AidosRepositoryHandoffGatewayResponse,Invoke-AidosRepositoryHandoffGatewayRequest,ConvertFrom-AidosRepositoryHandoffGatewayQuery,Write-AidosRepositoryHandoffGatewayHttpResponse,Start-AidosRepositoryHandoffGateway,Stop-AidosRepositoryHandoffGateway

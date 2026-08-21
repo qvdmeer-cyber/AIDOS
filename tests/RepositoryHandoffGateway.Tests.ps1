@@ -66,6 +66,8 @@ try{
     Assert-Gateway ([string]$startAgain.body.acknowledgement-eq'AIDOS_CONTROL_ALREADY_RUNNING') 'repeated START is idempotent at the orchestration boundary'
     $badControl=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/control' -Body ([pscustomobject]@{command='START';requested_by='IMPOSTOR'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
     Assert-Gateway ([int]$badControl.status_code-eq409 -and [string]$badControl.body.detail-match'exactly one command') 'chat control rejects caller-supplied authority fields'
+    $busyGoal=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/goals' -Body ([pscustomobject]@{goal='Start a distinct new project Definition from this exact human goal.'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([int]$busyGoal.status_code-eq409 -and [string]$busyGoal.body.detail-match'active repository handoff') 'chat goal endpoint fails closed while a Definition handoff is active'
     $current=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/v1/projects/PROJECT-1/handoff' -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root
     Assert-Gateway ([int]$current.status_code-eq200) 'current handoff endpoint responds'
     Assert-Gateway ([string]$current.body.metadata.handoff_id-eq$handoffId) 'current handoff endpoint preserves handoff identity'

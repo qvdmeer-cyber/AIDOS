@@ -320,6 +320,8 @@ A conversation may be discarded and rebound without losing AIDOS state because t
 
 The configured GPT Action also exposes authenticated project controls. In the exact bound conversation, whole-message `START`/`CONTINUE`/`BEGIN`/`GA VERDER` commands submit Core `RESUME`; whole-message `STOP`/`STOPPEN`/`PAUZE` commands submit Core `PAUSE`. These commands only carry intent. Core persists and validates the control, returns an exact acknowledgement, and remains responsible for actor selection. The gateway must remain running while a project is paused so chat `START` stays reachable.
 
+The same exact bound conversation accepts a new goal only with the explicit `AIDOS GOAL:` prefix. The GPT submits the remainder without rewriting through `POST /v1/projects/{projectId}/goals`; Core accepts it only from completed `IDLE` lineage in `RUNNING` mode, binds a fresh Definition, and persists the exact goal and transition before acknowledging it.
+
 ```powershell
 # Host, task, gateway, bridge and Funnel status
 pwsh -File $entry -Command Status

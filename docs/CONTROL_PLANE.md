@@ -42,6 +42,8 @@ The GPT obtains project identity only from the exact bound conversation title, s
 
 `STOP` leaves the control gateway running so a later `START` remains reachable. Repeated controls are idempotent at the orchestration boundary and return `AIDOS_CONTROL_ALREADY_RUNNING` or `AIDOS_CONTROL_ALREADY_PAUSED`.
 
+An explicit `AIDOS GOAL:` prefix is the only bound-chat route for beginning a materially new project goal after completed lineage. Core preserves the exact remaining human text in `.aidos/goals/<goal_id>.json`, requires `IDLE` state and `RUNNING` control mode, creates a fresh Definition identity while retaining the previous Definition reference, initializes the Definition workspace, and Git-persists the transaction before returning `AIDOS_GOAL_ACCEPTED::<goal_id>`. `START` alone never invents or reuses a project goal.
+
 ## Human Input Requests
 
 Human input is durable AIDOS state, not a GPT-chat property. `schemas/human-input-request.schema.json` binds the exact project/workstream and relevant Definition/execution/revision/review.
