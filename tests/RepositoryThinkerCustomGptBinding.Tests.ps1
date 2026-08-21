@@ -9,6 +9,9 @@ Import-Module (Join-Path $root 'bridge/AidosRepositoryThinkerBinding.psm1') -For
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aidos-custom-gpt-binding-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force|Out-Null
 try{
+    if(-not(Test-AidosRepositoryThinkerConversationTitleMatch -ObservedTitle 'AIDOS :: AIDOS-INTERFACE :: THINKER, vastgezet gesprek' -ExpectedTitle 'AIDOS :: AIDOS-INTERFACE :: THINKER')){throw 'ASSERTION FAILED: localized pinned-chat accessibility suffix must match the bound title.'}
+    if(Test-AidosRepositoryThinkerConversationTitleMatch -ObservedTitle 'AIDOS :: OTHER :: THINKER, vastgezet gesprek' -ExpectedTitle 'AIDOS :: AIDOS-INTERFACE :: THINKER'){throw 'ASSERTION FAILED: a different pinned-chat title must not match.'}
+    if(-not(Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl 'https://chatgpt.com/g/g-example/a/c/6a8850c0-63a4-83ed-acf0-542922b30cde' -ExpectedUrl 'https://chatgpt.com/c/6a8850c0-63a4-83ed-acf0-542922b30cde')){throw 'ASSERTION FAILED: custom GPT URL prefix must not change conversation identity.'}
     $runtime=[pscustomobject]@{
         document_title='ChatGPT - AIDOS Repository Thinker'
         conversation_title='AIDOS :: AIDOS-INTERFACE :: THINKER'

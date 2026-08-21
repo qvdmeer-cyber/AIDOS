@@ -47,7 +47,7 @@ function Test-AidosRepositoryPathItemIsLink {
     $reparse -or -not[string]::IsNullOrWhiteSpace($linkType)
 }
 '@
-Assert-Bootstrap ([regex]::Matches($handoffText,[regex]::Escape($handoffTarget)).Count-eq1) 'canonical handoff has one raw reparse-point link guard'
+Assert-Bootstrap ([regex]::Matches($handoffText,[regex]::Escape('function Test-AidosRepositoryPathItemIsLink')).Count-eq1) 'canonical handoff has one repository-link guard'
 $handoffReplacement=@'
 function Test-AidosRepositoryPathItemIsLink {
     [CmdletBinding()]
@@ -67,7 +67,7 @@ function Test-AidosRepositoryPathItemIsLink {
 '@
 $handoffRuntime=$handoffText.Replace($handoffTarget,$handoffReplacement)
 Assert-Bootstrap ($handoffRuntime.Contains("StartsWith('\\wsl.localhost\'")) 'runtime handoff recognizes the WSL localhost provider path'
-Assert-Bootstrap ($handoffRuntime.Contains('if($wslProviderPath){return $explicitLink}')) 'runtime handoff ignores provider-only reparse flags but retains explicit link metadata'
+Assert-Bootstrap ($handoffRuntime.Contains('if($wslProviderPath){') -and $handoffRuntime.Contains('return $hasLinkTarget -or ($hasLinkType -and -not$providerOnlyHardLink)')) 'runtime handoff ignores provider-only reparse flags but retains explicit link metadata'
 $handoffTokens=$null
 $handoffErrors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($handoffRuntime,[ref]$handoffTokens,[ref]$handoffErrors)

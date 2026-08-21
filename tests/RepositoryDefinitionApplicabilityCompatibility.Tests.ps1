@@ -20,9 +20,9 @@ try{
     Assert-Compat ((Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $temp -AssignmentAction START_DEFINITION -DefinitionState APPLICABLE)-eq'AFFECTED') 'legacy NEW_PROJECT APPLICABLE maps to AFFECTED'
     Assert-Compat ((Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $temp -AssignmentAction START_DEFINITION -DefinitionState NOT_APPLICABLE)-eq'NOT_AFFECTED') 'legacy NEW_PROJECT NOT_APPLICABLE maps to NOT_AFFECTED'
 
-    Assert-CompatThrows {Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $temp -AssignmentAction RESUME_DEFINITION -DefinitionState APPLICABLE} 'only compatible with NEW_PROJECT START_DEFINITION' 'legacy state is rejected on resume'
+    Assert-Compat ((Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $temp -AssignmentAction RESUME_DEFINITION -DefinitionState APPLICABLE)-eq'AFFECTED') 'legacy NEW_PROJECT APPLICABLE maps to AFFECTED on Definition resume'
     [ordered]@{schema_version='0.1';project_id='PROJECT-1';project_mode='EXISTING_PROJECT'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $temp '.aidos/PROJECT.json') -Encoding utf8NoBOM
-    Assert-CompatThrows {Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $temp -AssignmentAction START_DEFINITION -DefinitionState APPLICABLE} 'only compatible with NEW_PROJECT START_DEFINITION' 'legacy state is rejected for existing projects'
+    Assert-CompatThrows {Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $temp -AssignmentAction RESUME_DEFINITION -DefinitionState APPLICABLE} 'only compatible with NEW_PROJECT Definition assignments' 'legacy state is rejected for existing projects'
     Assert-CompatThrows {Resolve-AidosDefinitionThinkerApplicabilityState -ProjectRoot $temp -AssignmentAction START_DEFINITION -DefinitionState UNKNOWN} 'Unsupported Definition applicability state' 'unknown state remains fail closed'
 
     Write-Output "PASS: $passed Definition applicability compatibility assertions"

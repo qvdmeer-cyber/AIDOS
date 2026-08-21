@@ -70,6 +70,29 @@ function Test-AidosRepositoryThinkerActionableElement {
     }
     $false
 }
+function Test-AidosRepositoryThinkerConversationTitleMatch {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$ObservedTitle,[Parameter(Mandatory)][string]$ExpectedTitle)
+    if([string]::Equals($ObservedTitle,$ExpectedTitle,[StringComparison]::Ordinal)){return $true}
+    # ChatGPT Classic decorates pinned sidebar hyperlinks with a localized
+    # accessibility suffix while preserving the conversation title itself.
+    # The suffix is presentation metadata, not a different conversation.
+    foreach($suffix in @(', vastgezet gesprek', ', pinned conversation', ', conversation pinned')){
+        if($ObservedTitle.EndsWith($suffix,[StringComparison]::OrdinalIgnoreCase)){
+            $base=$ObservedTitle.Substring(0,$ObservedTitle.Length-$suffix.Length).TrimEnd()
+            if([string]::Equals($base,$ExpectedTitle,[StringComparison]::Ordinal)){return $true}
+        }
+    }
+    $false
+}
+function Test-AidosRepositoryThinkerConversationUrlMatch {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$ObservedUrl,[AllowEmptyString()][string]$ExpectedUrl)
+    if([string]::Equals($ObservedUrl,$ExpectedUrl,[StringComparison]::Ordinal)){return $true}
+    $observedMatch=[regex]::Match($ObservedUrl,'/c/([A-Za-z0-9-]+)(?:[/?#]|$)')
+    $expectedMatch=[regex]::Match($ExpectedUrl,'/c/([A-Za-z0-9-]+)(?:[/?#]|$)')
+    $observedMatch.Success -and $expectedMatch.Success -and [string]::Equals($observedMatch.Groups[1].Value,$expectedMatch.Groups[1].Value,[StringComparison]::OrdinalIgnoreCase)
+}
 function Invoke-AidosRepositoryThinkerActionableElement {
     param([Parameter(Mandatory)]$Element)
     try{$p=$Element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern);$p.Select();return 'SELECTION_ITEM'}catch{}
@@ -85,7 +108,7 @@ function Find-AidosRepositoryThinkerConversationAction {
     $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
     $candidates=[Collections.Generic.List[object]]::new()
     foreach($element in @($RootElement.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))){
-        if([bool]$element.Current.IsOffscreen -or -not[string]::Equals([string]$element.Current.Name,$ConversationTitle,[StringComparison]::Ordinal)){continue}
+        if([bool]$element.Current.IsOffscreen -or -not(Test-AidosRepositoryThinkerConversationTitleMatch -ObservedTitle ([string]$element.Current.Name) -ExpectedTitle $ConversationTitle)){continue}
         $current=$element
         for($level=0;$level-lt5 -and $current;$level++){
             if(Test-AidosRepositoryThinkerActionableElement -Element $current){
@@ -579,13 +602,13 @@ function New-AidosRepositoryThinkerWindowsBackend {
             $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
             if(-not$root){throw 'ChatGPT window is unavailable through UI Automation.'}
             $current=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
-            if([string]::Equals([string]$current.url,[string]$Binding.conversation_url,[StringComparison]::Ordinal)){return [pscustomobject][ordered]@{status='ALREADY_ACTIVE';conversation=$current;context=$Context}}
+            if(Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl ([string]$current.url) -ExpectedUrl ([string]$Binding.conversation_url)){return [pscustomobject][ordered]@{status='ALREADY_ACTIVE';conversation=$current;context=$Context}}
             $element=Find-AidosRepositoryThinkerConversationAction -RootElement $root -ConversationTitle ([string]$Binding.conversation_title)
             $method=Invoke-AidosRepositoryThinkerActionableElement -Element $element
             for($attempt=0;$attempt-lt50;$attempt++){
                 Start-Sleep -Milliseconds 100
                 $observed=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
-                if([string]::Equals([string]$observed.url,[string]$Binding.conversation_url,[StringComparison]::Ordinal)){return [pscustomobject][ordered]@{status='ACTIVATED';method=$method;conversation=$observed;context=$Context}}
+                if(Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl ([string]$observed.url) -ExpectedUrl ([string]$Binding.conversation_url)){return [pscustomobject][ordered]@{status='ACTIVATED';method=$method;conversation=$observed;context=$Context}}
             }
             throw "ChatGPT conversation '$($Binding.conversation_title)' was invoked but its bound URL did not become active."
         }
@@ -720,4 +743,4 @@ function Reset-AidosRepositoryThinkerTrigger {
     [pscustomobject][ordered]@{status='RESET';project_id=$ProjectId;handoff_id=$HandoffId}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,ConvertTo-AidosRepositoryThinkerRetryAfter,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Recover-AidosRepositoryThinkerInterruptedTrigger,Reset-AidosRepositoryThinkerTrigger
+Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Test-AidosRepositoryThinkerConversationTitleMatch,Test-AidosRepositoryThinkerConversationUrlMatch,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,ConvertTo-AidosRepositoryThinkerRetryAfter,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Recover-AidosRepositoryThinkerInterruptedTrigger,Reset-AidosRepositoryThinkerTrigger
