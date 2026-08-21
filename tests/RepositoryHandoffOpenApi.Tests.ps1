@@ -21,12 +21,14 @@ try{
     $document=New-AidosRepositoryHandoffOpenApiDocument -ServerUrl 'https://aidos-machine.example.ts.net/'
     Assert-OpenApi ([string]$document.openapi-eq'3.1.0') 'OpenAPI version matches the proven custom GPT Action schema generation'
     Assert-OpenApi ([string]$document.servers[0].url-eq'https://aidos-machine.example.ts.net') 'OpenAPI server uses normalized Funnel URL'
-    Assert-OpenApi (@($document.paths.Keys).Count-eq6) 'OpenAPI exposes operator control, handoff, Human Input read/submit, authorized source and result endpoints'
+    Assert-OpenApi (@($document.paths.Keys).Count-eq7) 'OpenAPI exposes operator control, project goal, handoff, Human Input read/submit, authorized source and result endpoints'
     $control=$document.paths.'/v1/projects/{projectId}/control'.post
     Assert-OpenApi ([string]$control.operationId-eq'submitAidosChatControl') 'chat control operation ID is stable'
     Assert-OpenApi ($control.'x-openai-isConsequential'-eq$false) 'an explicit whole-message operator command needs no duplicate platform confirmation'
     Assert-OpenApi (@($document.components.schemas.ChatControlRequest.properties.command.enum)-join','-eq'START,STOP') 'chat control Action schema exposes only canonical START and STOP'
     Assert-OpenApi (@($document.components.schemas.ChatControlResponse.properties.acknowledgement.enum)-contains'AIDOS_CONTROL_ALREADY_PAUSED') 'chat control schema publishes durable idempotent acknowledgements'
+    Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/goals'.post.operationId-eq'submitAidosProjectGoal') 'project goal operation ID is stable'
+    Assert-OpenApi ([int]$document.components.schemas.ProjectGoalRequest.properties.goal.maxLength-eq12000) 'project goal Action input is explicitly bounded'
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/handoff'.get.operationId-eq'getAidosProjectHandoff') 'handoff operation ID is stable'
     Assert-OpenApi ([string]$document.paths.'/v1/projects/{projectId}/human-input'.get.operationId-eq'getAidosHumanInput') 'Human Input read operation ID is stable'
     $humanSubmit=$document.paths.'/v1/projects/{projectId}/human-input/{requestId}/response'.post
@@ -50,6 +52,7 @@ try{
     Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/human-input'.get.operationId-eq'getAidosHumanInput') 'Human Input OpenAPI JSON round-trips without losing operation identity'
     Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/results'.post.operationId-eq'submitAidosBoundResult') 'OpenAPI JSON round-trips without losing Thinker operation identity'
     Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/control'.post.operationId-eq'submitAidosChatControl') 'OpenAPI JSON round-trips without losing chat control identity'
+    Assert-OpenApi ([string]$roundTrip.paths.'/v1/projects/{projectId}/goals'.post.operationId-eq'submitAidosProjectGoal') 'OpenAPI JSON round-trips without losing project goal identity'
     Assert-OpenApi (@($roundTrip.components.schemas.Binding.properties.definition_id.type)-contains'null') 'OpenAPI 3.1 nullable binding values use JSON Schema null types'
 
     $path=Join-Path $temp 'openapi.json'

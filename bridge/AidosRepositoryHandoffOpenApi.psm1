@@ -57,6 +57,21 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                     }
                 }
             }
+            '/v1/projects/{projectId}/goals'=[ordered]@{
+                post=[ordered]@{
+                    operationId='submitAidosProjectGoal'
+                    summary='Submit one explicit new project goal to AIDOS Core'
+                    description='Call only when the entire newest user message begins with the exact AIDOS GOAL: prefix. Submit the remaining text verbatim. Core accepts only an IDLE, RUNNING project with completed Definition lineage, creates a new exact Definition binding, persists and pushes the goal, and then selects the Thinker.'
+                    'x-openai-isConsequential'=$false
+                    parameters=@([ordered]@{name='projectId';in='path';required=$true;description='Exact AIDOS project_id encoded in the bound conversation title.';schema=[ordered]@{type='string';minLength=1}})
+                    requestBody=[ordered]@{required=$true;content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/ProjectGoalRequest'}}}}
+                    responses=[ordered]@{
+                        '200'=[ordered]@{description='Durably accepted new project goal and Definition binding.';content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/ProjectGoalResponse'}}}}
+                        '401'=$errorResponse
+                        '409'=$errorResponse
+                    }
+                }
+            }
             '/v1/projects/{projectId}/handoff'=[ordered]@{
                 get=[ordered]@{
                     operationId='getAidosProjectHandoff'
@@ -159,6 +174,26 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                         control_mode=[ordered]@{type='string';enum=@('RUNNING','PAUSED','SAFE_STOPPED')}
                         reason=[ordered]@{type=@('string','null')}
                         intent_ref=[ordered]@{type='string';minLength=1}
+                    }
+                }
+                ProjectGoalRequest=[ordered]@{
+                    type='object';additionalProperties=$false;required=@('goal')
+                    properties=[ordered]@{goal=[ordered]@{type='string';minLength=10;maxLength=12000}}
+                }
+                ProjectGoalResponse=[ordered]@{
+                    type='object';additionalProperties=$false
+                    required=@('status','project_id','goal_id','goal_ref','definition_id','definition_version','project_state','acknowledgement')
+                    properties=[ordered]@{
+                        status=[ordered]@{type='string';enum=@('ACCEPTED')}
+                        project_id=[ordered]@{type='string';minLength=1}
+                        goal_id=[ordered]@{type='string';pattern='^GOAL-[0-9a-f-]{36}$'}
+                        goal_ref=[ordered]@{type='string';minLength=1}
+                        definition_id=[ordered]@{type='string';pattern='^DEF-[0-9a-f-]{36}$'}
+                        definition_version=[ordered]@{type='integer';const=1}
+                        project_state=[ordered]@{type='string';const='WAITING_DEFINITION'}
+                        acknowledgement=[ordered]@{type='string';pattern='^AIDOS_GOAL_ACCEPTED::GOAL-[0-9a-f-]{36}$'}
+                        persistence=[ordered]@{type='object';additionalProperties=$true}
+                        workspace=[ordered]@{type='object';additionalProperties=$true}
                     }
                 }
                 Binding=[ordered]@{

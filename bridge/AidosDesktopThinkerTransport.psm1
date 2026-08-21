@@ -2,6 +2,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosProjectGoal.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
 $script:DesktopChatGPTWindowDiscoveryModule=Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPTWindowDiscovery.psm1') -DisableNameChecking -PassThru
 $script:ResilientProcessContextCommand=$script:DesktopChatGPTWindowDiscoveryModule.ExportedCommands['Get-AidosDesktopChatGPTResilientProcessContext']
@@ -336,6 +337,8 @@ function Get-AidosDesktopThinkerAuthorizedDocuments {
     $definitionId=[string]$assignment.binding.definition_id
     $definitionVersion=if($null-eq$assignment.binding.definition_version){$null}else{[int]$assignment.binding.definition_version}
     if(-not[string]::IsNullOrWhiteSpace($definitionId) -and $null-ne$definitionVersion){
+        $goal=Get-AidosDefinitionProjectGoal -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion
+        if($null-ne$goal){$paths.Add([IO.Path]::GetRelativePath($root,[string]$goal.path).Replace('\','/'))}
         $projectApplicability='.aidos/profile/PROJECT_APPLICABILITY.json'
         if(Test-Path -LiteralPath (Join-Path $root $projectApplicability) -PathType Leaf){$paths.Add($projectApplicability)}
         $definitionRelative=('.aidos/definitions/{0}/v{1}' -f $definitionId,$definitionVersion)

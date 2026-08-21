@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidos.local/schema/project-goal.schema.json",
+  "title": "AIDOS Project Goal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "goal_id", "project_id", "status", "goal", "submitted_by", "channel", "submitted_at", "previous_definition_id", "previous_definition_version", "definition_id", "definition_version"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "goal_id": {"type": "string", "pattern": "^GOAL-[0-9a-f-]{36}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "status": {"const": "ACTIVE"},
+    "goal": {"type": "string", "minLength": 10, "maxLength": 12000},
+    "submitted_by": {"enum": ["CHATGPT_OPERATOR", "HUMAN"]},
+    "channel": {"enum": ["CHATGPT", "LOCAL"]},
+    "submitted_at": {"type": "string", "format": "date-time"},
+    "previous_definition_id": {"type": "string", "minLength": 1},
+    "previous_definition_version": {"type": "integer", "minimum": 1},
+    "definition_id": {"type": "string", "pattern": "^DEF-[0-9a-f-]{36}$"},
+    "definition_version": {"const": 1}
+  }
+}
