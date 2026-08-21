@@ -61,7 +61,7 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                 post=[ordered]@{
                     operationId='submitAidosProjectGoal'
                     summary='Submit one explicit new project goal to AIDOS Core'
-                    description='Call only when the entire newest user message begins with the exact AIDOS GOAL: prefix. Submit the remaining text verbatim. Core accepts only an IDLE, RUNNING project with completed Definition lineage, creates a new exact Definition binding, persists and pushes the goal, and then selects the Thinker.'
+                    description='Call only when the newest user message begins with exact AIDOS GOAL:. Submit the remainder verbatim. Core accepts only an IDLE, RUNNING project with completed Definition lineage, creates a new Definition binding, persists and pushes the goal, then selects the Thinker.'
                     'x-openai-isConsequential'=$false
                     parameters=@([ordered]@{name='projectId';in='path';required=$true;description='Exact AIDOS project_id encoded in the bound conversation title.';schema=[ordered]@{type='string';minLength=1}})
                     requestBody=[ordered]@{required=$true;content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/ProjectGoalRequest'}}}}
