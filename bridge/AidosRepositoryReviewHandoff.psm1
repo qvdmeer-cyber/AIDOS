@@ -50,6 +50,29 @@ END_REVIEW_RESPONSE_JSON
 "@
 }
 
+function Get-AidosRepositoryReviewResultProof {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$ReviewId,
+        [Parameter(Mandatory)][string]$ResponseSha256
+    )
+    $root=Resolve-AidosFileSystemPath $ProjectRoot
+    $recordPath=Get-AidosReviewRecordPath -ProjectRoot $root -ReviewId $ReviewId
+    if(-not(Test-Path -LiteralPath $recordPath -PathType Leaf)){throw 'Durable review record was not persisted by Core.'}
+    $record=Read-AidosReviewRecord -ProjectRoot $root -ReviewId $ReviewId
+    if(-not[string]::Equals([string]$record.response_sha256,$ResponseSha256,[StringComparison]::OrdinalIgnoreCase)){throw 'Durable review record does not contain the submitted response hash.'}
+    if(-not$record.response_accepted_at -or -not$record.decision){throw 'Durable review record does not prove response acceptance and decision.'}
+    if([string]$record.transport_state-ne'CLEANED' -or -not$record.consumed_at -or -not$record.consume_ack -or -not$record.cleaned_at){throw 'Durable review record does not prove response consumption and cleanup.'}
+    [pscustomobject][ordered]@{
+        record=$record
+        payload_path=$recordPath
+        payload_ref=[IO.Path]::GetRelativePath($root,$recordPath).Replace('\','/')
+        payload_sha256=(Get-FileHash -LiteralPath $recordPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        response_sha256=$ResponseSha256.ToLowerInvariant()
+    }
+}
+
 function Publish-AidosRepositoryReviewHandoff {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Project,[switch]$Push)
@@ -107,11 +130,11 @@ function Submit-AidosRepositoryReviewResult {
     if([string]$reviewId-ne[string]$handoff.metadata.binding.review_id){throw 'Review response identity differs from handoff binding.'}
     $responsePath=Join-Path $root ('.aidos/reviews/{0}/RESPONSE.repository-handoff.json' -f $reviewId)
     Write-AidosJsonAtomic -Path $responsePath -Value $response
+    $responseSha=(Get-FileHash -LiteralPath $responsePath -Algorithm SHA256).Hash.ToLowerInvariant()
     try{$consumed=Invoke-AidosBoundReviewConsumer -Project $Project -ReviewId $reviewId -ResponsePath $responsePath -ReviewConsumer $ReviewConsumer}catch{Remove-Item -LiteralPath $responsePath -Force -ErrorAction SilentlyContinue;throw}
-    $canonicalResponsePath=Join-Path $root ('.aidos/reviews/{0}/RESPONSE.json' -f $reviewId)
-    if(-not(Test-Path -LiteralPath $canonicalResponsePath -PathType Leaf)){throw 'Canonical review response was not persisted by Core.'}
-    $payloadRef=[IO.Path]::GetRelativePath($root,$canonicalResponsePath).Replace('\','/')
-    $payloadSha=(Get-FileHash -LiteralPath $canonicalResponsePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $proof=Get-AidosRepositoryReviewResultProof -ProjectRoot $root -ReviewId $reviewId -ResponseSha256 $responseSha
+    $payloadRef=[string]$proof.payload_ref
+    $payloadSha=[string]$proof.payload_sha256
     $state=Get-AidosState -ProjectRoot $root
     $binding=[pscustomobject][ordered]@{project_state=[string]$state.state;definition_id=[string]$response.definition_id;definition_version=[int]$response.definition_version;execution_id=[string]$response.execution_id;revision=[int]$response.revision;review_id=$reviewId}
     $metadata=[pscustomobject][ordered]@{
@@ -126,4 +149,4 @@ function Submit-AidosRepositoryReviewResult {
     [pscustomobject][ordered]@{status='ACCEPTED';handoff=$written;consumed=$consumed;persistence=$persistence}
 }
 
-Export-ModuleMember -Function New-AidosRepositoryReviewResponseTemplate,New-AidosRepositoryReviewAssignmentBody,Publish-AidosRepositoryReviewHandoff,Submit-AidosRepositoryReviewResult
+Export-ModuleMember -Function New-AidosRepositoryReviewResponseTemplate,New-AidosRepositoryReviewAssignmentBody,Get-AidosRepositoryReviewResultProof,Publish-AidosRepositoryReviewHandoff,Submit-AidosRepositoryReviewResult
