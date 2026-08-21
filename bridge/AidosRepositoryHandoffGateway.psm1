@@ -494,7 +494,7 @@ function Get-AidosRepositoryInterfaceDefinition {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId)
     $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId;$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$state=Get-AidosState $root
     $definitionId=[string]$state.definition_id;$version=[int]$state.definition_version;$path=Join-Path $root ('.aidos/definitions/{0}/v{1}/DEFINITION.json' -f $definitionId,$version);$definition=if(Test-Path -LiteralPath $path -PathType Leaf){Read-AidosJson $path}else{$null}
-    [pscustomobject][ordered]@{projectId=$ProjectId;definitionId=$definitionId;version=$version;status=if($definition){[string]$definition.status}else{[string]$state.state};goal=if($definition){[string]$definition.goal}else{''};requirements=@($definition.surfaces|ForEach-Object {[pscustomobject][ordered]@{id=[string]$_.surface_id;summary=[string]$_.summary;status=[string]$_.status}})}
+    [pscustomobject][ordered]@{projectId=$ProjectId;definitionId=$definitionId;version=$version;status=if($definition){[string]$definition.status}else{[string]$state.state};goal=if($definition){[string]$definition.goal}else{''};requirements=@($definition.requirements|ForEach-Object {[pscustomobject][ordered]@{id=[string]$_.surface_id;summary=[string]$_.summary;status=[string]$_.status}})}
 }
 function Invoke-AidosRepositoryHandoffGatewayRequest {
     [CmdletBinding()]
