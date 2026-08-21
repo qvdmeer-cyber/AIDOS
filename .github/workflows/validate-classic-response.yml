@@ -5,44 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/remove-duplicate-self-update-preserve
-          fetch-depth: 0
-      - name: Apply duplicate preserve fix
-        shell: bash
-        run: python tools/TEMP-FixDuplicatePreserve.py
-      - name: Validate duplicate preserve fix
-        shell: pwsh
-        run: |
-          $paths=@('tools/Reload-AidosAutonomousPreparation.ps1','tests/HostSelfUpdateContract.Tests.ps1')
-          foreach($path in $paths){
-            $tokens=$null
-            $errors=$null
-            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
-            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
-          }
-          ./tests/HostSelfUpdateContract.Tests.ps1
-      - name: Commit duplicate preserve fix
-        shell: bash
-        run: |
-          git add -- tools/Reload-AidosAutonomousPreparation.ps1 tests/HostSelfUpdateContract.Tests.ps1
-          if git diff --cached --quiet; then
-            echo "No duplicate preserve changes"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Remove duplicate self-update preservation argument"
-            git pull --rebase origin fix/remove-duplicate-self-update-preserve
-            git push origin HEAD:fix/remove-duplicate-self-update-preserve
-          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
