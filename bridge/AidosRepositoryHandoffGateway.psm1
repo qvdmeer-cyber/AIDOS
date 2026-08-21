@@ -473,12 +473,46 @@ function New-AidosRepositoryHandoffGatewayResponse {
     param([int]$StatusCode,[Parameter(Mandatory)]$Body)
     [pscustomobject][ordered]@{status_code=$StatusCode;body=$Body}
 }
+function Get-AidosRepositoryInterfaceSnapshot {
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot)
+    $projectsRoot=Join-Path ([IO.Path]::GetFullPath($RegistryRoot)) 'projects'
+    $projects=[Collections.Generic.List[object]]::new();$humanInputs=[Collections.Generic.List[object]]::new();$timeline=[Collections.Generic.List[object]]::new()
+    foreach($file in @(Get-ChildItem -LiteralPath $projectsRoot -Filter '*.json' -File -ErrorAction SilentlyContinue|Sort-Object Name)){
+        $project=Read-AidosJson $file.FullName;$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$status=Get-AidosRuntimeStatusProjection $root;$runtime=@($status.projects)[0];$state=[string]$runtime.state
+        $mapped=if($state-in @('CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING')){'RUNNING'}elseif($state-in @('WAITING_USER','RECOVERY_REQUIRED')){'BLOCKED'}elseif($state-in @('PAUSED','SAFE_STOPPED')){'PAUSED'}elseif($state-eq'IDLE'){'COMPLETE'}else{'UNKNOWN'}
+        $workstreams=@($runtime.workstreams|ForEach-Object {[pscustomobject][ordered]@{id=[string]$_.workstream_id;name=[string]$_.workstream_id;status=if([string]$_.status-eq'ACTIVE'){'RUNNING'}else{'UNKNOWN'};progress=0;activeActor=[string]$_.current_actor_role;blocker=if([int]$_.blocker_count-gt0){'Open blocker'}else{$null}}})
+        $projects.Add([pscustomobject][ordered]@{id=[string]$project.project_id;name=[string]$project.project_id;status=$mapped;progress=0;eta=[ordered]@{confidence='NOT_RELIABLY_ESTIMABLE'};workstreams=@($workstreams);controls=@('START','PAUSE','RESUME','SAFE_STOP');latestActivity=$null})
+        foreach($request in @(Get-AidosRepositoryInterfaceOpenHumanInputs $root)){$humanInputs.Add([pscustomobject][ordered]@{id=[string]$request.request_id;projectId=[string]$project.project_id;title=[string]$request.title;context=[string]$request.question;options=@($request.options|ForEach-Object {[string]$_.id})})}
+        foreach($event in @(Get-AidosRepositoryInterfaceRecentEvents -ProjectRoot $root -Limit 25)){$timeline.Add([pscustomobject][ordered]@{id=[string]$event.event_id;projectId=[string]$project.project_id;at=[string]$event.timestamp;kind=[string]$event.event_type;message=([string]$event.event_type)})}
+    }
+    [pscustomobject][ordered]@{contractVersion='0.1';generatedAt=[DateTimeOffset]::UtcNow.ToString('o');projects=@($projects);humanInputs=@($humanInputs);insights=@();timeline=@($timeline)}
+}
+function Get-AidosRepositoryInterfaceOpenHumanInputs { param([Parameter(Mandatory)][string]$ProjectRoot) $dir=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/human-input';if(-not(Test-Path -LiteralPath $dir -PathType Container)){return @()};@(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File -ErrorAction SilentlyContinue|ForEach-Object {$x=Read-AidosJson $_.FullName;if([string]$x.status-in@('WAITING','OPEN','PENDING')){$x}}) }
+function Get-AidosRepositoryInterfaceRecentEvents { param([Parameter(Mandatory)][string]$ProjectRoot,[int]$Limit=25) $dir=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) '.aidos/events';if(-not(Test-Path -LiteralPath $dir -PathType Container)){return @()};$items=@();foreach($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.jsonl' -File|Sort-Object Name -Descending)){foreach($line in @(Get-Content -LiteralPath $f.FullName)){if($items.Count-ge$Limit){break};try{$items+=($line|ConvertFrom-Json -Depth 50)}catch{}};if($items.Count-ge$Limit){break}};@($items)
+}
+function Get-AidosRepositoryInterfaceDefinition {
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$ProjectId)
+    $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId;$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$state=Get-AidosState $root
+    $definitionId=[string]$state.definition_id;$version=[int]$state.definition_version;$path=Join-Path $root ('.aidos/definitions/{0}/v{1}/DEFINITION.json' -f $definitionId,$version);$definition=if(Test-Path -LiteralPath $path -PathType Leaf){Read-AidosJson $path}else{$null}
+    [pscustomobject][ordered]@{projectId=$ProjectId;definitionId=$definitionId;version=$version;status=if($definition){[string]$definition.status}else{[string]$state.state};goal=if($definition){[string]$definition.goal}else{''};requirements=@($definition.surfaces|ForEach-Object {[pscustomobject][ordered]@{id=[string]$_.surface_id;summary=[string]$_.summary;status=[string]$_.status}})}
+}
 function Invoke-AidosRepositoryHandoffGatewayRequest {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Method,[Parameter(Mandatory)][string]$Path,[hashtable]$Query=@{},[AllowNull()]$Body,[Parameter(Mandatory)][string]$PresentedKey,[Parameter(Mandatory)][string]$ExpectedKey,[Parameter(Mandatory)][string]$RegistryRoot,[Parameter(Mandatory)][string]$AidosRoot,[string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),[switch]$Push)
     if(-not(Test-AidosRepositoryHandoffGatewayKey -Expected $ExpectedKey -Presented $PresentedKey)){return New-AidosRepositoryHandoffGatewayResponse 401 ([ordered]@{error='UNAUTHORIZED'})}
     try{
         if($Method-eq'GET'-and$Path-eq'/health'){return New-AidosRepositoryHandoffGatewayResponse 200 ([ordered]@{status='OK';service='AIDOS_REPOSITORY_HANDOFF_GATEWAY'})}
+        if($Method-eq'GET'-and$Path-eq'/v1/interface/snapshot'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryInterfaceSnapshot -RegistryRoot $RegistryRoot)}
+        if($Method-eq'GET'-and$Path-match'^/v1/interface/projects/([^/]+)/definition$'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryInterfaceDefinition -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))}
+        if($Method-eq'POST'-and$Path-eq'/v1/interface/intents'){
+            if($null-eq$Body -or -not$Body.projectId -or -not$Body.kind){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
+            $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId ([string]$Body.projectId);$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$command=switch([string]$Body.kind){'START' {'RESUME'}'RESUME' {'RESUME'}'PAUSE' {'PAUSE'}'SAFE_STOP' {'SAFE_STOP'}default {throw 'Unsupported interface control.'}}
+            $submitted=Submit-AidosControlIntent -ProjectRoot $root -Command $command -RequestedBy 'AIDOS_INTERFACE';if([string]$submitted.intent.status-ne'APPLIED'){throw [string]$submitted.intent.result.reason};return New-AidosRepositoryHandoffGatewayResponse 202 ([ordered]@{accepted=$true;control_id=[string]$submitted.intent.control_id})
+        }
+        if($Method-eq'POST'-and$Path-match'^/v1/interface/human-input/([^/]+)/resolve$'){
+            if($null-eq$Body -or -not$Body.option){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
+            $projectId=if($Body.projectId){[string]$Body.projectId}else{(Get-ChildItem -LiteralPath (Join-Path ([IO.Path]::GetFullPath($RegistryRoot)) 'projects') -Filter '*.json' -File|Select-Object -First 1|ForEach-Object {$_.BaseName})};$result=Submit-AidosRepositoryHandoffGatewayHumanInputResponse -RegistryRoot $RegistryRoot -ProjectId $projectId -RequestId ([Uri]::UnescapeDataString($Matches[1])) -Request ([pscustomobject]@{option=[string]$Body.option});return New-AidosRepositoryHandoffGatewayResponse 202 ([ordered]@{accepted=$true;result=$result})
+        }
         if($Method-eq'GET'-and$Path-match'^/v1/projects/([^/]+)/handoff$'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewayCurrentHandoff -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))}
         if($Method-eq'GET'-and$Path-match'^/v1/projects/([^/]+)/human-input$'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryHandoffGatewayHumanInput -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))}
         if($Method-eq'POST'-and$Path-match'^/v1/projects/([^/]+)/control$'){
