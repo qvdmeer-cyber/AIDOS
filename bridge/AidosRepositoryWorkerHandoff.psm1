@@ -479,4 +479,17 @@ function Invoke-AidosRepositoryWorkerHandoff {
     }
 }
 
-Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment,Resolve-AidosRepositoryWorkerStaleConsumedReviewAssignment,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff
+function Resume-AidosRepositoryWorkerHandoff {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project,[Parameter(Mandatory)][string]$ExecutionPath,[Parameter(Mandatory)][string]$SessionId,[switch]$Push)
+    $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+    $assignment=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId ([string]$Project.project_id)
+    if($null-eq$assignment -or [string]$assignment.metadata.kind-ne'ASSIGNMENT' -or [string]$assignment.metadata.to_actor-ne'WORKER'){throw 'Codex resume requires the current WORKER assignment handoff.'}
+    $prompt='Resume the interrupted exact bound Worker assignment from .aidos/HANDOFF.md. Continue autonomously inside the existing authority. Run every registered validator. Do not commit or push; AIDOS Core owns validation and scheduling.'
+    $worker=Invoke-AidosAutonomousCodexExecution -ProjectRoot $root -ExecutionPath $ExecutionPath -Prompt $prompt -ResumeSessionId $SessionId
+    $terminal=Resolve-AidosRepositoryWorkerTerminalResult -WorkerOutcome $worker
+    $result=Publish-AidosRepositoryWorkerResult -Project $Project -WorkerResult $terminal -Push:$Push -DeferPersistence
+    [pscustomobject][ordered]@{status=[string]$worker.status;assignment_handoff=$assignment;worker=$worker;terminal_result=$terminal;result_handoff=$result}
+}
+
+Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment,Resolve-AidosRepositoryWorkerStaleConsumedReviewAssignment,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff,Resume-AidosRepositoryWorkerHandoff
