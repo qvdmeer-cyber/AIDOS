@@ -100,7 +100,8 @@ function Resolve-AidosAutonomousCodexRuntime {
 
 function Get-AidosAutonomousCodexArguments {
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Runtime,[Parameter(Mandatory)]$Execution,[Parameter(Mandatory)][string]$PromptText)
+    param([Parameter(Mandatory)]$Runtime,[Parameter(Mandatory)]$Execution,[Parameter(Mandatory)][string]$PromptText,[string]$ResumeSessionId)
+    if(-not[string]::IsNullOrWhiteSpace($ResumeSessionId)){return @('exec','resume','--json',$ResumeSessionId,$PromptText)}
     $args=[Collections.Generic.List[string]]::new();$args.Add('exec');$args.Add('--json');$args.Add('--sandbox');$args.Add('workspace-write');$args.Add('--config');$args.Add(('approval_policy={0}never{0}' -f [char]34))
     if([bool]$Execution.authority.network){$args.Add('--config');$args.Add('sandbox_workspace_write.network_access=true')}
     $args.Add('--cd');$args.Add([string]$Runtime.project_root);$args.Add($PromptText);@($args)
@@ -128,29 +129,42 @@ function Invoke-AidosAutonomousExecutionValidation {
 
 function Invoke-AidosAutonomousCodexExecution {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$ExecutionPath,[string]$Prompt)
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$ExecutionPath,[string]$Prompt,[string]$ResumeSessionId)
     $root=Resolve-AidosFileSystemPath $ProjectRoot;$executionPathResolved=[IO.Path]::GetFullPath($ExecutionPath);$execution=Read-AidosJson $executionPathResolved
     Assert-AidosExecutionBinding -ProjectRoot $root -Execution $execution|Out-Null;$state=Get-AidosState $root
+    $resuming=-not[string]::IsNullOrWhiteSpace($ResumeSessionId)
+    if($resuming){
+        if([string]$state.state-ne'RECOVERY_REQUIRED'){throw "Codex resume requires RECOVERY_REQUIRED, found '$($state.state)'."}
+        if(Test-Path -LiteralPath (Join-Path $root '.aidos/runtime/lease.json') -PathType Leaf){throw 'Codex resume requires the interrupted execution lease to be reconciled.'}
+        $recoveryDirectory=Split-Path -Parent $executionPathResolved;$recoveryEvents=Join-Path $recoveryDirectory 'codex-events.jsonl';$recoveryResult=Join-Path $recoveryDirectory 'RESULT.json'
+        if(-not(Test-Path -LiteralPath $recoveryEvents -PathType Leaf) -or (Test-Path -LiteralPath $recoveryResult -PathType Leaf)){throw 'Codex resume requires events without a terminal RESULT.json.'}
+        $events=@(Get-Content -LiteralPath $recoveryEvents -Encoding UTF8|ForEach-Object {$_|ConvertFrom-Json -Depth 100})
+        $threads=@($events|Where-Object {$_.type-eq'thread.started' -and $_.thread_id}|ForEach-Object {[string]$_.thread_id}|Select-Object -Unique)
+        if($threads.Count-ne1 -or -not[string]::Equals($threads[0],$ResumeSessionId,[StringComparison]::Ordinal)){throw 'Codex resume session differs from durable thread.started evidence.'}
+        if(@($events|Where-Object {$_.type-in@('turn.completed','turn.failed','error')}).Count){throw 'Codex resume refuses terminal event evidence.'}
+        Set-AidosState -ProjectRoot $root -NewState TASK_READY -Actor SYSTEM -Patch @{codex_session_id=$ResumeSessionId;lease_id=$null}|Out-Null
+        $state=Get-AidosState $root
+    }
     if([string]$state.state-ne'TASK_READY'){throw "Codex dispatch requires TASK_READY, found '$($state.state)'."}
     if([string]$state.execution_id-ne[string]$execution.execution_id -or [int]$state.revision-ne[int]$execution.revision){throw 'Codex dispatch execution/revision binding mismatch.'}
     $runtime=Resolve-AidosAutonomousCodexRuntime -ProjectRoot $root;$lease=Acquire-AidosExecutionLease -ProjectRoot $root -ExecutionId ([string]$execution.execution_id) -Revision ([int]$execution.revision)
     $directory=Split-Path -Parent $executionPathResolved;$eventsPath=Join-Path $directory 'codex-events.jsonl';$stderrPath=Join-Path $directory 'codex-stderr.log';$resultPath=Join-Path $directory 'RESULT.json';$validationPath=Join-Path $directory 'VALIDATION.json'
     $runtimeExecution=([string]$runtime.project_root).TrimEnd('/')+'/'+([IO.Path]::GetRelativePath($root,$executionPathResolved).Replace('\','/'))
     $promptText=if([string]::IsNullOrWhiteSpace($Prompt)){"Execute accepted AIDOS execution $runtimeExecution. Read the accepted Definition and canonical project sources. Work autonomously inside the exact authority. Run every registered validator before TER_REVIEW. Do not commit or push; AIDOS owns integration and review."}else{$Prompt}
-    $arguments=Get-AidosAutonomousCodexArguments -Runtime $runtime -Execution $execution -PromptText $promptText;$command=Get-AidosCodexCommand -Runtime $runtime -ProjectRoot $root -CodexArguments $arguments
+    $arguments=Get-AidosAutonomousCodexArguments -Runtime $runtime -Execution $execution -PromptText $promptText -ResumeSessionId $ResumeSessionId;$command=Get-AidosCodexCommand -Runtime $runtime -ProjectRoot $root -CodexArguments $arguments
     Set-AidosState -ProjectRoot $root -NewState CODEX_RUNNING -Actor BRIDGE -Patch @{lease_id=$lease.lease_id}|Out-Null
-    $started=[DateTimeOffset]::UtcNow;$exitCode=$null;$sessionId=$null;$terminalType='process_error';$errorText=$null;$finalMessage=$null
+    $started=[DateTimeOffset]::UtcNow;$exitCode=$null;$sessionId=if($resuming){$ResumeSessionId}else{$null};$terminalType='process_error';$errorText=$null;$finalMessage=$null
     try {
         $startInfo=[Diagnostics.ProcessStartInfo]::new();$startInfo.FileName=$command.FileName;$startInfo.WorkingDirectory=$command.WorkingDirectory;$startInfo.UseShellExecute=$false;$startInfo.RedirectStandardOutput=$true;$startInfo.RedirectStandardError=$true
         foreach($argument in $command.Arguments){$null=$startInfo.ArgumentList.Add([string]$argument)}
         $process=[Diagnostics.Process]::new();$process.StartInfo=$startInfo;if(-not$process.Start()){throw 'Codex did not start.'}
         $processId=$process.Id;$processStarted=try{$process.StartTime.ToUniversalTime().ToString('o')}catch{[DateTimeOffset]::UtcNow.ToString('o')};$stderrTask=$process.StandardError.ReadToEndAsync()
         $leasePath=Join-Path $root '.aidos/runtime/lease.json';$currentLease=Read-AidosJson $leasePath;$currentLease.codex_runtime=[ordered]@{kind=[string]$runtime.kind;supervisor_pid=$processId;started_at=$processStarted};Write-AidosJsonAtomic $leasePath $currentLease
-        $writer=[IO.StreamWriter]::new($eventsPath,$false,[Text.UTF8Encoding]::new($false));try{while(-not$process.StandardOutput.EndOfStream){$line=$process.StandardOutput.ReadLine();$writer.WriteLine($line);$writer.Flush();try{$event=$line|ConvertFrom-Json -Depth 100;if($event.type-eq'thread.started'-and$event.thread_id){$sessionId=[string]$event.thread_id};if($event.type-eq'turn.completed'){$terminalType='turn.completed'};if($event.type-in@('turn.failed','error')){$terminalType=[string]$event.type};if($event.type-eq'item.completed'-and$event.item.type-eq'agent_message'){$finalMessage=[string]$event.item.text}}catch{}}}finally{$writer.Dispose()}
+        $writer=[IO.StreamWriter]::new($eventsPath,$resuming,[Text.UTF8Encoding]::new($false));try{while(-not$process.StandardOutput.EndOfStream){$line=$process.StandardOutput.ReadLine();$writer.WriteLine($line);$writer.Flush();try{$event=$line|ConvertFrom-Json -Depth 100;if($event.type-eq'thread.started'-and$event.thread_id){$sessionId=[string]$event.thread_id};if($event.type-eq'turn.completed'){$terminalType='turn.completed'};if($event.type-in@('turn.failed','error')){$terminalType=[string]$event.type};if($event.type-eq'item.completed'-and$event.item.type-eq'agent_message'){$finalMessage=[string]$event.item.text}}catch{}}}finally{$writer.Dispose()}
         $process.WaitForExit();$stderr=$stderrTask.GetAwaiter().GetResult();[IO.File]::WriteAllText($stderrPath,$stderr,[Text.UTF8Encoding]::new($false));$exitCode=$process.ExitCode;if($exitCode-ne0-and$terminalType-eq'turn.completed'){$terminalType='process_error'}
     }catch{$errorText="$($_.Exception.Message) [line $($_.InvocationInfo.ScriptLineNumber)]";$terminalType='process_error'}
     $headResult=Invoke-AidosGit -ProjectRoot $root -Arguments @('rev-parse','HEAD');$head=if($headResult.ExitCode-eq0){$headResult.Output|Select-Object -First 1}else{$null}
-    $result=[ordered]@{schema_version='0.1';project_id=[string]$execution.project_id;execution_id=[string]$execution.execution_id;revision=[int]$execution.revision;lease_id=[string]$lease.lease_id;codex_session_id=$sessionId;resumed=$false;started_at=$started.ToString('o');finished_at=[DateTimeOffset]::UtcNow.ToString('o');exit_code=$exitCode;terminal_type=$terminalType;process_succeeded=($terminalType-eq'turn.completed'-and$exitCode-eq0);validation_status='NOT_RUN';validation_path=$null;final_message=$finalMessage;prompt_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($promptText))).ToLowerInvariant();error=$errorText;git_head=$head;events_path=[IO.Path]::GetRelativePath($root,$eventsPath).Replace('\','/');stderr_path=[IO.Path]::GetRelativePath($root,$stderrPath).Replace('\','/')}
+    $result=[ordered]@{schema_version='0.1';project_id=[string]$execution.project_id;execution_id=[string]$execution.execution_id;revision=[int]$execution.revision;lease_id=[string]$lease.lease_id;codex_session_id=$sessionId;resumed=$resuming;started_at=$started.ToString('o');finished_at=[DateTimeOffset]::UtcNow.ToString('o');exit_code=$exitCode;terminal_type=$terminalType;process_succeeded=($terminalType-eq'turn.completed'-and$exitCode-eq0);validation_status='NOT_RUN';validation_path=$null;final_message=$finalMessage;prompt_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($promptText))).ToLowerInvariant();error=$errorText;git_head=$head;events_path=[IO.Path]::GetRelativePath($root,$eventsPath).Replace('\','/');stderr_path=[IO.Path]::GetRelativePath($root,$stderrPath).Replace('\','/')}
     $statePatch=@{codex_session_id=$sessionId;terminal_result=[IO.Path]::GetRelativePath($root,$resultPath).Replace('\','/');git_head=$head}
     if($result.process_succeeded-and$sessionId){
         Set-AidosState -ProjectRoot $root -NewState TERMINAL_PENDING -Actor BRIDGE -Patch $statePatch|Out-Null;$validation=Invoke-AidosAutonomousExecutionValidation -ProjectRoot $root -Execution $execution
