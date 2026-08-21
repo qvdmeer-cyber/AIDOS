@@ -21,6 +21,7 @@ try{
     $document=New-AidosRepositoryHandoffOpenApiDocument -ServerUrl 'https://aidos-machine.example.ts.net/'
     Assert-OpenApi ([string]$document.openapi-eq'3.1.0') 'OpenAPI version matches the proven custom GPT Action schema generation'
     Assert-OpenApi ([string]$document.servers[0].url-eq'https://aidos-machine.example.ts.net') 'OpenAPI server uses normalized Funnel URL'
+    foreach($pathKey in $document.paths.Keys){foreach($methodKey in $document.paths[$pathKey].Keys){Assert-OpenApi (([string]$document.paths[$pathKey][$methodKey].description).Length-le300) "OpenAPI operation description fits the 300-character GPT Action limit: $methodKey $pathKey"}}
     Assert-OpenApi (@($document.paths.Keys).Count-eq7) 'OpenAPI exposes operator control, project goal, handoff, Human Input read/submit, authorized source and result endpoints'
     $control=$document.paths.'/v1/projects/{projectId}/control'.post
     Assert-OpenApi ([string]$control.operationId-eq'submitAidosChatControl') 'chat control operation ID is stable'
