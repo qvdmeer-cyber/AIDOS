@@ -153,7 +153,7 @@ if($repositoryTask -and $repositoryConfigPresent){
 
     $selfUpdateInstaller=Join-Path $aidosRoot 'tools/Install-AidosHostSelfUpdate.ps1'
     if(-not(Test-Path -LiteralPath $selfUpdateInstaller -PathType Leaf)){throw 'AIDOS host self-update installer is unavailable.'}
-    $selfUpdate=& $selfUpdateInstaller -Distribution $Distribution -WslReposRoot $WslReposRoot -StateRoot $StateRoot -AuthorizedUser $AuthorizedUser -PreserveExistingTask:$PreserveSelfUpdateTask
+    $selfUpdate=& $selfUpdateInstaller -Distribution $Distribution -WslReposRoot $WslReposRoot -StateRoot $StateRoot -AuthorizedUser $AuthorizedUser -PreserveExistingTask:$PreserveSelfUpdateTask -PreserveExistingTask:$PreserveSelfUpdateTask
 
     [pscustomobject][ordered]@{
         status='RELOADED_REPOSITORY_HANDOFF'
