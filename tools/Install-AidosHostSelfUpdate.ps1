@@ -4,7 +4,8 @@ param(
     [string]$WslReposRoot='/home/aidos/repos',
     [string]$StateRoot,
     [string]$AuthorizedUser='AIDOS\qvdm',
-    [int]$IntervalMinutes=5
+    [int]$IntervalMinutes=5,
+    [switch]$PreserveExistingTask
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -48,18 +49,23 @@ if($existing){
     $existingUser=[string]$existing.Principal.UserId
     $leaf=($AuthorizedUser-split'\\')[-1]
     if(-not([string]::Equals($existingUser,$AuthorizedUser,[StringComparison]::OrdinalIgnoreCase) -or [string]::Equals($existingUser,$leaf,[StringComparison]::OrdinalIgnoreCase))){throw 'Existing self-update task belongs to a different user.'}
-    if([string]$existing.State -eq 'Running'){
-        # A self-update reload re-enters normal bootstrap while this exact limited-user
-        # watchdog task is still running. Re-registering the currently executing task
-        # requires Task Scheduler mutation rights the watchdog intentionally does not
-        # have. Its action path is stable, so preserve the task and let its existing
-        # repetition schedule invoke the updated script on the next run.
+    if($PreserveExistingTask){
+        # A Core self-update reload must never attempt to mutate its own Task Scheduler
+        # registration. Task State is not a reliable proof that the launcher child is
+        # no longer executing, and the limited-user watchdog intentionally lacks task
+        # mutation authority. The action path is stable; refreshing the launcher file
+        # above is sufficient for the next scheduled invocation.
+        $provisioning='PRESERVED_EXISTING'
+        $startTask=$false
+    }elseif([string]$existing.State -eq 'Running'){
         $provisioning='REUSED_RUNNING'
         $startTask=$false
     }else{
         Set-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal|Out-Null
         $provisioning='UPDATED'
     }
+}elseif($PreserveExistingTask){
+    throw 'Self-update reload requested preservation but the watchdog task is not installed.'
 }else{
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'AIDOS fail-closed Core update validator and lease-safe host reload watchdog.'|Out-Null
     $provisioning='CREATED'

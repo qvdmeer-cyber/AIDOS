@@ -8,6 +8,7 @@ function Assert-SelfUpdate([bool]$Condition,[string]$Message){if(-not$Condition)
 
 $watchdog=Get-Content -LiteralPath (Join-Path $root 'tools/Invoke-AidosHostSelfUpdate.ps1') -Raw -Encoding UTF8
 $installer=Get-Content -LiteralPath (Join-Path $root 'tools/Install-AidosHostSelfUpdate.ps1') -Raw -Encoding UTF8
+$reload=Get-Content -LiteralPath (Join-Path $root 'tools/Reload-AidosAutonomousPreparation.ps1') -Raw -Encoding UTF8
 $enable=Get-Content -LiteralPath (Join-Path $root 'tools/Enable-AidosAutonomousPreparation.ps1') -Raw -Encoding UTF8
 $portable=Get-Content -LiteralPath (Join-Path $root 'tools/Test-AidosCorePortable.ps1') -Raw -Encoding UTF8
 
@@ -23,6 +24,9 @@ Assert-SelfUpdate ($watchdog -notmatch 'command -v pwsh') 'self-update no longer
 Assert-SelfUpdate ($watchdog -match "merge','--ff-only") 'watchdog applies only fast-forward Core updates'
 Assert-SelfUpdate ($watchdog -match 'SELF_UPDATE_RELOAD_REQUIRED\.json') 'watchdog persists reload-required recovery across process failure'
 Assert-SelfUpdate ($watchdog -match 'Reload-AidosAutonomousPreparation\.ps1') 'validated update reuses the lease-safe Core reload lifecycle'
+Assert-SelfUpdate ($watchdog -match '-PreserveSelfUpdateTask') 'watchdog explicitly preserves its own scheduled task during reload'
+Assert-SelfUpdate ($reload -match 'PreserveSelfUpdateTask' -and $reload -match '-PreserveExistingTask:\$PreserveSelfUpdateTask') 'reload propagates explicit self-update task preservation'
+Assert-SelfUpdate ($installer -match 'PreserveExistingTask' -and $installer -match "provisioning='PRESERVED_EXISTING'") 'installer supports fail-closed preservation without Task Scheduler mutation'
 Assert-SelfUpdate ($installer -match "RunLevel Limited") 'self-update task runs with limited user authority'
 Assert-SelfUpdate ($installer -match 'SELF_UPDATE_LAUNCHER\.vbs') 'self-update task uses an AIDOS-owned hidden launcher'
 Assert-SelfUpdate ($installer -match 'System32\\wscript\.exe') 'self-update task launches through Windows Script Host instead of a visible PowerShell console'

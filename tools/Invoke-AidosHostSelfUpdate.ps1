@@ -102,7 +102,7 @@ try {
         $marker=Get-Content -LiteralPath $reloadMarkerPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
         if([string]$marker.commit -ne [string]$local){Write-SelfUpdateStatus -Status 'RELOAD_MARKER_MISMATCH' -Detail @{local=$local;marker_commit=[string]$marker.commit}|Out-Null;exit 1}
         $reloadScript="\\wsl.localhost\$Distribution\$($WslReposRoot.TrimStart('/').Replace('/','\'))\AIDOS\tools\Reload-AidosAutonomousPreparation.ps1"
-        try{& $reloadScript -StateRoot $StateRoot -Distribution $Distribution -WslReposRoot $WslReposRoot -AuthorizedUser $AuthorizedUser|Out-Null;Remove-Item -LiteralPath $reloadMarkerPath -Force;Write-SelfUpdateStatus -Status 'RELOADED' -Detail @{commit=$local}|Out-Null;exit 0}
+        try{& $reloadScript -StateRoot $StateRoot -Distribution $Distribution -WslReposRoot $WslReposRoot -AuthorizedUser $AuthorizedUser -PreserveSelfUpdateTask|Out-Null;Remove-Item -LiteralPath $reloadMarkerPath -Force;Write-SelfUpdateStatus -Status 'RELOADED' -Detail @{commit=$local}|Out-Null;exit 0}
         catch{Write-SelfUpdateStatus -Status 'RELOAD_RETRY_REQUIRED' -Detail @{commit=$local;error=$_.Exception.Message}|Out-Null;exit 1}
     }
 
@@ -127,7 +127,7 @@ try {
     Write-SelfUpdateStatus -Status 'UPDATED_RELOAD_REQUIRED' -Detail @{previous_commit=$local;commit=$remote}|Out-Null
 
     $reloadScript="\\wsl.localhost\$Distribution\$($WslReposRoot.TrimStart('/').Replace('/','\'))\AIDOS\tools\Reload-AidosAutonomousPreparation.ps1"
-    try{& $reloadScript -StateRoot $StateRoot -Distribution $Distribution -WslReposRoot $WslReposRoot -AuthorizedUser $AuthorizedUser|Out-Null;Remove-Item -LiteralPath $reloadMarkerPath -Force;Write-SelfUpdateStatus -Status 'UPDATED_AND_RELOADED' -Detail @{previous_commit=$local;commit=$remote}|Out-Null}
+    try{& $reloadScript -StateRoot $StateRoot -Distribution $Distribution -WslReposRoot $WslReposRoot -AuthorizedUser $AuthorizedUser -PreserveSelfUpdateTask|Out-Null;Remove-Item -LiteralPath $reloadMarkerPath -Force;Write-SelfUpdateStatus -Status 'UPDATED_AND_RELOADED' -Detail @{previous_commit=$local;commit=$remote}|Out-Null}
     catch{Write-SelfUpdateStatus -Status 'UPDATED_RELOAD_RETRY_REQUIRED' -Detail @{previous_commit=$local;commit=$remote;error=$_.Exception.Message}|Out-Null;exit 1}
 } catch {
     Write-SelfUpdateStatus -Status 'ERROR' -Detail @{error=$_.Exception.Message}|Out-Null
