@@ -428,7 +428,7 @@ switch($Command){
     }
     'RecoverThinkerTrigger' {
         if([string]::IsNullOrWhiteSpace($ProjectId) -or [string]::IsNullOrWhiteSpace($HandoffId)){throw 'RecoverThinkerTrigger requires ProjectId and HandoffId.'}
-        $task=Get-AidosRepositoryHandoffHostTaskStatus
+        $task=Get-AidosRepositoryHostTaskStatus
         if([string]$task.state-eq'Running'){throw 'Interrupted Thinker trigger recovery requires the Repository Handoff Host to be stopped.'}
         $config=Read-AidosRepositoryHostConfiguration
         Recover-AidosRepositoryThinkerInterruptedTrigger -StateRoot ([string]$config.bridge_state_root) -ProjectId $ProjectId -HandoffId $HandoffId|ConvertTo-Json -Depth 50

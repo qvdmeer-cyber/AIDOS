@@ -21,6 +21,8 @@ function Assert-Bootstrap([bool]$Condition,[string]$Message){
     $script:passed++
 }
 
+Assert-Bootstrap ($hostText.Contains("'RecoverThinkerTrigger'") -and $hostText.Contains('$task=Get-AidosRepositoryHostTaskStatus')) 'Thinker interrupted recovery uses the installed host task-status helper'
+
 Assert-Bootstrap ($text.Contains("`$runtimeHost=Join-Path `$PSScriptRoot ('Invoke-AidosRepositoryHandoffHost.runtime.'")) 'bootstrap materializes a temporary runtime host'
 Assert-Bootstrap ($text.Contains("`$runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.'")) 'bootstrap materializes a temporary runtime bridge'
 Assert-Bootstrap ($text.Contains("`$runtimeHandoffName='AidosRepositoryHandoff.runtime.'")) 'bootstrap materializes a temporary runtime handoff module'
