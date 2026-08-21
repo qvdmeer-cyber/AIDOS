@@ -98,6 +98,10 @@ try{
     Assert-Gateway ([string]$transport.status-eq'COMPLETED') 'accepted result advances existing transport state to COMPLETED'
     $retry=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/results' -Body $request -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
     Assert-Gateway ([int]$retry.status_code-eq200 -and [string]$retry.body.status-eq'ALREADY_ACCEPTED') 'same parent retry is idempotent'
+    $currentHandoff=Read-AidosRepositoryHandoff -ProjectRoot $projectRoot -ExpectedProjectId 'PROJECT-1'
+    $projectState=Get-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
+    $goalAfterClean=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/goals' -Body ([pscustomobject]@{goal='Start a distinct new project Definition from this exact human goal.'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([int]$goalAfterClean.status_code-eq200 -and [string]$goalAfterClean.body.status-eq'ACCEPTED' -and [string]$goalAfterClean.body.acknowledgement -match '^AIDOS_GOAL_ACCEPTED::GOAL-') 'cleaned PASS review result no longer blocks a new project goal'
     $recoveryState=Get-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Raw|ConvertFrom-Json -Depth 20
     $recoveryState.state='RECOVERY_REQUIRED'
     $recoveryState|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM

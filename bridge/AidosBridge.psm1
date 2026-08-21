@@ -66,7 +66,9 @@ function ConvertTo-AidosRepositoryIdentity { param([string]$Repository)
     $v=$Repository.Trim().TrimEnd('/');if($v-match'^https?://[^/]+/(.+)$'){$v=$Matches[1]}elseif($v-match'^ssh://[^/]+/(.+)$'){$v=$Matches[1]}elseif($v-match'^[^@]+@[^:]+:(.+)$'){$v=$Matches[1]};if($v.EndsWith('.git',[StringComparison]::OrdinalIgnoreCase)){$v=$v.Substring(0,$v.Length-4)};$v.ToLowerInvariant()
 }
 function Get-AidosGitRuntime { param([string]$ProjectRoot)
-    $profile=Get-AidosProjectProfile $ProjectRoot;if($profile.PSObject.Properties['git_runtime']){return $profile.git_runtime};if(-not$IsWindows){return [pscustomobject]@{kind='NATIVE';project_root=(Resolve-AidosFileSystemPath $ProjectRoot);git_path='git'}};throw 'Project has no registered git_runtime. Register NATIVE or WINDOWS_WSL Git execution before binding.'
+    $profile=Get-AidosProjectProfile $ProjectRoot
+    if($profile.PSObject.Properties['git_runtime']){return $profile.git_runtime}
+    return [pscustomobject]@{kind='NATIVE';project_root=(Resolve-AidosFileSystemPath $ProjectRoot);git_path='git'}
 }
 function Get-AidosGitCommand { param($Runtime,[string[]]$GitArguments)
     if($Runtime.kind-eq'NATIVE'){$gitPath=if($Runtime.git_path){[string]$Runtime.git_path}else{'git'};return [pscustomobject]@{FileName=$gitPath;Arguments=@('-C',[string]$Runtime.project_root)+$GitArguments}};if($Runtime.kind-eq'WINDOWS_WSL'){if(-not$Runtime.distribution-or-not$Runtime.project_root){throw 'WINDOWS_WSL Git runtime requires distribution and project_root.'};$gitPath=if($Runtime.git_path){[string]$Runtime.git_path}else{'git'};return [pscustomobject]@{FileName='wsl.exe';Arguments=@('--distribution',[string]$Runtime.distribution,'--cd',[string]$Runtime.project_root,'--exec',$gitPath,'-C',[string]$Runtime.project_root)+$GitArguments}};throw "Unsupported Git runtime '$($Runtime.kind)'."
@@ -119,13 +121,15 @@ function Get-AidosCodexLaunchArguments { param($Runtime,$Execution,[string]$Prom
 }
 function Test-AidosProjectBinding { param([string]$ProjectRoot)
     $resolved=Resolve-AidosFileSystemPath $ProjectRoot;$p=Get-AidosProjectProfile $resolved
-    $expected=Resolve-AidosFileSystemPath ([string]$p.official_root);$cmp=if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+    $officialRoot=if($p.PSObject.Properties['official_root'] -and -not[string]::IsNullOrWhiteSpace([string]$p.official_root)){[string]$p.official_root}else{$resolved}
+    $expected=Resolve-AidosFileSystemPath $officialRoot;$cmp=if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
     if(-not[string]::Equals($resolved,$expected,$cmp)){throw "AIDOS project-root mismatch. Expected '$expected'; actual '$resolved'."}
     $runtime=Get-AidosGitRuntime $resolved;$rootResult=Invoke-AidosGit $resolved @('rev-parse','--show-toplevel');$gitRoot=($rootResult.Output|Select-Object -First 1);if($rootResult.ExitCode-ne0-or-not$gitRoot){throw "Not a readable Git worktree through '$($runtime.kind)' runtime."}
     if($runtime.kind-eq'NATIVE'){$gitRoot=Resolve-AidosFileSystemPath ([string]$gitRoot);if(-not[string]::Equals($gitRoot,$expected,$cmp)){throw "Git root '$gitRoot' does not equal official_root '$expected'."}}else{if(-not[string]::Equals(([string]$gitRoot).TrimEnd('/'),([string]$runtime.project_root).TrimEnd('/'),[StringComparison]::Ordinal)){throw "WSL Git root '$gitRoot' does not equal registered WSL project_root '$($runtime.project_root)'."}}
     $originResult=Invoke-AidosGit $resolved @('remote','get-url','origin');$origin=($originResult.Output|Select-Object -First 1);if($originResult.ExitCode-ne0-or-not$origin){throw 'Git origin unavailable.'}
-    if((ConvertTo-AidosRepositoryIdentity $origin)-ne(ConvertTo-AidosRepositoryIdentity ([string]$p.repository))){throw "Git origin '$origin' does not exactly match '$($p.repository)'."}
-    [pscustomobject]@{ProjectId=[string]$p.project_id;Repository=[string]$p.repository;Root=$expected;GitRuntime=[string]$runtime.kind;GitRoot=[string]$gitRoot;Origin=$origin.Trim();Valid=$true}
+    $projectRepository=if($p.PSObject.Properties['repository'] -and -not[string]::IsNullOrWhiteSpace([string]$p.repository)){[string]$p.repository}else{[string]$origin}
+    if((ConvertTo-AidosRepositoryIdentity $origin)-ne(ConvertTo-AidosRepositoryIdentity $projectRepository)){throw "Git origin '$origin' does not exactly match '$projectRepository'."}
+    [pscustomobject]@{ProjectId=[string]$p.project_id;Repository=$projectRepository;Root=$expected;GitRuntime=[string]$runtime.kind;GitRoot=[string]$gitRoot;Origin=$origin.Trim();Valid=$true}
 }
 function Get-AidosPreparationSnapshot { param([string]$ProjectRoot)
     $p=Get-AidosProjectProfile $ProjectRoot;$baseline=Read-AidosJson (Join-Path $ProjectRoot ([string]$p.project_baseline));$accessPath=Join-Path $ProjectRoot ([string]$p.project_access);$null=Read-AidosJson $accessPath;$evidencePath=Join-Path $ProjectRoot ([string]$p.evidence_inventory);$evidence=Read-AidosJson $evidencePath

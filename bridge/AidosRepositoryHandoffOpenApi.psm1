@@ -32,7 +32,7 @@ function New-AidosRepositoryHandoffOpenApiDocument {
         content=[ordered]@{'application/json'=[ordered]@{schema=[ordered]@{'$ref'='#/components/schemas/ErrorResponse'}}}
     }
 
-    [ordered]@{
+    $document=[ordered]@{
         openapi='3.1.0'
         info=[ordered]@{
             title='AIDOS Repository Handoff Gateway'
@@ -335,7 +335,7 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                                 schema_version=[ordered]@{type='string'};envelope_type=[ordered]@{type='string';enum=@('RUNTIME_ACTOR_RESULT','REVIEW_RESPONSE')}
                                 assignment_id=[ordered]@{type='string'};assignment_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
                                 project_id=[ordered]@{type='string'};project_root=[ordered]@{type='string'};project_mode=[ordered]@{type='string'}
-                                actor_role=[ordered]@{type='string'};actor_identity=[ordered]@{type='string'};action=[ordered]@{type='string'};binding=[ordered]@{type='object';additionalProperties=$true}
+                                actor_role=[ordered]@{type='string'};actor_identity=[ordered]@{type='string'};action=[ordered]@{type='string'};binding=[ordered]@{'$ref'='#/components/schemas/Binding'}
                                 review_id=[ordered]@{type='string'};definition_id=[ordered]@{type='string'};definition_version=[ordered]@{type='integer'};execution_id=[ordered]@{type='string'};revision=[ordered]@{type='integer'}
                                 reviewer_role=[ordered]@{type='string'};reviewer_identity=[ordered]@{type='string'};package_manifest_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
                                 outcome=[ordered]@{type='string'};reason=[ordered]@{type='string'}
@@ -361,6 +361,15 @@ function New-AidosRepositoryHandoffOpenApiDocument {
             }
         }
     }
+    # Some Action importers do not reliably inherit a document-level
+    # security requirement. Repeat it on every operation so the configured
+    # Bearer credential is attached to each call, including handoff reads.
+    foreach($pathItem in $document.paths.Values){
+        foreach($operation in $pathItem.Values){
+            if($operation -is [Collections.IDictionary]){$operation['security']=@([ordered]@{BearerAuth=@()})}
+        }
+    }
+    $document
 }
 
 function ConvertTo-AidosRepositoryHandoffOpenApiJson {

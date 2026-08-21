@@ -49,7 +49,18 @@ function Test-AidosRepositoryPathItemIsLink {
     $reparse=(($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
     $linkType=$null
     if($Item.PSObject.Properties['LinkType']){$linkType=[string]$Item.LinkType}
-    $reparse -or -not[string]::IsNullOrWhiteSpace($linkType)
+    $linkTarget=$null
+    if($Item.PSObject.Properties['LinkTarget']){$linkTarget=[string]$Item.LinkTarget}
+    elseif($Item.PSObject.Properties['Target']){$linkTarget=[string]$Item.Target}
+    $hasLinkType=-not[string]::IsNullOrWhiteSpace($linkType)
+    $hasLinkTarget=-not[string]::IsNullOrWhiteSpace($linkTarget)
+    $fullName=if($Item.PSObject.Properties['FullName']){[string]$Item.FullName}else{''}
+    $wslProviderPath=$fullName.StartsWith('\\wsl.localhost\',[StringComparison]::OrdinalIgnoreCase) -or $fullName.StartsWith('\\wsl$\',[StringComparison]::OrdinalIgnoreCase)
+    if($wslProviderPath){
+        $providerOnlyHardLink=[string]::Equals($linkType,'HardLink',[StringComparison]::OrdinalIgnoreCase) -and -not$hasLinkTarget
+        return $hasLinkTarget -or ($hasLinkType -and -not$providerOnlyHardLink)
+    }
+    $reparse -or $hasLinkType -or $hasLinkTarget
 }
 
 function Resolve-AidosRepositoryContainedPath {

@@ -26,8 +26,14 @@ function Test-AidosDefinitionHumanDecisionApplied {
     if(-not(Test-Path -LiteralPath $progressPath -PathType Leaf)){return $false}
     $progress=Get-Content -LiteralPath $progressPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
     $surface=@($progress.surfaces|Where-Object {[string]$_.surface_id -eq $SurfaceId})
-    if($surface.Count-ne1){return $false}
-    ([string]$surface[0].status -eq 'COMPLETE' -and @($surface[0].decision_refs) -contains $RequestRef)
+    if($surface.Count -eq 1 -and [string]$surface[0].status -eq 'COMPLETE' -and @($surface[0].decision_refs) -contains $RequestRef){return $true}
+    $appPath=Join-Path (Resolve-AidosFileSystemPath $ProjectRoot) ('.aidos/definitions/{0}/v{1}/APPLICABILITY.json' -f $DefinitionId,$DefinitionVersion)
+    if(-not(Test-Path -LiteralPath $appPath -PathType Leaf)){return $false}
+    $app=Get-Content -LiteralPath $appPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100
+    $developmentSurfacesProperty=$app.PSObject.Properties['development_surfaces']
+    if($null -eq $developmentSurfacesProperty){return $false}
+    $appSurface=@($developmentSurfacesProperty.Value|Where-Object {[string]$_.surface_id -eq $SurfaceId})
+    ($appSurface.Count -eq 1 -and [string]$appSurface[0].definition_state -eq 'AFFECTED' -and @($appSurface[0].source_refs) -contains $RequestRef)
 }
 
 function Invoke-AidosDefinitionHumanInputResume {
@@ -63,11 +69,22 @@ function Invoke-AidosDefinitionHumanInputResume {
     $requestRef=('.aidos/human-input/{0}.json' -f $RequestId)
     $already=Test-AidosDefinitionHumanDecisionApplied -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -SurfaceId $surfaceId -RequestRef $requestRef
     if(-not$already){
-        $setSurface=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'tools/Set-AidosDefinitionSurface.ps1'
+        $aidosPath=[IO.Path]::GetFullPath($AidosRoot)
+        $setSurface=Join-Path $aidosPath 'tools/Set-AidosDefinitionSurface.ps1'
+        $setApplicability=Join-Path $aidosPath 'tools/Set-AidosDefinitionApplicabilitySurface.ps1'
         $testProgress=Join-Path ([IO.Path]::GetFullPath($AidosRoot)) 'tools/Test-AidosDefinitionProgress.ps1'
-        foreach($tool in @($setSurface,$testProgress)){if(-not(Test-Path -LiteralPath $tool -PathType Leaf)){throw "Definition Human Input resume tool unavailable: $tool"}}
+        foreach($tool in @($setSurface,$setApplicability,$testProgress)){if(-not(Test-Path -LiteralPath $tool -PathType Leaf)){throw "Definition Human Input resume tool unavailable: $tool"}}
         $summary=if(-not[string]::IsNullOrWhiteSpace($label)){"Human decision: $label"}else{"Human decision: $text"}
-        & $setSurface -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -SurfaceId $surfaceId -Status ([string]$binding.target.completion_status) -Summary $summary -DecisionRef $requestRef -OpenQuestionCount 0 -HumanDecisionId $RequestId -HumanDecisionAt ([string]$request.response.responded_at)|Out-Null
+        $appPath=Join-Path $root ('.aidos/definitions/{0}/v{1}/APPLICABILITY.json' -f $definitionId,$definitionVersion)
+        $app=@(); if(Test-Path -LiteralPath $appPath -PathType Leaf){$app=Get-Content -LiteralPath $appPath -Raw -Encoding UTF8|ConvertFrom-Json -Depth 100}
+        $developmentSurfacesProperty=$app.PSObject.Properties['development_surfaces']
+        $developmentSurface=@(if($null -eq $developmentSurfacesProperty){@()}else{@($developmentSurfacesProperty.Value|Where-Object {[string]$_.surface_id -eq $surfaceId})})
+        if($developmentSurface.Count -eq 1){
+            $refs=@($request.source_refs)+@($requestRef)|ForEach-Object {[string]$_}|Where-Object {-not[string]::IsNullOrWhiteSpace($_)}|Select-Object -Unique
+            & $setApplicability -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -SurfaceId $surfaceId -DefinitionState AFFECTED -Reason $summary -SourceRefs $refs|Out-Null
+        }else{
+            & $setSurface -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -SurfaceId $surfaceId -Status ([string]$binding.target.completion_status) -Summary $summary -DecisionRef $requestRef -OpenQuestionCount 0 -HumanDecisionId $RequestId -HumanDecisionAt ([string]$request.response.responded_at)|Out-Null
+        }
         $check=& $testProgress -ProjectRoot $root -DefinitionId $definitionId -DefinitionVersion $definitionVersion -NoExit
         if(-not[bool]$check.pass){throw "Definition progress invalid after Human Input resume: $(@($check.errors)-join'; ')"}
     }

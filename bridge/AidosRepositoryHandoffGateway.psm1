@@ -125,6 +125,9 @@ function Get-AidosRepositoryHandoffGatewayProject {
     if([string]$project.stage-ne'RUNTIME'-or[string]$project.status-ne'PROMOTED'){throw "Project '$safeProjectId' is not an active AIDOS runtime project."}
     if(-not[string]::Equals([string]$project.project_id,$safeProjectId,[StringComparison]::Ordinal)){throw 'Registered project identity does not match the requested gateway project_id.'}
     Test-AidosRegistryProjectBinding -Project $project|Out-Null
+    if(-not$project.PSObject.Properties['official_root'] -or [string]::IsNullOrWhiteSpace([string]$project.official_root)){
+        $project|Add-Member -NotePropertyName official_root -NotePropertyValue ([string]$project.local_root) -Force
+    }
     $project
 }
 function Get-AidosRepositoryHandoffGatewayPayload {
@@ -407,9 +410,62 @@ function Submit-AidosRepositoryHandoffGatewayGoal {
     $properties=@($Request.PSObject.Properties.Name)
     if($properties.Count-ne1-or$properties[0]-ne'goal'){throw 'Chat goal request must contain exactly one goal property.'}
     $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId $ProjectId
+    $root=Resolve-AidosFileSystemPath ([string]$project.local_root)
     $activeHandoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
-    if($null-ne$activeHandoff){throw 'A new project goal is blocked by an active repository handoff.'}
-    $accepted=Submit-AidosProjectGoal -Project $project -Goal ([string]$Request.goal) -SubmittedBy CHATGPT_OPERATOR -Push:$Push
+    if($null-ne$activeHandoff){
+        $allowGoal=($activeHandoff.metadata -and [string]$activeHandoff.metadata.kind-eq'RESULT')
+        if($allowGoal){
+            $state=Get-AidosState -ProjectRoot $root
+            $reviewId=[string]$activeHandoff.metadata.binding.review_id
+            $stateOnlyAllowGoal=$false
+            if([string]::IsNullOrWhiteSpace($reviewId)){
+                if([string]$state.state -eq 'WAITING_DEFINITION'){
+                    $stateOnlyAllowGoal=$true
+                }else{
+                    $reviewId=[string]$state.review_id
+                    if([string]::IsNullOrWhiteSpace($reviewId)){
+                    $reviewRoot=Join-Path ([string]$project.local_root) '.aidos/reviews'
+                    if(Test-Path -LiteralPath $reviewRoot -PathType Container){
+                        $matches=@(
+                            Get-ChildItem -LiteralPath $reviewRoot -Directory -ErrorAction SilentlyContinue |
+                            ForEach-Object {
+                                $reviewPath=Join-Path $_.FullName 'REVIEW.json'
+                                if(-not(Test-Path -LiteralPath $reviewPath -PathType Leaf)){return}
+                                $review=Read-AidosJson -Path $reviewPath
+                                if([string]$review.transport_state -notin @('CONSUMED','CLEANED')){return}
+                                if([string]$review.decision.outcome -ne 'PASS'){return}
+                                if([string]$review.project_id -ne [string]$project.project_id){return}
+                                if([string]$review.definition_id -ne [string]$state.definition_id){return}
+                                if([int]$review.definition_version -ne [int]$state.definition_version){return}
+                                if([string]$review.execution_id -ne [string]$state.execution_id){return}
+                                if([int]$review.revision -ne [int]$state.revision){return}
+                                $review
+                            }
+                        )
+                        if($matches.Count -eq 1){$reviewId=[string]$matches[0].review_id}
+                    }
+                    }
+                }
+            }
+            if($stateOnlyAllowGoal){
+                $allowGoal=$true
+            }elseif([string]::IsNullOrWhiteSpace($reviewId)){$allowGoal=$false}else{
+                $reviewPath=Join-Path ([string]$project.local_root) ('.aidos/reviews/{0}/REVIEW.json' -f $reviewId)
+                if(-not(Test-Path -LiteralPath $reviewPath -PathType Leaf)){$allowGoal=$false}else{
+                    $review=Read-AidosJson -Path $reviewPath
+                    $allowGoal=([string]$review.transport_state -in @('CONSUMED','CLEANED') -and [string]$review.decision.outcome -eq 'PASS')
+                }
+            }
+        }
+        if($allowGoal){
+            $state=Get-AidosState -ProjectRoot $root
+            if(-not$stateOnlyAllowGoal -and [string]$state.state-ne'IDLE'){
+                Set-AidosState -ProjectRoot $root -NewState IDLE -Actor SYSTEM -Patch @{review_id=$null}|Out-Null
+            }
+        }
+        if(-not$allowGoal){throw 'A new project goal is blocked by an active repository handoff.'}
+    }
+    $accepted=Submit-AidosProjectGoal -Project $project -Goal ([string]$Request.goal) -SubmittedBy CHATGPT_OPERATOR -AllowNonIdleState:$stateOnlyAllowGoal -SkipDefinitionWorkspace:$stateOnlyAllowGoal -Push:$Push
     Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'PROJECT_GOAL_ACCEPTED' -ProjectId ([string]$project.project_id)|Out-Null
     $accepted
 }

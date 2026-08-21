@@ -22,6 +22,7 @@ try{
     Assert-OpenApi ([string]$document.openapi-eq'3.1.0') 'OpenAPI version matches the proven custom GPT Action schema generation'
     Assert-OpenApi ([string]$document.servers[0].url-eq'https://aidos-machine.example.ts.net') 'OpenAPI server uses normalized Funnel URL'
     foreach($pathKey in $document.paths.Keys){foreach($methodKey in $document.paths[$pathKey].Keys){Assert-OpenApi (([string]$document.paths[$pathKey][$methodKey].description).Length-le300) "OpenAPI operation description fits the 300-character GPT Action limit: $methodKey $pathKey"}}
+    foreach($pathKey in $document.paths.Keys){foreach($methodKey in $document.paths[$pathKey].Keys){Assert-OpenApi (@($document.paths[$pathKey][$methodKey].security).Count-eq1 -and @($document.paths[$pathKey][$methodKey].security[0].Keys)-contains'BearerAuth') "every GPT Action operation declares Bearer authentication: $methodKey $pathKey"}}
     Assert-OpenApi (@($document.paths.Keys).Count-eq7) 'OpenAPI exposes operator control, project goal, handoff, Human Input read/submit, authorized source and result endpoints'
     $control=$document.paths.'/v1/projects/{projectId}/control'.post
     Assert-OpenApi ([string]$control.operationId-eq'submitAidosChatControl') 'chat control operation ID is stable'
@@ -44,6 +45,7 @@ try{
     $resultToolSchema=$document.components.schemas.SubmitResultRequest.properties.result
     Assert-OpenApi ([string]$resultToolSchema.type-eq'object' -and -not[bool]$resultToolSchema.additionalProperties -and @($resultToolSchema.properties.Keys)-contains'envelope_type') 'GPT Action result argument exposes bounded envelope properties instead of an unsupported free-form object'
     Assert-OpenApi (@($resultToolSchema.required)-contains'assignment_sha256' -and @($resultToolSchema.required)-contains'outcome') 'GPT Action result argument retains common bound-result requirements'
+    Assert-OpenApi ([string]$resultToolSchema.properties.binding.'$ref'-eq'#/components/schemas/Binding') 'GPT Action result binding uses an explicit supported schema'
     Assert-OpenApi (@($resultToolSchema.properties.evidence_refs.items.required)-contains'sha256') 'GPT Action REVIEW_RESPONSE evidence refs expose exact hash-bearing objects'
     Assert-OpenApi ([string]$document.components.schemas.Payload.properties.content.type-eq'object') 'handoff payload schema avoids unnecessary union constructs'
 
