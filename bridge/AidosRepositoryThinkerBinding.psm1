@@ -172,6 +172,15 @@ function Test-AidosRepositoryThinkerComposerTextMatch {
     $observedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $Observed
     [string]::Equals($observedComparable,$expectedComparable,[StringComparison]::Ordinal)
 }
+function Set-AidosRepositoryThinkerComposerValue {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Composer,[Parameter(Mandatory)][string]$Value)
+    try{$pattern=$Composer.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)}
+    catch{throw "ChatGPT composer does not expose the required UI Automation ValuePattern compatibility surface: $($_.Exception.Message)"}
+    if($null-eq$pattern -or [bool]$pattern.Current.IsReadOnly){throw 'ChatGPT composer UI Automation ValuePattern compatibility surface is read-only.'}
+    $pattern.SetValue($Value)
+    'UIA_VALUE_PATTERN_ZERO_FALLBACK'
+}
 
 function Initialize-AidosRepositoryThinkerNativeInput {
     [CmdletBinding()]
@@ -422,12 +431,32 @@ function Invoke-AidosRepositoryThinkerPromptSend {
         $sentinelObserved=[string](Get-AidosDesktopChatGPTElementText $sentinelComposer)
         if(Test-AidosRepositoryThinkerComposerTextMatch -Expected $inputSentinel -Observed $sentinelObserved){$composer=$sentinelComposer;$sentinelProven=$true;break}
     }
+    $uiaValueFallback=$false
+    if(-not$sentinelProven -and
+       $sentinelSelectTransport.StartsWith('KEYBD_EVENT_ZERO_FALLBACK(',[StringComparison]::Ordinal) -and
+       $sentinelPasteTransport.StartsWith('KEYBD_EVENT_ZERO_FALLBACK(',[StringComparison]::Ordinal)){
+        $composer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
+        $sentinelSelectTransport=Set-AidosRepositoryThinkerComposerValue -Composer $composer -Value $inputSentinel
+        $sentinelPasteTransport=$sentinelSelectTransport
+        for($attempt=0;$attempt-lt30;$attempt++){
+            Start-Sleep -Milliseconds 100
+            $sentinelComposer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
+            $sentinelObserved=[string](Get-AidosDesktopChatGPTElementText $sentinelComposer)
+            if(Test-AidosRepositoryThinkerComposerTextMatch -Expected $inputSentinel -Observed $sentinelObserved){$composer=$sentinelComposer;$sentinelProven=$true;$uiaValueFallback=$true;break}
+        }
+    }
     if(-not$sentinelProven){throw 'ChatGPT composer did not prove the unique native keyboard input sentinel; payload hydration was not attempted.'}
 
-    Set-Clipboard -Value $PromptText
-    $payloadSelectTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x41
-    Start-Sleep -Milliseconds 50
-    $payloadPasteTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x56
+    if($uiaValueFallback){
+        $composer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
+        $payloadSelectTransport=Set-AidosRepositoryThinkerComposerValue -Composer $composer -Value $PromptText
+        $payloadPasteTransport=$payloadSelectTransport
+    }else{
+        Set-Clipboard -Value $PromptText
+        $payloadSelectTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x41
+        Start-Sleep -Milliseconds 50
+        $payloadPasteTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x56
+    }
 
     $composerExact=$false
     $current=$null
