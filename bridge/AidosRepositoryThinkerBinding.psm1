@@ -172,6 +172,25 @@ function Test-AidosRepositoryThinkerComposerTextMatch {
     $observedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $Observed
     [string]::Equals($observedComparable,$expectedComparable,[StringComparison]::Ordinal)
 }
+function Get-AidosRepositoryThinkerComposerPayloadProof {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Expected,[AllowNull()][string]$Observed)
+    $expectedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $Expected
+    $observedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $Observed
+    if([string]::Equals($observedComparable,$expectedComparable,[StringComparison]::Ordinal)){
+        return [pscustomobject][ordered]@{proven=$true;mode='EXACT'}
+    }
+    $matches=[regex]::Matches($expectedComparable,'(?m)^repository=https://github\.com/([^\r\n]+)$')
+    if($matches.Count-eq1){
+        $line=[string]$matches[0].Value
+        $path=[string]$matches[0].Groups[1].Value
+        $projected=$expectedComparable.Replace("$line`n`n","repository=`n`n$path`n")
+        if([string]::Equals($observedComparable,$projected,[StringComparison]::Ordinal)){
+            return [pscustomobject][ordered]@{proven=$true;mode='CHATGPT_UIA_GITHUB_AUTOLINK_PROJECTION'}
+        }
+    }
+    [pscustomobject][ordered]@{proven=$false;mode='NONE'}
+}
 function Set-AidosRepositoryThinkerComposerValue {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Composer,[Parameter(Mandatory)][string]$Value)
@@ -459,12 +478,14 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     }
 
     $composerExact=$false
+    $payloadProofMode='NONE'
     $current=$null
     for($attempt=0;$attempt-lt30;$attempt++){
         Start-Sleep -Milliseconds 100
         $currentComposer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
         $current=[string](Get-AidosDesktopChatGPTElementText $currentComposer)
-        if(Test-AidosRepositoryThinkerComposerTextMatch -Expected $PromptText -Observed $current){$composer=$currentComposer;$composerExact=$true;break}
+        $payloadProof=Get-AidosRepositoryThinkerComposerPayloadProof -Expected $PromptText -Observed $current
+        if([bool]$payloadProof.proven){$composer=$currentComposer;$composerExact=$true;$payloadProofMode=[string]$payloadProof.mode;break}
     }
     if(-not$composerExact){
         $expectedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $PromptText
@@ -515,6 +536,7 @@ function Invoke-AidosRepositoryThinkerPromptSend {
             payload_select=[string]$payloadSelectTransport
             payload_paste=[string]$payloadPasteTransport
             sentinel_proof='PROVEN'
+            payload_proof=[string]$payloadProofMode
         }
         send_invocation_state=$sendMethod
         committed_message_proof_state='PROVEN'
