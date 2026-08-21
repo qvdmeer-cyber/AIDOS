@@ -137,6 +137,21 @@ function Test-AidosRepositoryThinkerComposerFocusProof {
     $false
 }
 
+function ConvertTo-AidosRepositoryThinkerComposerComparableText {
+    [CmdletBinding()]
+    param([AllowNull()][string]$Text)
+    if($null-eq$Text){return $null}
+    $normalized=$Text.Replace("`r`n","`n").Replace("`r","`n")
+    $normalized.TrimEnd([char[]]"`r`n")
+}
+function Test-AidosRepositoryThinkerComposerTextMatch {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Expected,[AllowNull()][string]$Observed)
+    $expectedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $Expected
+    $observedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $Observed
+    [string]::Equals($observedComparable,$expectedComparable,[StringComparison]::Ordinal)
+}
+
 function Find-AidosRepositoryThinkerSubmitElement {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$RootElement)
@@ -186,12 +201,18 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     [System.Windows.Forms.SendKeys]::SendWait('^v')
 
     $composerExact=$false
+    $current=$null
     for($attempt=0;$attempt-lt30;$attempt++){
         Start-Sleep -Milliseconds 100
-        $current=[string](Get-AidosDesktopChatGPTElementText $composer)
-        if([string]::Equals($current,$PromptText,[StringComparison]::Ordinal)){$composerExact=$true;break}
+        $currentComposer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
+        $current=[string](Get-AidosDesktopChatGPTElementText $currentComposer)
+        if(Test-AidosRepositoryThinkerComposerTextMatch -Expected $PromptText -Observed $current){$composer=$currentComposer;$composerExact=$true;break}
     }
-    if(-not$composerExact){throw 'ChatGPT composer did not contain the exact outbound payload after keyboard hydration.'}
+    if(-not$composerExact){
+        $expectedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $PromptText
+        $observedComparable=ConvertTo-AidosRepositoryThinkerComposerComparableText -Text $current
+        throw "ChatGPT composer did not contain the outbound payload after fresh keyboard hydration proof (expected_length=$($expectedComparable.Length); observed_length=$(if($null-eq$observedComparable){0}else{$observedComparable.Length}))."
+    }
 
     $submit=$null
     for($attempt=0;$attempt-lt20;$attempt++){

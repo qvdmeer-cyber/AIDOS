@@ -7,7 +7,8 @@ param(
     [string]$PreparationRepository='https://github.com/qvdmeer-cyber/AIDOS-interface.git',
     [string]$PreparationProjectName='AIDOS-interface',
     [string]$RuntimeProjectRoot,
-    [string]$AuthorizedUser='AIDOS\qvdm'
+    [string]$AuthorizedUser='AIDOS\qvdm',
+    [switch]$PreserveSelfUpdateTask
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -152,7 +153,7 @@ if($repositoryTask -and $repositoryConfigPresent){
 
     $selfUpdateInstaller=Join-Path $aidosRoot 'tools/Install-AidosHostSelfUpdate.ps1'
     if(-not(Test-Path -LiteralPath $selfUpdateInstaller -PathType Leaf)){throw 'AIDOS host self-update installer is unavailable.'}
-    $selfUpdate=& $selfUpdateInstaller -Distribution $Distribution -WslReposRoot $WslReposRoot -StateRoot $StateRoot -AuthorizedUser $AuthorizedUser
+    $selfUpdate=& $selfUpdateInstaller -Distribution $Distribution -WslReposRoot $WslReposRoot -StateRoot $StateRoot -AuthorizedUser $AuthorizedUser -PreserveExistingTask:$PreserveSelfUpdateTask -PreserveExistingTask:$PreserveSelfUpdateTask
 
     [pscustomobject][ordered]@{
         status='RELOADED_REPOSITORY_HANDOFF'
