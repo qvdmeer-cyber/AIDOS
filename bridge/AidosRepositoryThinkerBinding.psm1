@@ -119,10 +119,12 @@ function Wait-AidosRepositoryThinkerComposerElement {
     param(
         [Parameter(Mandatory)]$RootElement,
         [ValidateRange(1,600)][int]$MaxAttempts=120,
-        [ValidateRange(0,5000)][int]$PollMilliseconds=500
+        [ValidateRange(0,5000)][int]$PollMilliseconds=500,
+        [scriptblock]$ComposerResolver
     )
+    if($null-eq$ComposerResolver){$ComposerResolver={param($Root) Get-AidosRepositoryThinkerComposerElement -RootElement $Root}}
     for($attempt=1;$attempt-le$MaxAttempts;$attempt++){
-        try{return Get-AidosRepositoryThinkerComposerElement -RootElement $RootElement}
+        try{return & $ComposerResolver $RootElement}
         catch{
             # A temporarily absent composer is expected while an already-active
             # conversation restores or finishes rendering. Ambiguity and every
