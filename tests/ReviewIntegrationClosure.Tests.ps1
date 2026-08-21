@@ -7,6 +7,7 @@ $root=Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $root 'bridge/AidosBridge.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosHumanInput.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosAutonomousIntegration.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'bridge/AidosAutonomousExecution.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosReviewBlocker.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'bridge/AidosWorkerDispatchGuard.psm1') -Force -DisableNameChecking
 $script:passed=0
@@ -43,6 +44,16 @@ try {
     $intent=Get-Content -LiteralPath (Get-AidosIntegrationIntentPath -ProjectRoot $projectRoot -ReviewId 'REV-PASS') -Raw|ConvertFrom-Json -Depth 20
     Assert-RIC ([string]$intent.status -eq 'APPLIED' -and -not[string]::IsNullOrWhiteSpace([string]$intent.integration_commit)) 'integration intent records applied commit'
     Assert-RIC (Test-AidosIntegrationPathAuthorized -Execution ([pscustomobject]$execution) -Path '.aidos/runtime/test.json') '.aidos lifecycle paths remain Core-authorized during integration'
+
+    # A Worker may have already committed the exact execution result before
+    # Core receives PASS. A clean, bound worktree is then a valid no-op
+    # integration and must not be treated as a missing delta.
+    $cleanReview=(Get-Content -LiteralPath (Join-Path $projectRoot '.aidos/reviews/REV-PASS/REVIEW.json') -Raw).Replace('REV-PASS','REV-CLEAN')
+    New-Item -ItemType Directory -Path (Join-Path $projectRoot '.aidos/reviews/REV-CLEAN') -Force|Out-Null
+    $cleanReview|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/reviews/REV-CLEAN/REVIEW.json') -Encoding utf8NoBOM
+    New-AidosPassIntegrationIntent -ProjectRoot $projectRoot -ReviewId 'REV-CLEAN' -ExecutionId 'EXEC-1' -Revision 1|Out-Null
+    $cleanIntegrated=Invoke-AidosPassIntegration -Project $project -ReviewId 'REV-CLEAN'
+    Assert-RIC ($cleanIntegrated.status -eq 'APPLIED' -and $cleanIntegrated.commit) 'clean PASS integration records current HEAD without a delta commit'
 
     # Worker commit authority guard: clean initial dispatch binds HEAD; any Worker
     # commit is deterministically rejected even if content could otherwise pass.
