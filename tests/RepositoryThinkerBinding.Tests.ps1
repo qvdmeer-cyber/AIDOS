@@ -29,13 +29,27 @@ Assert-Binding ($bindingSource.Contains('send_proof=$null') -and $bindingSource.
 $bindingModule=Get-Module AidosRepositoryThinkerBinding | Select-Object -First 1
 & $bindingModule { Initialize-AidosRepositoryThinkerNativeInput }
 Assert-Binding ([bool]('AidosRepositoryThinkerNativeInputV2' -as [type])) 'Repository Thinker native input helper compiles successfully'
+$payloadProof=& $bindingModule {
+    $expected="AIDOS_HANDOFF_READY`nproject_id=P1`nhandoff_id=H1`nhandoff_sha256=$('a'*64)`nrepository=https://github.com/example/project.git`n`nProcess the handoff."
+    $projection="AIDOS_HANDOFF_READY`nproject_id=P1`nhandoff_id=H1`nhandoff_sha256=$('a'*64)`nrepository=`n`nexample/project.git`nProcess the handoff."
+    [pscustomobject]@{
+        exact=Get-AidosRepositoryThinkerComposerPayloadProof -Expected $expected -Observed $expected
+        projection=Get-AidosRepositoryThinkerComposerPayloadProof -Expected $expected -Observed $projection
+        altered=Get-AidosRepositoryThinkerComposerPayloadProof -Expected $expected -Observed ($projection.Replace('Process','Altered'))
+        wrong_host=Get-AidosRepositoryThinkerComposerPayloadProof -Expected ($expected.Replace('github.com','example.com')) -Observed $projection
+    }
+}
+Assert-Binding ([bool]$payloadProof.exact.proven -and [string]$payloadProof.exact.mode-eq'EXACT') 'exact composer payload proof remains accepted'
+Assert-Binding ([bool]$payloadProof.projection.proven -and [string]$payloadProof.projection.mode-eq'CHATGPT_UIA_GITHUB_AUTOLINK_PROJECTION') 'exact Chromium GitHub autolink UIA projection is accepted explicitly'
+Assert-Binding (-not[bool]$payloadProof.altered.proven) 'autolink projection rejects any change outside the projected repository URI'
+Assert-Binding (-not[bool]$payloadProof.wrong_host.proven) 'autolink projection is limited to the exact GitHub HTTPS authority'
 Assert-Binding ($bindingSource.Contains('function Test-AidosRepositoryThinkerComposerFocusProof') -and $bindingSource.Contains('[System.Windows.Automation.AutomationElement]::FocusedElement')) 'Repository Thinker inspects the actual focused UIA element for composer focus proof'
 Assert-Binding ($bindingSource.Contains('[System.Windows.Automation.TreeWalker]::RawViewWalker') -and $bindingSource.Contains("AutomationId -eq 'prompt-textarea'")) 'Repository Thinker accepts only focus within the unique prompt-textarea ancestry'
 Assert-Binding ($bindingSource.Contains('Test-AidosRepositoryThinkerComposerFocusProof -Composer $composer') -and $bindingSource.Contains("throw 'ChatGPT composer keyboard focus proof is required before send.'")) 'Repository Thinker requires focused composer ancestry before clipboard input'
 Assert-Binding ($bindingSource.Contains("throw 'ChatGPT composer keyboard focus proof is required before Enter fallback.'")) 'Repository Thinker re-proves focused composer ancestry before Enter fallback'
 Assert-Binding ($bindingSource.Contains('committed-send proof is absent')) 'Repository Thinker remains fail-closed unless the outbound payload leaves the composer'
 Assert-Binding ($bindingSource.Contains('function ConvertTo-AidosRepositoryThinkerComposerComparableText') -and $bindingSource.Contains('.Replace("`r`n","`n").Replace("`r","`n")')) 'Repository Thinker normalizes only transport line endings for composer hydration proof'
-Assert-Binding ($bindingSource.Contains('$currentComposer=Get-AidosRepositoryThinkerComposerElement -RootElement $root') -and $bindingSource.Contains('Test-AidosRepositoryThinkerComposerTextMatch -Expected $PromptText -Observed $current')) 'Repository Thinker rebinds the live composer before proving hydrated payload text'
+Assert-Binding ($bindingSource.Contains('$currentComposer=Get-AidosRepositoryThinkerComposerElement -RootElement $root') -and $bindingSource.Contains('Get-AidosRepositoryThinkerComposerPayloadProof -Expected $PromptText -Observed $current')) 'Repository Thinker rebinds the live composer before proving hydrated payload text'
 Assert-Binding (-not$bindingSource.Contains('SendPrompt=$desktop.SendPrompt')) 'Repository Thinker no longer delegates trigger sending to the legacy Desktop sender'
 Assert-Binding ($bindingSource.Contains('New-Object -ComObject WScript.Shell') -and $bindingSource.Contains('AppActivate([int]$Context.process_id)')) 'Repository Thinker explicitly activates the bound ChatGPT process before legacy focus proof'
 Assert-Binding ($bindingSource.Contains('$desktopFocus=$desktop.FocusConversation') -and -not$bindingSource.Contains('FocusConversation=$desktop.FocusConversation')) 'Repository Thinker wraps the proven Desktop focus routine instead of delegating it directly'
