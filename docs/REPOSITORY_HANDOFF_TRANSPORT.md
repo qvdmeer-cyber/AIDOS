@@ -134,6 +134,17 @@ The binding stores the conversation title and conversation URL, not a transient 
 
 Trigger delivery is idempotent per `handoff_id`. Failed activation enters bounded backoff and can be reset explicitly.
 
+The Windows keyboard carrier prefers `SendInput`. A live authorized interactive
+host may return zero accepted events without a diagnostic that distinguishes an
+input-blocked thread from UIPI. In that exact zero-event case only, the carrier
+may use the legacy `keybd_event` compatibility path. Because that API has no
+acceptance result, Core first replaces the composer with a unique non-payload
+sentinel and proves the exact sentinel through the live UI Automation surface.
+Only then may it hydrate and prove the real wake marker. Partial `SendInput`
+acceptance never falls back: Core issues best-effort key-up cleanup and fails
+closed. Submit remains gated by exact payload hydration, a bound submit action
+or focused Enter fallback, and post-submit composer-clearance proof.
+
 ## Worker transport
 
 The Codex Worker reads the exact repository handoff and execution payload. It is instructed not to commit, push or start another actor.

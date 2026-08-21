@@ -155,15 +155,15 @@ function Test-AidosRepositoryThinkerComposerTextMatch {
 function Initialize-AidosRepositoryThinkerNativeInput {
     [CmdletBinding()]
     param()
-    if('AidosRepositoryThinkerNativeInputV1' -as [type]){return}
+    if('AidosRepositoryThinkerNativeInputV2' -as [type]){return}
     Add-Type -TypeDefinition @'
 using System;
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-public static class AidosRepositoryThinkerNativeInputV1 {
+public static class AidosRepositoryThinkerNativeInputV2 {
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint MAPVK_VK_TO_VSC = 0;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MOUSEINPUT {
@@ -199,6 +199,15 @@ public static class AidosRepositoryThinkerNativeInputV1 {
     [DllImport("user32.dll", SetLastError=true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+    [DllImport("kernel32.dll")]
+    private static extern void SetLastError(uint dwErrCode);
+
     private static INPUT Keyboard(ushort vk, uint flags) {
         return new INPUT {
             type = INPUT_KEYBOARD,
@@ -214,28 +223,110 @@ public static class AidosRepositoryThinkerNativeInputV1 {
         };
     }
 
-    private static void Send(INPUT[] inputs) {
-        uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
-        if(sent != (uint)inputs.Length) {
-            int error = Marshal.GetLastWin32Error();
-            throw new Win32Exception(error, "SendInput accepted " + sent + " of " + inputs.Length + " keyboard events.");
+    private static uint Send(INPUT[] inputs, out int error, out int inputSize) {
+        inputSize = Marshal.SizeOf(typeof(INPUT));
+        SetLastError(0);
+        uint sent = SendInput((uint)inputs.Length, inputs, inputSize);
+        error = Marshal.GetLastWin32Error();
+        return sent;
+    }
+
+    private static byte VirtualKey(ushort key) {
+        if(key == 0 || key > 0xFE) {
+            throw new ArgumentOutOfRangeException("key", "Native keyboard transport requires a virtual-key value from 1 through 254.");
+        }
+        return (byte)key;
+    }
+
+    private static byte ScanCode(byte key) {
+        return (byte)(MapVirtualKey(key, MAPVK_VK_TO_VSC) & 0xFF);
+    }
+
+    private static void LegacyKey(byte key, uint flags) {
+        keybd_event(key, ScanCode(key), flags, UIntPtr.Zero);
+    }
+
+    private static void ReleaseChord(byte modifier, byte key) {
+        LegacyKey(key, KEYEVENTF_KEYUP);
+        LegacyKey(modifier, KEYEVENTF_KEYUP);
+    }
+
+    private static void LegacyChord(byte modifier, byte key) {
+        try {
+            LegacyKey(modifier, 0);
+            try {
+                LegacyKey(key, 0);
+            } finally {
+                LegacyKey(key, KEYEVENTF_KEYUP);
+            }
+        } finally {
+            LegacyKey(modifier, KEYEVENTF_KEYUP);
         }
     }
 
-    public static void SendChord(ushort modifier, ushort key) {
-        Send(new INPUT[] {
+    private static void LegacySingleKey(byte key) {
+        try {
+            LegacyKey(key, 0);
+        } finally {
+            LegacyKey(key, KEYEVENTF_KEYUP);
+        }
+    }
+
+    private static string FallbackDescription(int error, int inputSize) {
+        return "KEYBD_EVENT_ZERO_FALLBACK(sendinput_error=" + error +
+            ",input_size=" + inputSize +
+            ",pointer_size=" + IntPtr.Size + ")";
+    }
+
+    public static string SendChord(ushort modifierValue, ushort keyValue) {
+        byte modifier = VirtualKey(modifierValue);
+        byte key = VirtualKey(keyValue);
+        INPUT[] inputs = new INPUT[] {
             Keyboard(modifier, 0),
             Keyboard(key, 0),
             Keyboard(key, KEYEVENTF_KEYUP),
             Keyboard(modifier, KEYEVENTF_KEYUP)
-        });
+        };
+        int error;
+        int inputSize;
+        uint sent = Send(inputs, out error, out inputSize);
+        if(sent == (uint)inputs.Length) {
+            return "SENDINPUT";
+        }
+        if(sent != 0) {
+            ReleaseChord(modifier, key);
+            throw new InvalidOperationException(
+                "SendInput partially accepted " + sent + " of " + inputs.Length +
+                " keyboard events; key-up cleanup was issued and fallback is forbidden" +
+                " (win32_error=" + error + ",input_size=" + inputSize +
+                ",pointer_size=" + IntPtr.Size + ").");
+        }
+        LegacyChord(modifier, key);
+        return FallbackDescription(error, inputSize);
     }
 
-    public static void SendKey(ushort key) {
-        Send(new INPUT[] {
+    public static string SendKey(ushort keyValue) {
+        byte key = VirtualKey(keyValue);
+        INPUT[] inputs = new INPUT[] {
             Keyboard(key, 0),
             Keyboard(key, KEYEVENTF_KEYUP)
-        });
+        };
+        int error;
+        int inputSize;
+        uint sent = Send(inputs, out error, out inputSize);
+        if(sent == (uint)inputs.Length) {
+            return "SENDINPUT";
+        }
+        if(sent != 0) {
+            LegacyKey(key, KEYEVENTF_KEYUP);
+            throw new InvalidOperationException(
+                "SendInput partially accepted " + sent + " of " + inputs.Length +
+                " keyboard events; key-up cleanup was issued and fallback is forbidden" +
+                " (win32_error=" + error + ",input_size=" + inputSize +
+                ",pointer_size=" + IntPtr.Size + ").");
+        }
+        LegacySingleKey(key);
+        return FallbackDescription(error, inputSize);
     }
 }
 '@
@@ -244,13 +335,13 @@ function Invoke-AidosRepositoryThinkerNativeChord {
     [CmdletBinding()]
     param([Parameter(Mandatory)][UInt16]$Modifier,[Parameter(Mandatory)][UInt16]$Key)
     Initialize-AidosRepositoryThinkerNativeInput
-    [AidosRepositoryThinkerNativeInputV1]::SendChord($Modifier,$Key)
+    [AidosRepositoryThinkerNativeInputV2]::SendChord($Modifier,$Key)
 }
 function Invoke-AidosRepositoryThinkerNativeKey {
     [CmdletBinding()]
     param([Parameter(Mandatory)][UInt16]$Key)
     Initialize-AidosRepositoryThinkerNativeInput
-    [AidosRepositoryThinkerNativeInputV1]::SendKey($Key)
+    [AidosRepositoryThinkerNativeInputV2]::SendKey($Key)
 }
 
 function Find-AidosRepositoryThinkerSubmitElement {
@@ -292,13 +383,30 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     }
     if(-not$focusProven){throw 'ChatGPT composer keyboard focus proof is required before send.'}
 
-    # Always hydrate through actual keyboard/clipboard input, even when a prior
-    # failed attempt left matching visible text. Chromium/React may expose
-    # ValuePattern text without updating the application's send-enabled state.
-    Set-Clipboard -Value $PromptText
-    Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x41
+    # A zero-result SendInput call is reproducible on the authorized interactive
+    # host. Its keybd_event compatibility fallback has no API acknowledgement,
+    # so first prove a unique sentinel mutation before hydrating the real prompt.
+    # This prevents stale matching ValuePattern text from masquerading as an
+    # accepted keyboard/React input event.
+    $inputSentinel="AIDOS_INPUT_PROBE::$([guid]::NewGuid().ToString('N'))"
+    Set-Clipboard -Value $inputSentinel
+    $sentinelSelectTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x41
     Start-Sleep -Milliseconds 50
-    Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x56
+    $sentinelPasteTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x56
+
+    $sentinelProven=$false
+    for($attempt=0;$attempt-lt30;$attempt++){
+        Start-Sleep -Milliseconds 100
+        $sentinelComposer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
+        $sentinelObserved=[string](Get-AidosDesktopChatGPTElementText $sentinelComposer)
+        if(Test-AidosRepositoryThinkerComposerTextMatch -Expected $inputSentinel -Observed $sentinelObserved){$composer=$sentinelComposer;$sentinelProven=$true;break}
+    }
+    if(-not$sentinelProven){throw 'ChatGPT composer did not prove the unique native keyboard input sentinel; payload hydration was not attempted.'}
+
+    Set-Clipboard -Value $PromptText
+    $payloadSelectTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x41
+    Start-Sleep -Milliseconds 50
+    $payloadPasteTransport=Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x56
 
     $composerExact=$false
     $current=$null
@@ -331,8 +439,8 @@ function Invoke-AidosRepositoryThinkerPromptSend {
         $composer.SetFocus()
         Start-Sleep -Milliseconds 100
         if(-not(Test-AidosRepositoryThinkerComposerFocusProof -Composer $composer)){throw 'ChatGPT composer keyboard focus proof is required before Enter fallback.'}
-        Invoke-AidosRepositoryThinkerNativeKey -Key 0x0D
-        $sendMethod='NATIVE_SENDINPUT_ENTER'
+        $enterTransport=Invoke-AidosRepositoryThinkerNativeKey -Key 0x0D
+        $sendMethod="NATIVE_ENTER::$enterTransport"
     }
 
     $cleared=$false
@@ -351,6 +459,13 @@ function Invoke-AidosRepositoryThinkerPromptSend {
         composer_state='COMMITTED'
         composer_result=if([string]::IsNullOrWhiteSpace([string]$before)){'EMPTY'}elseif([string]$before-eq$PromptText){'MATCHING_EXACT'}else{'MISMATCH'}
         mutation_occurred=$mutationOccurred
+        input_transport_state=[ordered]@{
+            sentinel_select=[string]$sentinelSelectTransport
+            sentinel_paste=[string]$sentinelPasteTransport
+            payload_select=[string]$payloadSelectTransport
+            payload_paste=[string]$payloadPasteTransport
+            sentinel_proof='PROVEN'
+        }
         send_invocation_state=$sendMethod
         committed_message_proof_state='PROVEN'
         failure_reason=$null
@@ -489,7 +604,7 @@ function Invoke-AidosRepositoryThinkerTrigger {
     if($null-eq$Backend){$Backend=New-AidosRepositoryThinkerWindowsBackend -ProcessName $ProcessName}
     $attempt=if($existing){[int]$existing.attempt+1}else{1}
     $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $projectId -HandoffId $handoffId
-    $state=[pscustomobject][ordered]@{schema_version='0.1';project_id=$projectId;handoff_id=$handoffId;handoff_sha256=[string]$Handoff.text_sha256;status='PENDING';attempt=$attempt;triggered_at=$null;retry_after=$null;last_error=$null;updated_at=[DateTimeOffset]::UtcNow.ToString('o')}
+    $state=[pscustomobject][ordered]@{schema_version='0.1';project_id=$projectId;handoff_id=$handoffId;handoff_sha256=[string]$Handoff.text_sha256;status='PENDING';attempt=$attempt;triggered_at=$null;retry_after=$null;last_error=$null;send_proof=$null;updated_at=[DateTimeOffset]::UtcNow.ToString('o')}
     Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
     try{
         $context=& $Backend.GetProcessContext ([string]$binding.process_name)
@@ -498,7 +613,7 @@ function Invoke-AidosRepositoryThinkerTrigger {
         $prompt=New-AidosRepositoryThinkerTriggerText -Binding $binding -Handoff $Handoff
         $send=& $Backend.SendPrompt $context $binding $prompt $Handoff.metadata
         if($null-eq$send -or -not [bool]$send.committed){throw 'ChatGPT trigger has no committed-send proof.'}
-        $state.status='COMMITTED';$state.triggered_at=[DateTimeOffset]::UtcNow.ToString('o');$state.updated_at=$state.triggered_at
+        $state.status='COMMITTED';$state.triggered_at=[DateTimeOffset]::UtcNow.ToString('o');$state.send_proof=$send;$state.updated_at=$state.triggered_at
         Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
         [pscustomobject][ordered]@{status='TRIGGERED';project_id=$projectId;handoff_id=$handoffId;activation=$activation;send=$send;state=$state}
     }catch{

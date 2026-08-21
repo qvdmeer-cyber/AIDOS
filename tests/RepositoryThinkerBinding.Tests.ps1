@@ -12,12 +12,20 @@ function Assert-BindingThrows([scriptblock]$Action,[string]$Pattern,[string]$Mes
 
 $bindingSource=Get-Content -LiteralPath (Join-Path $root 'bridge/AidosRepositoryThinkerBinding.psm1') -Raw -Encoding UTF8
 Assert-Binding ($bindingSource.Contains('[DllImport("user32.dll", SetLastError=true)]') -and $bindingSource.Contains('private static extern uint SendInput')) 'Repository Thinker uses native Win32 SendInput for keyboard injection'
+Assert-Binding ($bindingSource.Contains('private static extern void keybd_event') -and $bindingSource.Contains('KEYBD_EVENT_ZERO_FALLBACK')) 'Repository Thinker has a bounded legacy fallback for the live zero-result SendInput failure'
 Assert-Binding ($bindingSource.Contains('Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x41') -and $bindingSource.Contains('Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x56')) 'Repository Thinker hydrates the composer with native Ctrl+A and Ctrl+V keyboard events'
 Assert-Binding (-not$bindingSource.Contains('System.Windows.Forms.SendKeys') -and -not$bindingSource.Contains('SendWait(')) 'Repository Thinker no longer depends on unstable Windows Forms SendKeys'
 Assert-Binding ($bindingSource.Contains("@('composer-submit-button')") -and $bindingSource.Contains("@('send-button','composer-send-button')")) 'Repository Thinker supports bounded current and alternate send automation identifiers'
 Assert-Binding ($bindingSource.Contains("@('Send prompt','Send message','Send')")) 'Repository Thinker has a bounded accessible-name send fallback'
-Assert-Binding ($bindingSource.Contains('Invoke-AidosRepositoryThinkerNativeKey -Key 0x0D') -and $bindingSource.Contains("sendMethod='NATIVE_SENDINPUT_ENTER'")) 'Repository Thinker has a native SendInput Enter fallback after exact composer proof'
-Assert-Binding ($bindingSource.Contains('if(sent != (uint)inputs.Length)') -and $bindingSource.Contains('Marshal.GetLastWin32Error()')) 'Repository Thinker fails closed unless Windows accepts every native keyboard event'
+Assert-Binding ($bindingSource.Contains('Invoke-AidosRepositoryThinkerNativeKey -Key 0x0D') -and $bindingSource.Contains('$sendMethod="NATIVE_ENTER::$enterTransport"')) 'Repository Thinker has a native Enter fallback after exact composer proof'
+Assert-Binding ($bindingSource.Contains('if(sent != 0)') -and $bindingSource.Contains('fallback is forbidden') -and $bindingSource.Contains('ReleaseChord(modifier, key)')) 'Repository Thinker cleans up and fails closed after partial SendInput acceptance'
+Assert-Binding ($bindingSource.Contains('$inputSentinel="AIDOS_INPUT_PROBE::') -and $bindingSource.Contains("sentinel_proof='PROVEN'")) 'Repository Thinker proves a unique composer mutation before trusting unacknowledged legacy input fallback'
+Assert-Binding ($bindingSource.Contains('payload hydration was not attempted')) 'Repository Thinker never hydrates or sends the payload without sentinel input proof'
+Assert-Binding ($bindingSource.Contains('win32_error=') -and $bindingSource.Contains('input_size=') -and $bindingSource.Contains('pointer_size=')) 'Repository Thinker reports native input diagnostics for live transport failures and fallbacks'
+Assert-Binding ($bindingSource.Contains('send_proof=$null') -and $bindingSource.Contains('$state.send_proof=$send')) 'Repository Thinker durably records the committed native input and submit proof'
+$bindingModule=Get-Module AidosRepositoryThinkerBinding | Select-Object -First 1
+& $bindingModule { Initialize-AidosRepositoryThinkerNativeInput }
+Assert-Binding ([bool]('AidosRepositoryThinkerNativeInputV2' -as [type])) 'Repository Thinker native input helper compiles successfully'
 Assert-Binding ($bindingSource.Contains('function Test-AidosRepositoryThinkerComposerFocusProof') -and $bindingSource.Contains('[System.Windows.Automation.AutomationElement]::FocusedElement')) 'Repository Thinker inspects the actual focused UIA element for composer focus proof'
 Assert-Binding ($bindingSource.Contains('[System.Windows.Automation.TreeWalker]::RawViewWalker') -and $bindingSource.Contains("AutomationId -eq 'prompt-textarea'")) 'Repository Thinker accepts only focus within the unique prompt-textarea ancestry'
 Assert-Binding ($bindingSource.Contains('Test-AidosRepositoryThinkerComposerFocusProof -Composer $composer') -and $bindingSource.Contains("throw 'ChatGPT composer keyboard focus proof is required before send.'")) 'Repository Thinker requires focused composer ancestry before clipboard input'
