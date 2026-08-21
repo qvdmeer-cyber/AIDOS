@@ -36,6 +36,17 @@ Assert-Binding ($bindingSource.Contains('$currentComposer=Get-AidosRepositoryThi
 Assert-Binding (-not$bindingSource.Contains('SendPrompt=$desktop.SendPrompt')) 'Repository Thinker no longer delegates trigger sending to the legacy Desktop sender'
 Assert-Binding ($bindingSource.Contains('New-Object -ComObject WScript.Shell') -and $bindingSource.Contains('AppActivate([int]$Context.process_id)')) 'Repository Thinker explicitly activates the bound ChatGPT process before legacy focus proof'
 Assert-Binding ($bindingSource.Contains('$desktopFocus=$desktop.FocusConversation') -and -not$bindingSource.Contains('FocusConversation=$desktop.FocusConversation')) 'Repository Thinker wraps the proven Desktop focus routine instead of delegating it directly'
+Assert-Binding ($bindingSource.Contains('function Wait-AidosRepositoryThinkerComposerElement') -and $bindingSource.Contains('$composer=Wait-AidosRepositoryThinkerComposerElement -RootElement $root')) 'Repository Thinker waits for bounded unique composer readiness before keyboard transport'
+
+$composerProbe=[pscustomobject]@{calls=0;ready=[pscustomobject]@{automation_id='prompt-textarea'}}
+$transientResolver=({param($Root);$composerProbe.calls++;if($composerProbe.calls-lt3){throw 'Expected exactly one ChatGPT composer control, found 0.'};$composerProbe.ready}).GetNewClosure()
+$waitedComposer=& $bindingModule {param($Resolver) Wait-AidosRepositoryThinkerComposerElement -RootElement ([pscustomobject]@{}) -MaxAttempts 3 -PollMilliseconds 0 -ComposerResolver $Resolver} $transientResolver
+Assert-Binding ($composerProbe.calls-eq3 -and $waitedComposer.automation_id-eq'prompt-textarea') 'Repository Thinker tolerates bounded transient composer absence and returns only the unique ready control'
+
+$ambiguousProbe=[pscustomobject]@{calls=0}
+$ambiguousResolver=({param($Root);$ambiguousProbe.calls++;throw 'Expected exactly one ChatGPT composer control, found 2.'}).GetNewClosure()
+Assert-BindingThrows {& $bindingModule {param($Resolver) Wait-AidosRepositoryThinkerComposerElement -RootElement ([pscustomobject]@{}) -MaxAttempts 3 -PollMilliseconds 0 -ComposerResolver $Resolver} $ambiguousResolver} 'found 2' 'Repository Thinker fails immediately on ambiguous composer discovery'
+Assert-Binding ($ambiguousProbe.calls-eq1) 'ambiguous composer discovery is never retried'
 
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aidos-thinker-binding-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force|Out-Null
