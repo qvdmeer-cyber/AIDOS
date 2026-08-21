@@ -32,7 +32,7 @@ if(-not$IsWindows){throw 'The AIDOS repository handoff host must run with PowerS
 
 Import-Module (Join-Path $PSScriptRoot 'AidosBridge.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosProjectRegistry.psm1') -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking
+$script:AidosWindowsSessionModule=Import-Module (Join-Path $PSScriptRoot 'AidosWindowsSession.psm1') -Force -PassThru -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffInstallation.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffOpenApi.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHandoffBridge.psm1') -DisableNameChecking
@@ -106,8 +106,8 @@ function Test-AidosRepositoryHostAdministrator {
 
 function Assert-AidosRepositoryHostAuthorizedSession {
     param([Parameter(Mandatory)][string]$ExpectedUser)
-    $snapshot=Get-AidosInteractiveSessionSnapshot
-    $authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser
+    $snapshot=& $script:AidosWindowsSessionModule { Get-AidosInteractiveSessionSnapshot }
+    $authorization=& $script:AidosWindowsSessionModule { param($Snapshot,$AuthorizedUser) Test-AidosAuthorizedInteractiveSession -Snapshot $Snapshot -AuthorizedUser $AuthorizedUser } $snapshot $ExpectedUser
     if(-not$authorization.allowed){throw "Repository handoff host requires the unlocked interactive session for '$ExpectedUser': $($authorization.reason)."}
     $current=[Security.Principal.WindowsIdentity]::GetCurrent().Name
     if(-not[string]::Equals($current,$ExpectedUser,[StringComparison]::OrdinalIgnoreCase)){throw "Current Windows identity '$current' does not match AuthorizedUser '$ExpectedUser'."}

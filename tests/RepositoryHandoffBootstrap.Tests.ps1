@@ -22,12 +22,15 @@ function Assert-Bootstrap([bool]$Condition,[string]$Message){
 }
 
 Assert-Bootstrap ($hostText.Contains("'RecoverThinkerTrigger'") -and $hostText.Contains('$task=Get-AidosRepositoryHostTaskStatus')) 'Thinker interrupted recovery uses the installed host task-status helper'
+Assert-Bootstrap ($hostText.Contains("`$script:AidosWindowsSessionModule=Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -Force -PassThru")) 'canonical host stores the exact Windows-session module object'
+Assert-Bootstrap ($hostText.Contains('$snapshot=& $script:AidosWindowsSessionModule { Get-AidosInteractiveSessionSnapshot }')) 'canonical host resolves the session snapshot through its exact module object'
+Assert-Bootstrap ($hostText.Contains('$authorization=& $script:AidosWindowsSessionModule')) 'canonical host resolves session authorization through its exact module object'
 
 Assert-Bootstrap ($text.Contains("`$runtimeHost=Join-Path `$PSScriptRoot ('Invoke-AidosRepositoryHandoffHost.runtime.'")) 'bootstrap materializes a temporary runtime host'
 Assert-Bootstrap ($text.Contains("`$runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.'")) 'bootstrap materializes a temporary runtime bridge'
 Assert-Bootstrap ($text.Contains("`$runtimeHandoffName='AidosRepositoryHandoff.runtime.'")) 'bootstrap materializes a temporary runtime handoff module'
 Assert-Bootstrap ($text.Contains("`$runtimeGatewayName='AidosRepositoryHandoffGateway.runtime.'")) 'bootstrap materializes a temporary runtime gateway module'
-Assert-Bootstrap ($text.Contains("`$script:AidosWindowsSessionModule=Import-Module")) 'runtime host stores the imported Windows-session module object'
+Assert-Bootstrap ($hostText.Contains("`$script:AidosWindowsSessionModule=Import-Module")) 'runtime host inherits the canonical Windows-session module object routing'
 Assert-Bootstrap ($text.Contains("`$updated.entry_point=`$PSCommandPath")) 'successful install persists bootstrap as scheduled-task entrypoint'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeBridge){Remove-Item -LiteralPath `$runtimeBridge -Force}")) 'temporary runtime bridge is removed'
 Assert-Bootstrap ($text.Contains("if(Test-Path -LiteralPath `$runtimeHandoff){Remove-Item -LiteralPath `$runtimeHandoff -Force}")) 'temporary runtime handoff module is removed'
@@ -115,11 +118,8 @@ Assert-Bootstrap (@($bridgeErrors).Count-eq0) ('runtime bridge parses: '+(@($bri
 $runtimeBridgeName='AidosRepositoryHandoffBridge.runtime.test.psm1'
 $runtimeGatewayName='AidosRepositoryHandoffGateway.runtime.test.psm1'
 $hostReplacements=[ordered]@{
-    "Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -DisableNameChecking" = "`$script:AidosWindowsSessionModule=Import-Module (Join-Path `$PSScriptRoot 'AidosWindowsSession.psm1') -Force -PassThru -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoffBridge.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeBridgeName') -Force -DisableNameChecking"
     "Import-Module (Join-Path `$PSScriptRoot 'AidosRepositoryHandoffGateway.psm1') -DisableNameChecking" = "Import-Module (Join-Path `$PSScriptRoot '$runtimeGatewayName') -Force -DisableNameChecking"
-    '$snapshot=Get-AidosInteractiveSessionSnapshot' = '$snapshot=& $script:AidosWindowsSessionModule { Get-AidosInteractiveSessionSnapshot }'
-    '$authorization=Test-AidosAuthorizedInteractiveSession -Snapshot $snapshot -AuthorizedUser $ExpectedUser' = '$authorization=& $script:AidosWindowsSessionModule { param($Snapshot,$AuthorizedUser) Test-AidosAuthorizedInteractiveSession -Snapshot $Snapshot -AuthorizedUser $AuthorizedUser } $snapshot $ExpectedUser'
 }
 $runtimeHost=$hostText
 foreach($pair in $hostReplacements.GetEnumerator()){
