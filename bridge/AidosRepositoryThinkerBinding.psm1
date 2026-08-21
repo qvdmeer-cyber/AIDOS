@@ -114,6 +114,25 @@ function Get-AidosRepositoryThinkerComposerElement {
     if($matches.Count-ne1){throw "Expected exactly one ChatGPT composer control, found $($matches.Count)."}
     $matches[0]
 }
+function Wait-AidosRepositoryThinkerComposerElement {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$RootElement,
+        [ValidateRange(1,600)][int]$MaxAttempts=120,
+        [ValidateRange(0,5000)][int]$PollMilliseconds=500
+    )
+    for($attempt=1;$attempt-le$MaxAttempts;$attempt++){
+        try{return Get-AidosRepositoryThinkerComposerElement -RootElement $RootElement}
+        catch{
+            # A temporarily absent composer is expected while an already-active
+            # conversation restores or finishes rendering. Ambiguity and every
+            # other UIA contract failure remain immediate fail-closed errors.
+            if($_.Exception.Message-ne'Expected exactly one ChatGPT composer control, found 0.'){throw}
+            if($attempt-eq$MaxAttempts){throw "ChatGPT composer did not become uniquely ready after $MaxAttempts bounded observations."}
+        }
+        if($PollMilliseconds-gt0){Start-Sleep -Milliseconds $PollMilliseconds}
+    }
+}
 function Test-AidosRepositoryThinkerComposerFocusProof {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Composer)
@@ -371,7 +390,7 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw 'ChatGPT window is not present.'}
     $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
     if(-not$root){throw 'ChatGPT window is not accessible through UI Automation.'}
-    $composer=Get-AidosRepositoryThinkerComposerElement -RootElement $root
+    $composer=Wait-AidosRepositoryThinkerComposerElement -RootElement $root
     $before=Get-AidosDesktopChatGPTElementText $composer
     $mutationOccurred=([string]$before-ne[string]$PromptText)
     $composer.SetFocus()
