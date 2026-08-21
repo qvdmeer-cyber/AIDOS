@@ -5,44 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   classic-response-regressions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/repository-thinker-native-sendinput
-          fetch-depth: 0
-      - name: Apply native SendInput patch
-        shell: bash
-        run: python tools/TEMP-PatchRepositoryThinkerNativeSendInput.py
-      - name: Validate native SendInput contracts
-        shell: pwsh
-        run: |
-          $paths=@('bridge/AidosRepositoryThinkerBinding.psm1','tests/RepositoryThinkerBinding.Tests.ps1')
-          foreach($path in $paths){
-            $tokens=$null
-            $errors=$null
-            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
-            if($errors.Count){throw "${path}: $($errors.Message -join '; ')"}
-          }
-          ./tests/RepositoryThinkerBinding.Tests.ps1
-      - name: Commit native SendInput patch
-        shell: bash
-        run: |
-          git add -- bridge/AidosRepositoryThinkerBinding.psm1 tests/RepositoryThinkerBinding.Tests.ps1
-          if git diff --cached --quiet; then
-            echo "No native SendInput changes"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Use native SendInput for Repository Thinker keyboard transport"
-            git pull --rebase origin fix/repository-thinker-native-sendinput
-            git push origin HEAD:fix/repository-thinker-native-sendinput
-          fi
       - name: Actor response extraction regression
         shell: pwsh
         run: ./tests/DesktopActorResponseExtraction.Tests.ps1
