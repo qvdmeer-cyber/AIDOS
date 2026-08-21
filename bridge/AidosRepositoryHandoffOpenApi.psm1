@@ -260,7 +260,22 @@ function New-AidosRepositoryHandoffOpenApiDocument {
                     properties=[ordered]@{
                         expected_parent_handoff_id=[ordered]@{type='string';format='uuid'}
                         summary=[ordered]@{type='string'}
-                        result=[ordered]@{type='object';additionalProperties=$true;description='Exact bound RUNTIME_ACTOR_RESULT or REVIEW_RESPONSE envelope. AIDOS Core validates its full contract.'}
+                        result=[ordered]@{
+                            type='object';additionalProperties=$false;description='Exact bound RUNTIME_ACTOR_RESULT or REVIEW_RESPONSE envelope. AIDOS Core validates the applicable full contract.'
+                            required=@('schema_version','envelope_type','project_id','assignment_sha256','outcome','responded_at')
+                            properties=[ordered]@{
+                                schema_version=[ordered]@{type='string'};envelope_type=[ordered]@{type='string';enum=@('RUNTIME_ACTOR_RESULT','REVIEW_RESPONSE')}
+                                assignment_id=[ordered]@{type='string'};assignment_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
+                                project_id=[ordered]@{type='string'};project_root=[ordered]@{type='string'};project_mode=[ordered]@{type='string'}
+                                actor_role=[ordered]@{type='string'};actor_identity=[ordered]@{type='string'};action=[ordered]@{type='string'};binding=[ordered]@{type='object';additionalProperties=$true}
+                                review_id=[ordered]@{type='string'};definition_id=[ordered]@{type='string'};definition_version=[ordered]@{type='integer'};execution_id=[ordered]@{type='string'};revision=[ordered]@{type='integer'}
+                                reviewer_role=[ordered]@{type='string'};reviewer_identity=[ordered]@{type='string'};package_manifest_sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}
+                                outcome=[ordered]@{type='string'};reason=[ordered]@{type='string'}
+                                evidence_refs=[ordered]@{type='array';items=[ordered]@{type='object';additionalProperties=$false;required=@('kind','path','sha256');properties=[ordered]@{kind=[ordered]@{type='string'};path=[ordered]@{type='string'};sha256=[ordered]@{type='string';pattern='^[0-9a-f]{64}$'}}}}
+                                repair_guidance=[ordered]@{type='array';items=[ordered]@{type='string'}};result=[ordered]@{type='object';additionalProperties=$true}
+                                responded_at=[ordered]@{type='string';format='date-time'};responded_by=[ordered]@{type='string'}
+                            }
+                        }
                     }
                 }
                 AcceptedResultResponse=[ordered]@{
