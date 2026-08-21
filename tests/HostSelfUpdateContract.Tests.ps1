@@ -26,6 +26,7 @@ Assert-SelfUpdate ($watchdog -match 'SELF_UPDATE_RELOAD_REQUIRED\.json') 'watchd
 Assert-SelfUpdate ($watchdog -match 'Reload-AidosAutonomousPreparation\.ps1') 'validated update reuses the lease-safe Core reload lifecycle'
 Assert-SelfUpdate ($watchdog -match '-PreserveSelfUpdateTask') 'watchdog explicitly preserves its own scheduled task during reload'
 Assert-SelfUpdate ($reload -match 'PreserveSelfUpdateTask' -and $reload -match '-PreserveExistingTask:\$PreserveSelfUpdateTask') 'reload propagates explicit self-update task preservation'
+Assert-SelfUpdate (([regex]::Matches($reload,'-PreserveExistingTask:\$PreserveSelfUpdateTask')).Count -eq 1) 'reload passes self-update task preservation to the installer exactly once'
 Assert-SelfUpdate ($installer -match 'PreserveExistingTask' -and $installer -match "provisioning='PRESERVED_EXISTING'") 'installer supports fail-closed preservation without Task Scheduler mutation'
 Assert-SelfUpdate ($installer -match "RunLevel Limited") 'self-update task runs with limited user authority'
 Assert-SelfUpdate ($installer -match 'SELF_UPDATE_LAUNCHER\.vbs') 'self-update task uses an AIDOS-owned hidden launcher'
