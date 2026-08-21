@@ -82,9 +82,7 @@ try{
     Assert-Binding ([string]$again.status-eq'ALREADY_TRIGGERED') 'same handoff trigger is idempotent'
     Assert-Binding ($runtime.send_count-eq1) 'idempotent trigger does not resend to ChatGPT'
 
-    Reset-AidosRepositoryThinkerTrigger -StateRoot $temp -ProjectId 'PROJECT-1' -HandoffId ([string]$handoff.metadata.handoff_id)|Out-Null
-    $afterReset=Invoke-AidosRepositoryThinkerTrigger -StateRoot $temp -Handoff $handoff -Backend $backend
-    Assert-Binding ([string]$afterReset.status-eq'TRIGGERED' -and $runtime.send_count-eq2) 'operator reset explicitly permits one retrigger'
+    Assert-BindingThrows {Reset-AidosRepositoryThinkerTrigger -StateRoot $temp -ProjectId 'PROJECT-1' -HandoffId ([string]$handoff.metadata.handoff_id)} 'Only an uncommitted FAILED' 'operator cannot reset a committed Thinker trigger'
 
     $unbound=[pscustomobject][ordered]@{metadata=[pscustomobject][ordered]@{project_id='PROJECT-2';handoff_id=[guid]::NewGuid().ToString();kind='ASSIGNMENT';to_actor='THINKER'};text_sha256=('b'*64)}
     $unboundResult=Invoke-AidosRepositoryThinkerTrigger -StateRoot $temp -Handoff $unbound -Backend $backend
@@ -105,8 +103,18 @@ try{
     $failed=Invoke-AidosRepositoryThinkerTrigger -StateRoot $temp -Handoff $failedHandoff -Backend $failing
     Assert-Binding ([string]$failed.status-eq'FAILED' -and $failed.retry_after) 'failed activation enters bounded backoff'
     $backoff=Invoke-AidosRepositoryThinkerTrigger -StateRoot $temp -Handoff $failedHandoff -Backend $failing
-    Assert-Binding ([string]$backoff.status-eq'BACKOFF') 'ticker does not hammer ChatGPT during backoff'
+    Assert-Binding ([string]$backoff.status-eq'FAILED_REQUIRES_RESET') 'ticker never retries a failed ChatGPT trigger without explicit reset'
     Assert-Binding ($failureRuntime.send_count-eq0) 'failed conversation activation never sends into an unknown chat'
+    Reset-AidosRepositoryThinkerTrigger -StateRoot $temp -ProjectId 'PROJECT-1' -HandoffId ([string]$failedHandoff.metadata.handoff_id)|Out-Null
+    Assert-Binding ($null-eq(Get-AidosRepositoryThinkerTriggerState -StateRoot $temp -ProjectId 'PROJECT-1' -HandoffId ([string]$failedHandoff.metadata.handoff_id))) 'operator reset removes only an uncommitted FAILED trigger'
+
+    $pendingHandoff=[pscustomobject][ordered]@{metadata=[pscustomobject][ordered]@{project_id='PROJECT-1';handoff_id=[guid]::NewGuid().ToString();kind='ASSIGNMENT';to_actor='THINKER'};text_sha256=('d'*64)}
+    $pendingPath=Get-AidosRepositoryThinkerTriggerPath -StateRoot $temp -ProjectId 'PROJECT-1' -HandoffId ([string]$pendingHandoff.metadata.handoff_id)
+    Write-AidosRepositoryThinkerJsonAtomic -Path $pendingPath -Value ([pscustomobject][ordered]@{schema_version='0.1';project_id='PROJECT-1';handoff_id=[string]$pendingHandoff.metadata.handoff_id;handoff_sha256=('d'*64);status='PENDING';attempt=1;triggered_at=$null;retry_after=$null;last_error=$null;send_proof=$null;updated_at=[DateTimeOffset]::UtcNow.ToString('o')})
+    $pending=Invoke-AidosRepositoryThinkerTrigger -StateRoot $temp -Handoff $pendingHandoff -Backend $backend
+    Assert-Binding ([string]$pending.status-eq'PENDING_REQUIRES_RECOVERY') 'ticker never re-enters an interrupted PENDING trigger'
+    $recovered=Recover-AidosRepositoryThinkerInterruptedTrigger -StateRoot $temp -ProjectId 'PROJECT-1' -HandoffId ([string]$pendingHandoff.metadata.handoff_id)
+    Assert-Binding ([string]$recovered.status-eq'RECOVERED_INTERRUPTED' -and [string]$recovered.state.status-eq'FAILED' -and $recovered.state.last_error-eq'INTERRUPTED_BEFORE_COMMIT: host stopped while trigger attempt was PENDING; explicit reset is required.') 'proofless PENDING trigger has explicit durable interrupted recovery'
 
     Remove-AidosRepositoryThinkerBinding -StateRoot $temp -ProjectId 'PROJECT-1'|Out-Null
     Assert-Binding ($null-eq(Read-AidosRepositoryThinkerBinding -StateRoot $temp -ProjectId 'PROJECT-1')) 'operator can replace a disposable project chat binding'

@@ -650,7 +650,8 @@ function Invoke-AidosRepositoryThinkerTrigger {
     if($null-eq$binding -or [string]$binding.status-ne'BOUND'){return [pscustomobject][ordered]@{status='UNBOUND';project_id=$projectId;handoff_id=$handoffId}}
     $existing=Get-AidosRepositoryThinkerTriggerState -StateRoot $StateRoot -ProjectId $projectId -HandoffId $handoffId
     if($existing -and [string]$existing.status-eq'COMMITTED'){return [pscustomobject][ordered]@{status='ALREADY_TRIGGERED';state=$existing}}
-    if($existing -and [string]$existing.status-eq'FAILED' -and $existing.retry_after){$retry=ConvertTo-AidosRepositoryThinkerRetryAfter -Value $existing.retry_after;if([DateTimeOffset]::UtcNow-lt$retry){return [pscustomobject][ordered]@{status='BACKOFF';retry_after=$retry.ToString('o');state=$existing}}}
+    if($existing -and [string]$existing.status-eq'FAILED'){return [pscustomobject][ordered]@{status='FAILED_REQUIRES_RESET';state=$existing}}
+    if($existing -and [string]$existing.status-eq'PENDING'){return [pscustomobject][ordered]@{status='PENDING_REQUIRES_RECOVERY';state=$existing}}
     if($null-eq$Backend){$Backend=New-AidosRepositoryThinkerWindowsBackend -ProcessName $ProcessName}
     $attempt=if($existing){[int]$existing.attempt+1}else{1}
     $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $projectId -HandoffId $handoffId
@@ -673,11 +674,28 @@ function Invoke-AidosRepositoryThinkerTrigger {
         [pscustomobject][ordered]@{status='FAILED';project_id=$projectId;handoff_id=$handoffId;error=$state.last_error;retry_after=$state.retry_after;state=$state}
     }
 }
+function Recover-AidosRepositoryThinkerInterruptedTrigger {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)][string]$HandoffId)
+    $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $ProjectId -HandoffId $HandoffId
+    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){throw 'Interrupted Thinker trigger recovery requires an existing trigger state.'}
+    $state=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+    if([string]$state.status-ne'PENDING' -or $null-ne$state.triggered_at -or $null-ne$state.send_proof){throw 'Only a proofless PENDING Thinker trigger can be recovered as interrupted.'}
+    $state.status='FAILED'
+    $state.retry_after=$null
+    $state.last_error='INTERRUPTED_BEFORE_COMMIT: host stopped while trigger attempt was PENDING; explicit reset is required.'
+    $state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
+    [pscustomobject][ordered]@{status='RECOVERED_INTERRUPTED';project_id=$ProjectId;handoff_id=$HandoffId;state=$state}
+}
 function Reset-AidosRepositoryThinkerTrigger {
     param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)][string]$HandoffId)
     $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $ProjectId -HandoffId $HandoffId
-    if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force}
+    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){throw 'Thinker trigger reset requires an existing FAILED trigger state.'}
+    $state=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+    if([string]$state.status-ne'FAILED' -or $null-ne$state.triggered_at){throw 'Only an uncommitted FAILED Thinker trigger can be reset.'}
+    Remove-Item -LiteralPath $path -Force
     [pscustomobject][ordered]@{status='RESET';project_id=$ProjectId;handoff_id=$HandoffId}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,ConvertTo-AidosRepositoryThinkerRetryAfter,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Reset-AidosRepositoryThinkerTrigger
+Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,ConvertTo-AidosRepositoryThinkerRetryAfter,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Recover-AidosRepositoryThinkerInterruptedTrigger,Reset-AidosRepositoryThinkerTrigger
