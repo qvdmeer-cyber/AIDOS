@@ -54,6 +54,18 @@ try{
     Assert-Gateway ([int]$unauthorized.status_code-eq401) 'HTTP router rejects unauthorized requests before project access'
     $health=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/health' -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root
     Assert-Gateway ([int]$health.status_code-eq200 -and [string]$health.body.status-eq'OK') 'authenticated health endpoint responds'
+    $stopControl=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/control' -Body ([pscustomobject]@{command='STOP'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([int]$stopControl.status_code-eq200 -and [string]$stopControl.body.acknowledgement-eq'AIDOS_CONTROL_ACCEPTED::STOP' -and [string]$stopControl.body.control_mode-eq'PAUSED') 'exact STOP chat control durably pauses the project'
+    Assert-Gateway (Test-Path -LiteralPath (Join-Path $projectRoot ([string]$stopControl.body.intent_ref)) -PathType Leaf) 'chat control persists its exact Core intent record'
+    Assert-Gateway (Test-Path -LiteralPath (Join-Path $stateRoot 'WAKE.json') -PathType Leaf) 'accepted chat control signals the bridge for a safe tick'
+    $stopAgain=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/control' -Body ([pscustomobject]@{command='STOP'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([string]$stopAgain.body.acknowledgement-eq'AIDOS_CONTROL_ALREADY_PAUSED') 'repeated STOP is idempotent at the orchestration boundary'
+    $startControl=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/control' -Body ([pscustomobject]@{command='START'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([string]$startControl.body.acknowledgement-eq'AIDOS_CONTROL_ACCEPTED::START' -and [string]$startControl.body.control_mode-eq'RUNNING') 'exact START chat control durably resumes the project'
+    $startAgain=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/control' -Body ([pscustomobject]@{command='START'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([string]$startAgain.body.acknowledgement-eq'AIDOS_CONTROL_ALREADY_RUNNING') 'repeated START is idempotent at the orchestration boundary'
+    $badControl=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/control' -Body ([pscustomobject]@{command='START';requested_by='IMPOSTOR'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([int]$badControl.status_code-eq409 -and [string]$badControl.body.detail-match'exactly one command') 'chat control rejects caller-supplied authority fields'
     $current=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/v1/projects/PROJECT-1/handoff' -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root
     Assert-Gateway ([int]$current.status_code-eq200) 'current handoff endpoint responds'
     Assert-Gateway ([string]$current.body.metadata.handoff_id-eq$handoffId) 'current handoff endpoint preserves handoff identity'
@@ -84,5 +96,10 @@ try{
     Assert-Gateway ([string]$transport.status-eq'COMPLETED') 'accepted result advances existing transport state to COMPLETED'
     $retry=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/results' -Body $request -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
     Assert-Gateway ([int]$retry.status_code-eq200 -and [string]$retry.body.status-eq'ALREADY_ACCEPTED') 'same parent retry is idempotent'
+    $recoveryState=Get-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Raw|ConvertFrom-Json -Depth 20
+    $recoveryState.state='RECOVERY_REQUIRED'
+    $recoveryState|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
+    $rejectedStart=Invoke-AidosRepositoryHandoffGatewayRequest -Method POST -Path '/v1/projects/PROJECT-1/control' -Body ([pscustomobject]@{command='START'}) -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    Assert-Gateway ([int]$rejectedStart.status_code-eq200 -and [string]$rejectedStart.body.acknowledgement-eq'AIDOS_CONTROL_REJECTED' -and [string]$rejectedStart.body.reason-match'RECOVERY_REQUIRED') 'chat START fails closed when Core requires explicit recovery'
     Write-Output "PASS: $passed repository handoff gateway assertions"
 }finally{Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}

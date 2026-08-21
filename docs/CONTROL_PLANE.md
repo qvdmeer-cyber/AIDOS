@@ -32,7 +32,15 @@ RECEIVED
 
 `SAFE_STOP` converges toward no new work and no unsafe in-flight mutation. It is not equivalent to killing a process tree.
 
-**Current implementation status:** supervised-session behaviour already blocks the next interactive GPT activation while permitting an already-running bounded Codex execution to finish. General remote pause/resume/safe-stop remains runtime roadmap work.
+Supervised-session behaviour blocks the next interactive GPT activation while permitting an already-running bounded Codex execution to finish. Durable remote `PAUSE` and `RESUME` are implemented through the operator control state. `SAFE_STOP` is available through Core's operator API; it is intentionally not exposed as the short ChatGPT `STOP` command because the chat command has pause/resume semantics.
+
+## Bound ChatGPT operator controls
+
+The private Repository Thinker GPT exposes one authenticated intent endpoint. An exact whole-message `START`/`CONTINUE`/`BEGIN`/`GA VERDER` command maps to Core `RESUME`; an exact `STOP`/`STOPPEN`/`PAUZE` command maps to Core `PAUSE`. Optional `AIDOS ` prefixes are accepted by the GPT's finite command allowlist.
+
+The GPT obtains project identity only from the exact bound conversation title, submits only canonical `START` or `STOP`, and must return Core's durable acknowledgement verbatim. The gateway fixes `requested_by=CHATGPT_OPERATOR`; user-supplied actor identity is not accepted. Every accepted request produces a project-local control-intent record under `.aidos/control/intents/` and signals the host bridge for a fresh safe tick.
+
+`STOP` leaves the control gateway running so a later `START` remains reachable. Repeated controls are idempotent at the orchestration boundary and return `AIDOS_CONTROL_ALREADY_RUNNING` or `AIDOS_CONTROL_ALREADY_PAUSED`.
 
 ## Human Input Requests
 
