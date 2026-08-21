@@ -26,6 +26,7 @@ Assert-Binding ($bindingSource.Contains("`$sentinelSelectTransport.StartsWith('K
 Assert-Binding ($bindingSource.Contains('$payloadSelectTransport=Set-AidosRepositoryThinkerComposerValue -Composer $composer -Value $PromptText') -and $bindingSource.Contains('$uiaValueFallback=$true')) 'Repository Thinker uses UI Automation for the real payload only after exact sentinel readback proved that route'
 Assert-Binding ($bindingSource.Contains('win32_error=') -and $bindingSource.Contains('input_size=') -and $bindingSource.Contains('pointer_size=')) 'Repository Thinker reports native input diagnostics for live transport failures and fallbacks'
 Assert-Binding ($bindingSource.Contains('send_proof=$null') -and $bindingSource.Contains('$state.send_proof=$send')) 'Repository Thinker durably records the committed native input and submit proof'
+Assert-Binding ($bindingSource.Contains('Test-AidosRepositoryThinkerVisibleHandoffMarker') -and $bindingSource.Contains('visible_handoff_marker_proof_state')) 'Repository Thinker requires the exact visible handoff marker before durable COMMITTED state'
 $bindingModule=Get-Module AidosRepositoryThinkerBinding | Select-Object -First 1
 & $bindingModule { Initialize-AidosRepositoryThinkerNativeInput }
 Assert-Binding ([bool]('AidosRepositoryThinkerNativeInputV2' -as [type])) 'Repository Thinker native input helper compiles successfully'

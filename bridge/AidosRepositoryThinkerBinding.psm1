@@ -436,6 +436,20 @@ function Find-AidosRepositoryThinkerSubmitElement {
     if($matches.Count-gt1){throw 'ChatGPT composer submit control is ambiguous.'}
     $null
 }
+function Test-AidosRepositoryThinkerVisibleHandoffMarker {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$RootElement,[Parameter(Mandatory)][string]$PromptText)
+    $handoffMatch=[regex]::Match($PromptText,'(?m)^handoff_id=([^\r\n]+)$')
+    if(-not$handoffMatch.Success){return $false}
+    $handoffId=$handoffMatch.Groups[1].Value
+    $elements=@($RootElement.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))
+    $texts=[Collections.Generic.List[string]]::new()
+    foreach($element in $elements){
+        try{$value=[string](Get-AidosDesktopChatGPTElementText $element);if(-not[string]::IsNullOrWhiteSpace($value)){$texts.Add($value)}}catch{}
+    }
+    $joined=($texts -join "`n")
+    $joined.IndexOf('AIDOS_HANDOFF_READY',[StringComparison]::Ordinal) -ge 0 -and $joined.IndexOf($handoffId,[StringComparison]::Ordinal) -ge 0
+}
 function Invoke-AidosRepositoryThinkerPromptSend {
     [CmdletBinding()]
     param($Context,$Binding,[Parameter(Mandatory)][string]$PromptText,$Assignment)
@@ -545,6 +559,12 @@ function Invoke-AidosRepositoryThinkerPromptSend {
         if([string]::IsNullOrWhiteSpace($remaining) -or $remaining.IndexOf($PromptText,[StringComparison]::Ordinal)-lt0){$cleared=$true;break}
     }
     if(-not$cleared){throw 'ChatGPT composer still contains the exact outbound payload after submit; committed-send proof is absent.'}
+    $visibleMarker=$false
+    for($attempt=0;$attempt-lt60;$attempt++){
+        Start-Sleep -Milliseconds 250
+        if(Test-AidosRepositoryThinkerVisibleHandoffMarker -RootElement $root -PromptText $PromptText){$visibleMarker=$true;break}
+    }
+    if(-not$visibleMarker){throw 'ChatGPT conversation did not visibly expose the exact AIDOS_HANDOFF_READY marker after submit; durable delivery proof is absent.'}
     [pscustomobject]@{
         schema_version='0.1'
         assignment_id=if($Assignment -and $Assignment.PSObject.Properties['assignment_id']){[string]$Assignment.assignment_id}else{$null}
@@ -563,6 +583,7 @@ function Invoke-AidosRepositoryThinkerPromptSend {
         }
         send_invocation_state=$sendMethod
         committed_message_proof_state='PROVEN'
+        visible_handoff_marker_proof_state='PROVEN'
         failure_reason=$null
         committed=$true
     }
@@ -733,6 +754,27 @@ function Recover-AidosRepositoryThinkerInterruptedTrigger {
     Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
     [pscustomobject][ordered]@{status='RECOVERED_INTERRUPTED';project_id=$ProjectId;handoff_id=$HandoffId;state=$state}
 }
+function Recover-AidosRepositoryThinkerUnprovenCommit {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)]$Handoff,[string]$ProcessName='ChatGPT Classic')
+    $projectId=[string]$Handoff.metadata.project_id;$handoffId=[string]$Handoff.metadata.handoff_id
+    $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $projectId -HandoffId $handoffId
+    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){throw 'Unproven Thinker commit recovery requires an existing trigger state.'}
+    $state=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
+    if([string]$state.status-ne'COMMITTED'){throw "Unproven Thinker commit recovery requires COMMITTED state, found '$($state.status)'."}
+    $binding=Read-AidosRepositoryThinkerBinding -StateRoot $StateRoot -ProjectId $projectId
+    if($null-eq$binding -or [string]$binding.status-ne'BOUND'){throw 'Unproven Thinker commit recovery requires a bound conversation.'}
+    if(-not('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+    $context=Get-AidosDesktopChatGPTProcessContext -ProcessName ([string]$binding.process_name)
+    $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$context.window_handle))
+    $conversation=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
+    if(-not(Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl ([string]$conversation.url) -ExpectedUrl ([string]$binding.conversation_url))){throw 'Unproven Thinker commit recovery refused because the bound conversation is not active.'}
+    $prompt=New-AidosRepositoryThinkerTriggerText -Binding $binding -Handoff $Handoff
+    if(Test-AidosRepositoryThinkerVisibleHandoffMarker -RootElement $root -PromptText $prompt){return [pscustomobject][ordered]@{status='VISIBLE_PROOF_PRESENT';project_id=$projectId;handoff_id=$handoffId}}
+    $state.status='FAILED';$state.triggered_at=$null;$state.retry_after=$null;$state.last_error='COMMITTED_WITHOUT_VISIBLE_HANDOFF_MARKER: composer cleared but the exact handoff marker was not visible in the bound conversation.';$state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
+    [pscustomobject][ordered]@{status='RECOVERED_UNPROVEN_COMMIT';project_id=$projectId;handoff_id=$handoffId;state=$state}
+}
 function Reset-AidosRepositoryThinkerTrigger {
     param([Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)][string]$ProjectId,[Parameter(Mandatory)][string]$HandoffId)
     $path=Get-AidosRepositoryThinkerTriggerPath -StateRoot $StateRoot -ProjectId $ProjectId -HandoffId $HandoffId
@@ -743,4 +785,4 @@ function Reset-AidosRepositoryThinkerTrigger {
     [pscustomobject][ordered]@{status='RESET';project_id=$ProjectId;handoff_id=$HandoffId}
 }
 
-Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Test-AidosRepositoryThinkerConversationTitleMatch,Test-AidosRepositoryThinkerConversationUrlMatch,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,ConvertTo-AidosRepositoryThinkerRetryAfter,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Recover-AidosRepositoryThinkerInterruptedTrigger,Reset-AidosRepositoryThinkerTrigger
+Export-ModuleMember -Function Get-AidosRepositoryHandoffBridgeDefaultStateRoot,Get-AidosRepositoryThinkerBindingPath,Get-AidosRepositoryThinkerTriggerPath,Write-AidosRepositoryThinkerJsonAtomic,Read-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerCurrentConversationFromRoot,Get-AidosRepositoryThinkerLegacyAccessiblePattern,Test-AidosRepositoryThinkerActionableElement,Test-AidosRepositoryThinkerConversationTitleMatch,Test-AidosRepositoryThinkerConversationUrlMatch,Invoke-AidosRepositoryThinkerActionableElement,Find-AidosRepositoryThinkerConversationAction,New-AidosRepositoryThinkerWindowsBackend,Bind-AidosRepositoryThinkerConversation,Remove-AidosRepositoryThinkerBinding,Get-AidosRepositoryThinkerTriggerState,ConvertTo-AidosRepositoryThinkerRetryAfter,New-AidosRepositoryThinkerTriggerText,Invoke-AidosRepositoryThinkerTrigger,Recover-AidosRepositoryThinkerInterruptedTrigger,Recover-AidosRepositoryThinkerUnprovenCommit,Reset-AidosRepositoryThinkerTrigger
