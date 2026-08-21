@@ -183,6 +183,48 @@ function Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment {
     $reconciled
 }
 
+function Resolve-AidosRepositoryWorkerStaleConsumedReviewAssignment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Project,
+        [Parameter(Mandatory)]$Handoff
+    )
+    $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+    $state=Get-AidosState -ProjectRoot $root
+    if([string]$state.state-ne'TASK_READY' -or $null-eq$Handoff -or [string]$Handoff.metadata.kind-ne'ASSIGNMENT' -or [string]$Handoff.metadata.from_actor-ne'CORE' -or [string]$Handoff.metadata.to_actor-ne'THINKER' -or [string]$Handoff.metadata.action-ne'REVIEW'){
+        throw 'Another repository actor assignment is already active.'
+    }
+    $reviewId=[string]$Handoff.metadata.binding.review_id
+    if([string]::IsNullOrWhiteSpace($reviewId)){throw 'Another repository actor assignment is already active.'}
+    $record=Read-AidosReviewRecord -ProjectRoot $root -ReviewId $reviewId
+    if($null-eq$record -or [string]$record.project_id-ne[string]$Project.project_id -or [string]$record.review_id-ne$reviewId){throw 'Another repository actor assignment is already active.'}
+    if([string]$record.transport_state-ne'CLEANED' -or -not$record.response_accepted_at -or -not$record.response_sha256 -or -not$record.decision -or -not$record.consumed_at -or -not$record.consume_ack -or -not$record.cleaned_at){
+        throw 'Another repository actor assignment is already active.'
+    }
+    if([string]$record.decision.outcome-ne'REPAIR' -or [string]$record.decision.target_state-ne'TASK_READY'){throw 'Cleaned review does not authorize a Worker repair revision.'}
+    foreach($name in @('definition_id','definition_version','execution_id','revision','review_id')){
+        if([string]$Handoff.metadata.binding.$name-ne[string]$record.$name){throw "Stale review handoff binding '$name' differs from the durable review record."}
+    }
+    if([string]$Handoff.metadata.payload_sha256-ne[string]$record.assignment_sha256){throw 'Stale review handoff assignment hash differs from the durable review record.'}
+    $recordPath=Get-AidosReviewRecordPath -ProjectRoot $root -ReviewId $reviewId
+    if(-not(Test-Path -LiteralPath $recordPath -PathType Leaf)){throw 'Cleaned review has no durable review record.'}
+    $recordRef=[IO.Path]::GetRelativePath($root,$recordPath).Replace('\','/')
+    $recordSha=(Get-FileHash -LiteralPath $recordPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $metadata=[pscustomobject][ordered]@{
+        schema_version='0.1';envelope_type='AIDOS_REPOSITORY_HANDOFF';handoff_id=[guid]::NewGuid().ToString();project_id=[string]$Project.project_id
+        kind='RESULT';from_actor='THINKER';to_actor='CORE';status='READY';parent_handoff_id=[string]$Handoff.metadata.handoff_id;created_at=[DateTimeOffset]::UtcNow.ToString('o')
+        action='REVIEW_RESULT';payload_ref=$recordRef;payload_sha256=$recordSha;binding=$Handoff.metadata.binding;source_refs=@()
+    }
+    Test-AidosRepositoryHandoffTransition -Previous $Handoff -Next $metadata|Out-Null
+    $body="# AIDOS reconciled Thinker review result`n`nReview $reviewId was already accepted, decided, consumed and cleaned by AIDOS Core. This RESULT handoff restores the repository transport chain from the exact durable review record."
+    $reconciled=Write-AidosRepositoryHandoff -ProjectRoot $root -Metadata $metadata -Body $body -ExpectedParentHandoffId ([string]$Handoff.metadata.handoff_id)
+    Add-AidosEvent -ProjectRoot $root -EventType 'REPOSITORY_STALE_REVIEW_ASSIGNMENT_RECONCILED' -Actor SYSTEM -Payload @{
+        stale_handoff_id=[string]$Handoff.metadata.handoff_id;result_handoff_id=[string]$metadata.handoff_id;review_id=$reviewId
+        assignment_sha256=[string]$record.assignment_sha256;response_sha256=[string]$record.response_sha256;review_record_ref=$recordRef;review_record_sha256=$recordSha
+    }|Out-Null
+    $reconciled
+}
+
 function Publish-AidosRepositoryWorkerAssignment {
     [CmdletBinding()]
     param(
@@ -208,7 +250,11 @@ function Publish-AidosRepositoryWorkerAssignment {
                 persistence=[pscustomobject][ordered]@{status='NO_CHANGES';commit=$null;pushed=$false;paths=@()}
             }
         }
-        $existing=Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment -Project $Project -Handoff $existing
+        $existing=if([string]$existing.metadata.action-eq'REVIEW'){
+            Resolve-AidosRepositoryWorkerStaleConsumedReviewAssignment -Project $Project -Handoff $existing
+        }else{
+            Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment -Project $Project -Handoff $existing
+        }
     }
     $binding=Get-AidosRepositoryWorkerBinding -ProjectRoot $root -Execution $execution
     $metadata=[pscustomobject][ordered]@{
@@ -433,4 +479,4 @@ function Invoke-AidosRepositoryWorkerHandoff {
     }
 }
 
-Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff
+Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment,Resolve-AidosRepositoryWorkerStaleConsumedReviewAssignment,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff
