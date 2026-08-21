@@ -55,6 +55,7 @@ try{
     Assert-Install ($vbs.Contains('LAUNCHER.ps1') -and $vbs.Contains('shell.Run(command, 0, True)')) 'VBS bootstrap starts PowerShell hidden and waits'
 
     $instructions=New-AidosRepositoryThinkerGptInstructions
+    Assert-Install ($instructions.Length-le8000) 'custom GPT instructions fit the platform 8000-character limit'
     Assert-Install ($instructions.Contains('AIDOS_HANDOFF_READY')) 'custom GPT instructions require the Thinker bridge marker'
     Assert-Install ($instructions.Contains('getAidosProjectHandoff') -and $instructions.Contains('submitAidosBoundResult')) 'custom GPT instructions bind Thinker read and submit actions'
     Assert-Install ($instructions.Contains('AIDOS_HUMAN_INPUT_REQUIRED')) 'custom GPT instructions recognize Human Input presentation markers'
