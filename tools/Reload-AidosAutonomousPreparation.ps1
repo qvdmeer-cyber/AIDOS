@@ -54,6 +54,10 @@ function Disable-AidosLegacyDesktopTransportTask {
     param([Parameter(Mandatory)][string]$TaskName)
     $task=Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if(-not$task){return [pscustomobject]@{status='NOT_INSTALLED';task_name=$TaskName}}
+    # The Limited self-update watchdog may inspect but cannot mutate Task
+    # Scheduler registrations. An already-disabled legacy authority satisfies
+    # the reload invariant and must therefore be an idempotent read-only path.
+    if([string]$task.State -eq 'Disabled'){return [pscustomobject]@{status='ALREADY_DISABLED';task_name=$TaskName}}
     if([string]$task.State -eq 'Running'){Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop}
     Disable-ScheduledTask -TaskName $TaskName -ErrorAction Stop|Out-Null
     [pscustomobject]@{status='DISABLED';task_name=$TaskName}
