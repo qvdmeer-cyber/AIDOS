@@ -152,6 +152,107 @@ function Test-AidosRepositoryThinkerComposerTextMatch {
     [string]::Equals($observedComparable,$expectedComparable,[StringComparison]::Ordinal)
 }
 
+function Initialize-AidosRepositoryThinkerNativeInput {
+    [CmdletBinding()]
+    param()
+    if('AidosRepositoryThinkerNativeInputV1' -as [type]){return}
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class AidosRepositoryThinkerNativeInputV1 {
+    private const uint INPUT_KEYBOARD = 1;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT {
+        public uint type;
+        public INPUTUNION U;
+    }
+
+    [DllImport("user32.dll", SetLastError=true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    private static INPUT Keyboard(ushort vk, uint flags) {
+        return new INPUT {
+            type = INPUT_KEYBOARD,
+            U = new INPUTUNION {
+                ki = new KEYBDINPUT {
+                    wVk = vk,
+                    wScan = 0,
+                    dwFlags = flags,
+                    time = 0,
+                    dwExtraInfo = UIntPtr.Zero
+                }
+            }
+        };
+    }
+
+    private static void Send(INPUT[] inputs) {
+        uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+        if(sent != (uint)inputs.Length) {
+            int error = Marshal.GetLastWin32Error();
+            throw new Win32Exception(error, "SendInput accepted " + sent + " of " + inputs.Length + " keyboard events.");
+        }
+    }
+
+    public static void SendChord(ushort modifier, ushort key) {
+        Send(new INPUT[] {
+            Keyboard(modifier, 0),
+            Keyboard(key, 0),
+            Keyboard(key, KEYEVENTF_KEYUP),
+            Keyboard(modifier, KEYEVENTF_KEYUP)
+        });
+    }
+
+    public static void SendKey(ushort key) {
+        Send(new INPUT[] {
+            Keyboard(key, 0),
+            Keyboard(key, KEYEVENTF_KEYUP)
+        });
+    }
+}
+'@
+}
+function Invoke-AidosRepositoryThinkerNativeChord {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][UInt16]$Modifier,[Parameter(Mandatory)][UInt16]$Key)
+    Initialize-AidosRepositoryThinkerNativeInput
+    [AidosRepositoryThinkerNativeInputV1]::SendChord($Modifier,$Key)
+}
+function Invoke-AidosRepositoryThinkerNativeKey {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][UInt16]$Key)
+    Initialize-AidosRepositoryThinkerNativeInput
+    [AidosRepositoryThinkerNativeInputV1]::SendKey($Key)
+}
+
 function Find-AidosRepositoryThinkerSubmitElement {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$RootElement)
@@ -176,7 +277,6 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     [CmdletBinding()]
     param($Context,$Binding,[Parameter(Mandatory)][string]$PromptText,$Assignment)
     if(-not('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
-    if(-not('System.Windows.Forms.SendKeys' -as [type])){Add-Type -AssemblyName System.Windows.Forms}
     if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){throw 'ChatGPT window is not present.'}
     $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
     if(-not$root){throw 'ChatGPT window is not accessible through UI Automation.'}
@@ -196,9 +296,9 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     # failed attempt left matching visible text. Chromium/React may expose
     # ValuePattern text without updating the application's send-enabled state.
     Set-Clipboard -Value $PromptText
-    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x41
     Start-Sleep -Milliseconds 50
-    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Invoke-AidosRepositoryThinkerNativeChord -Modifier 0x11 -Key 0x56
 
     $composerExact=$false
     $current=$null
@@ -231,8 +331,8 @@ function Invoke-AidosRepositoryThinkerPromptSend {
         $composer.SetFocus()
         Start-Sleep -Milliseconds 100
         if(-not(Test-AidosRepositoryThinkerComposerFocusProof -Composer $composer)){throw 'ChatGPT composer keyboard focus proof is required before Enter fallback.'}
-        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-        $sendMethod='KEYBOARD_ENTER'
+        Invoke-AidosRepositoryThinkerNativeKey -Key 0x0D
+        $sendMethod='NATIVE_SENDINPUT_ENTER'
     }
 
     $cleared=$false
