@@ -33,7 +33,10 @@ try{
     Assert-OpenApi ($submit.'x-openai-isConsequential'-eq$false) 'bound result submission remains marked non-consequential at the Action UI layer'
     Assert-OpenApi ([string]$document.components.securitySchemes.BearerAuth.scheme-eq'bearer') 'OpenAPI requires bearer API-key authentication'
     Assert-OpenApi ([string]$document.components.schemas.HumanInputSubmitRequest.properties.request_sha256.pattern-eq'^[0-9a-f]{64}$') 'Human Input submission binds the exact request hash'
-    Assert-OpenApi ([string]$document.components.schemas.SubmitResultRequest.properties.result.type-eq'object' -and [bool]$document.components.schemas.SubmitResultRequest.properties.result.additionalProperties) 'GPT Action result request uses a simple object while Core retains full envelope validation'
+    $resultToolSchema=$document.components.schemas.SubmitResultRequest.properties.result
+    Assert-OpenApi ([string]$resultToolSchema.type-eq'object' -and -not[bool]$resultToolSchema.additionalProperties -and @($resultToolSchema.properties.Keys)-contains'envelope_type') 'GPT Action result argument exposes bounded envelope properties instead of an unsupported free-form object'
+    Assert-OpenApi (@($resultToolSchema.required)-contains'assignment_sha256' -and @($resultToolSchema.required)-contains'outcome') 'GPT Action result argument retains common bound-result requirements'
+    Assert-OpenApi (@($resultToolSchema.properties.evidence_refs.items.required)-contains'sha256') 'GPT Action REVIEW_RESPONSE evidence refs expose exact hash-bearing objects'
     Assert-OpenApi ([string]$document.components.schemas.Payload.properties.content.type-eq'object') 'handoff payload schema avoids unnecessary union constructs'
 
     $json=ConvertTo-AidosRepositoryHandoffOpenApiJson -ServerUrl 'https://aidos-machine.example.ts.net'
