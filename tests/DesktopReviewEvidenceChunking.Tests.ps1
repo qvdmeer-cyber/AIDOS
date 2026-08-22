@@ -71,6 +71,14 @@ try{
     try{Invoke-EvidenceDocuments -ProjectRoot $temp -Assignment $badAssignment -Manifest $manifest -MaximumDocumentBytes 64 -MaximumTotalBytes 4096|Out-Null}catch{$threw=$_.Exception.Message -match 'hash mismatch'}
     Assert-Chunking $threw 'full original evidence hash binding is still verified before chunking'
 
+    $sourcePath=Join-Path $temp 'source.jsonl'
+    $sourceText='const headers = { authorization: `Bearer ${this.apiKey}` };'
+    [IO.File]::WriteAllText($sourcePath,$sourceText,$utf8)
+    $sourceBytes=[IO.File]::ReadAllBytes($sourcePath)
+    $sourceAssignment=[pscustomobject][ordered]@{package_manifest_path='MANIFEST.json';package_manifest_sha256=$manifestSha;evidence_refs=@([pscustomobject][ordered]@{kind='EVENTS_JSONL';path='source.jsonl';sha256=(Get-Sha256 $sourceBytes)})}
+    $sourceDocuments=@(Invoke-EvidenceDocuments -ProjectRoot $temp -Assignment $sourceAssignment -Manifest $manifest -MaximumDocumentBytes 4096 -MaximumTotalBytes 4096)
+    Assert-Chunking ($sourceDocuments.Count -eq 2) 'template-based authorization source code is not mistaken for a credential'
+
     $secretPath=Join-Path $temp 'secret.txt'
     $secretText=('x'*60)+'api_key=supersecretvalue'
     [IO.File]::WriteAllText($secretPath,$secretText,$utf8)

@@ -785,7 +785,7 @@ function Get-AidosDesktopChatGPTReviewEvidenceDocuments {
         if($sha -ne [string]$reference.sha256){ throw "Desktop review evidence hash mismatch: $relative" }
         try{$text=$utf8.GetString($bytes)}catch{throw "Desktop review evidence is not UTF-8 text: $relative"}
         if($text.IndexOf([char]0) -ge 0){ throw "Desktop review evidence is not UTF-8 text: $relative" }
-        if($text -match '(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*\S+'){
+        if($text -match '(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*["'']?(?:Bearer\s+)?[A-Za-z0-9+/=_-]{16,}'){
             throw "Desktop review evidence is not secret-free: $relative"
         }
         if($bytes.Length -le $MaximumDocumentBytes){
