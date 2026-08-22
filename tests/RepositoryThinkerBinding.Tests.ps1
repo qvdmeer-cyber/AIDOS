@@ -57,6 +57,7 @@ Assert-Binding ($bindingSource.Contains('$desktopFocus=$desktop.FocusConversatio
 Assert-Binding ($bindingSource.Contains('function Wait-AidosRepositoryThinkerComposerElement') -and $bindingSource.Contains('$composer=Wait-AidosRepositoryThinkerComposerElement -RootElement $root')) 'Repository Thinker waits for bounded unique composer readiness before keyboard transport'
 Assert-Binding ($bindingSource.Contains('Treat that as transient readiness failure') -and $bindingSource.Contains('try{$current=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root}catch{}')) 'Repository Thinker tolerates transient WebView document URL absence during bounded conversation activation'
 Assert-Binding ($bindingSource.Contains('Start-Sleep -Milliseconds 750')) 'Repository Thinker settles foreground/UIA focus before touching the composer'
+Assert-Binding (-not $bindingSource.Contains('Start-Sleep -Milliseconds 750`n            `$Context')) 'Repository Thinker focus cooldown does not duplicate the context return value'
 
 $composerProbe=[pscustomobject]@{calls=0;ready=[pscustomobject]@{automation_id='prompt-textarea'}}
 $transientResolver=({param($Root);$composerProbe.calls++;if($composerProbe.calls-lt3){throw 'Expected exactly one ChatGPT composer control, found 0.'};$composerProbe.ready}).GetNewClosure()

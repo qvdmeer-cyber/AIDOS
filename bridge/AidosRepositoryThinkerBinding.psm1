@@ -663,7 +663,6 @@ function New-AidosRepositoryThinkerWindowsBackend {
             }
             & $desktopFocus $Context $Binding
             Start-Sleep -Milliseconds 750
-            $Context
         }).GetNewClosure()
         SendPrompt={param($Context,$Binding,$PromptText,$Assignment);Invoke-AidosRepositoryThinkerPromptSend -Context $Context -Binding $Binding -PromptText $PromptText -Assignment $Assignment}
     }
