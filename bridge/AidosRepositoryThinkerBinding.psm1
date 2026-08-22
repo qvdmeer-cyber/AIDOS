@@ -610,11 +610,18 @@ function New-AidosRepositoryThinkerWindowsBackend {
             $method=Invoke-AidosRepositoryThinkerActionableElement -Element $element
             for($attempt=0;$attempt-lt50;$attempt++){
                 Start-Sleep -Milliseconds 100
-                $observed=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
-                if(-not[string]::IsNullOrWhiteSpace([string]$observed.url) -and $observed.url.IndexOf('/c/',[StringComparison]::OrdinalIgnoreCase)-ge0){
-                    $conversation=[pscustomobject][ordered]@{title=[string]$ConversationTitle;document_title=[string]$observed.title;url=[string]$observed.url;document=$observed.document}
-                    return [pscustomobject][ordered]@{status='RESOLVED';method=$method;conversation=$conversation;context=$Context}
-                }
+                # ChatGPT Classic can briefly expose the WebView without its
+                # document URL while the selected conversation is loading.
+                # Treat that as transient readiness failure and keep the
+                # bounded activation poll alive; do not send until the URL is
+                # durably observed.
+                try{
+                    $observed=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
+                    if(-not[string]::IsNullOrWhiteSpace([string]$observed.url) -and $observed.url.IndexOf('/c/',[StringComparison]::OrdinalIgnoreCase)-ge0){
+                        $conversation=[pscustomobject][ordered]@{title=[string]$ConversationTitle;document_title=[string]$observed.title;url=[string]$observed.url;document=$observed.document}
+                        return [pscustomobject][ordered]@{status='RESOLVED';method=$method;conversation=$conversation;context=$Context}
+                    }
+                }catch{ continue }
             }
             throw "ChatGPT conversation '$ConversationTitle' was invoked but no conversation URL became active."
         }
@@ -622,14 +629,17 @@ function New-AidosRepositoryThinkerWindowsBackend {
             param($Context,$Binding)
             $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
             if(-not$root){throw 'ChatGPT window is unavailable through UI Automation.'}
-            $current=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
-            if(Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl ([string]$current.url) -ExpectedUrl ([string]$Binding.conversation_url)){return [pscustomobject][ordered]@{status='ALREADY_ACTIVE';conversation=$current;context=$Context}}
+            $current=$null
+            try{$current=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root}catch{}
+            if($current -and (Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl ([string]$current.url) -ExpectedUrl ([string]$Binding.conversation_url))){return [pscustomobject][ordered]@{status='ALREADY_ACTIVE';conversation=$current;context=$Context}}
             $element=Find-AidosRepositoryThinkerConversationAction -RootElement $root -ConversationTitle ([string]$Binding.conversation_title)
             $method=Invoke-AidosRepositoryThinkerActionableElement -Element $element
             for($attempt=0;$attempt-lt50;$attempt++){
                 Start-Sleep -Milliseconds 100
-                $observed=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
-                if(Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl ([string]$observed.url) -ExpectedUrl ([string]$Binding.conversation_url)){return [pscustomobject][ordered]@{status='ACTIVATED';method=$method;conversation=$observed;context=$Context}}
+                try{
+                    $observed=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root
+                    if(Test-AidosRepositoryThinkerConversationUrlMatch -ObservedUrl ([string]$observed.url) -ExpectedUrl ([string]$Binding.conversation_url)){return [pscustomobject][ordered]@{status='ACTIVATED';method=$method;conversation=$observed;context=$Context}}
+                }catch{ continue }
             }
             throw "ChatGPT conversation '$($Binding.conversation_title)' was invoked but its bound URL did not become active."
         }

@@ -55,6 +55,7 @@ Assert-Binding (-not$bindingSource.Contains('SendPrompt=$desktop.SendPrompt')) '
 Assert-Binding ($bindingSource.Contains('New-Object -ComObject WScript.Shell') -and $bindingSource.Contains('AppActivate([int]$Context.process_id)')) 'Repository Thinker explicitly activates the bound ChatGPT process before legacy focus proof'
 Assert-Binding ($bindingSource.Contains('$desktopFocus=$desktop.FocusConversation') -and -not$bindingSource.Contains('FocusConversation=$desktop.FocusConversation')) 'Repository Thinker wraps the proven Desktop focus routine instead of delegating it directly'
 Assert-Binding ($bindingSource.Contains('function Wait-AidosRepositoryThinkerComposerElement') -and $bindingSource.Contains('$composer=Wait-AidosRepositoryThinkerComposerElement -RootElement $root')) 'Repository Thinker waits for bounded unique composer readiness before keyboard transport'
+Assert-Binding ($bindingSource.Contains('Treat that as transient readiness failure') -and $bindingSource.Contains('try{$current=Get-AidosRepositoryThinkerCurrentConversationFromRoot -RootElement $root}catch{}')) 'Repository Thinker tolerates transient WebView document URL absence during bounded conversation activation'
 
 $composerProbe=[pscustomobject]@{calls=0;ready=[pscustomobject]@{automation_id='prompt-textarea'}}
 $transientResolver=({param($Root);$composerProbe.calls++;if($composerProbe.calls-lt3){throw 'Expected exactly one ChatGPT composer control, found 0.'};$composerProbe.ready}).GetNewClosure()
