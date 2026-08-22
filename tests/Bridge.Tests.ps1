@@ -467,6 +467,20 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
     $null=Set-AidosState $project.Root 'GPT_REVIEWING' 'WORKER_AGENT';$null=Set-AidosState $project.Root 'TASK_READY' 'WORKER_AGENT' @{revision=3};$l=Acquire-AidosExecutionLease $project.Root 'EXEC-1' 3;$null=Set-AidosState $project.Root 'CODEX_RUNNING' 'BRIDGE' @{lease_id=$l.lease_id};$leasePath=Join-Path $project.Root '.aidos/runtime/lease.json';$staleLease=Read-AidosJson $leasePath;$staleLease.codex_runtime=[ordered]@{kind='WSL_LOCAL';supervisor_pid=2147483000;started_at='2026-01-01T00:00:00Z'};Write-AidosJsonAtomic $leasePath $staleLease
     $recovery=Invoke-AidosStartupReconciliation $project.Root;Assert-True ($recovery.status -eq 'RECOVERY_REQUIRED') 'stale execution reconciles safely';Assert-True ((Get-AidosState $project.Root).state -eq 'RECOVERY_REQUIRED') 'interruption never infers completion';Assert-True (-not(Test-Path $leasePath)) 'stale lease released after recovery event'
 
+    $terminalEventRecovery=New-TestProject
+    try {
+        $null=Set-AidosState $terminalEventRecovery.Root 'CODEX_RUNNING' 'BRIDGE' @{codex_session_id=$null}
+        $eventDirectory=Split-Path -Parent $terminalEventRecovery.ExecutionPath
+        @('{"type":"thread.started","thread_id":"33333333-3333-3333-3333-333333333333"}','{"type":"item.completed","item":{"type":"agent_message","text":"terminal work"}}','{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}')|Set-Content -LiteralPath (Join-Path $eventDirectory 'codex-events.jsonl') -Encoding utf8NoBOM
+        $terminalRecovery=Invoke-AidosStartupReconciliation $terminalEventRecovery.Root
+        $recoveryArtifact=Get-AidosCodexRecoveryArtifactPath $terminalEventRecovery.Root 'EXEC-1' 1
+        $artifact=Read-AidosJson $recoveryArtifact;$recoveredState=Get-AidosState $terminalEventRecovery.Root
+        Assert-True ($terminalRecovery.status -eq 'RECOVERY_REQUIRED' -and $terminalRecovery.recovery.status -eq 'RECOVERED') 'terminal Codex event without result artifacts creates explicit recovery evidence'
+        Assert-True ($recoveredState.codex_session_id -eq '33333333-3333-3333-3333-333333333333' -and $artifact.execution_outcome -eq 'UNKNOWN' -and $artifact.validation_status -eq 'NOT_RUN') 'terminal event recovery preserves session binding without inferring success'
+        $again=Invoke-AidosStartupReconciliation $terminalEventRecovery.Root
+        Assert-True ($again.recovery.idempotent -and (Get-Content -LiteralPath $recoveryArtifact -Raw) -eq (Get-Content -LiteralPath $recoveryArtifact -Raw)) 'terminal event recovery is idempotent'
+    } finally { Remove-Item -LiteralPath $terminalEventRecovery.Root -Recurse -Force }
+
     $validationFailure=New-TestProject
     try {
         $cleanExit=Join-Path $validationFailure.Root 'fake-clean-exit';@'

@@ -141,7 +141,9 @@ function Invoke-AidosAutonomousCodexExecution {
         $events=@(Get-Content -LiteralPath $recoveryEvents -Encoding UTF8|ForEach-Object {$_|ConvertFrom-Json -Depth 100})
         $threads=@($events|Where-Object {$_.type-eq'thread.started' -and $_.thread_id}|ForEach-Object {[string]$_.thread_id}|Select-Object -Unique)
         if($threads.Count-ne1 -or -not[string]::Equals($threads[0],$ResumeSessionId,[StringComparison]::Ordinal)){throw 'Codex resume session differs from durable thread.started evidence.'}
-        if(@($events|Where-Object {$_.type-in@('turn.completed','turn.failed','error')}).Count){throw 'Codex resume refuses terminal event evidence.'}
+        $terminalEvents=@($events|Where-Object {$_.type-in@('turn.completed','turn.failed','error')})
+        $recoveryArtifactPath=Join-Path $root ('.aidos/executions/{0}/revision-{1}/RECOVERY.json' -f [string]$execution.execution_id,[int]$execution.revision)
+        if($terminalEvents.Count -and -not(Test-Path -LiteralPath $recoveryArtifactPath -PathType Leaf)){throw 'Codex resume requires Core terminal-event recovery evidence before resuming terminal event evidence.'}
         Set-AidosState -ProjectRoot $root -NewState TASK_READY -Actor SYSTEM -Patch @{codex_session_id=$ResumeSessionId;lease_id=$null}|Out-Null
         $state=Get-AidosState $root
     }
