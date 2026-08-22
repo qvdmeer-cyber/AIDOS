@@ -507,7 +507,13 @@ function Invoke-AidosRepositoryHandoffGatewayRequest {
         if($Method-eq'POST'-and$Path-eq'/v1/interface/intents'){
             if($null-eq$Body -or -not$Body.projectId -or -not$Body.kind){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
             $project=Get-AidosRepositoryHandoffGatewayProject -RegistryRoot $RegistryRoot -ProjectId ([string]$Body.projectId);$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$command=switch([string]$Body.kind){'START' {'RESUME'}'RESUME' {'RESUME'}'PAUSE' {'PAUSE'}'SAFE_STOP' {'SAFE_STOP'}default {throw 'Unsupported interface control.'}}
-            $submitted=Submit-AidosControlIntent -ProjectRoot $root -Command $command -RequestedBy 'AIDOS_INTERFACE';if([string]$submitted.intent.status-ne'APPLIED'){throw [string]$submitted.intent.result.reason};return New-AidosRepositoryHandoffGatewayResponse 202 ([ordered]@{accepted=$true;control_id=[string]$submitted.intent.control_id})
+            $submitted=Submit-AidosControlIntent -ProjectRoot $root -Command $command -RequestedBy 'AIDOS_INTERFACE';if([string]$submitted.intent.status-ne'APPLIED'){throw [string]$submitted.intent.result.reason};$workflowState=[string](Get-AidosState $root).state
+            if([string]$Body.kind-eq'START' -and $workflowState-eq'IDLE'){
+                $state=Get-AidosState $root;if([string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'START requires an accepted Definition or a new project goal.'}
+                $definitionPath=Join-Path $root ('.aidos/definitions/{0}/v{1}/DEFINITION.json' -f [string]$state.definition_id,[int]$state.definition_version);if(-not(Test-Path -LiteralPath $definitionPath -PathType Leaf)){throw 'START requires the active Definition artifact.'};$definition=Read-AidosJson $definitionPath;if([string]$definition.status-ne'ACCEPTED'){throw "START requires an ACCEPTED Definition; current status is '$([string]$definition.status)'."}
+                Set-AidosState -ProjectRoot $root -NewState TASK_READY -Actor AIDOS_INTERFACE -Patch @{}|Out-Null;$workflowState='TASK_READY';Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'INTERFACE_START_TASK_READY' -ProjectId ([string]$project.project_id)|Out-Null
+            }
+            return New-AidosRepositoryHandoffGatewayResponse 202 ([ordered]@{accepted=$true;control_id=[string]$submitted.intent.control_id;workflow_state=$workflowState})
         }
         if($Method-eq'POST'-and$Path-match'^/v1/interface/human-input/([^/]+)/resolve$'){
             if($null-eq$Body -or -not$Body.option){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
