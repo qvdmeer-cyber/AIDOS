@@ -600,6 +600,19 @@ function New-AidosRepositoryThinkerWindowsBackend {
     $desktopFocus=$desktop.FocusConversation
     [pscustomobject]@{
         GetProcessContext=$desktop.GetProcessContext
+        TestTransportHealth={
+            param($Context)
+            $process=Get-Process -Id ([int]$Context.process_id) -ErrorAction Stop
+            if(-not $process.Responding){throw 'CHATGPT_TRANSPORT_CIRCUIT_OPEN::process_not_responding'}
+            if($process.Handles -gt 5000){throw "CHATGPT_TRANSPORT_CIRCUIT_OPEN::handle_count_$($process.Handles)"}
+            if($process.WorkingSet64 -gt 1610612736){throw 'CHATGPT_TRANSPORT_CIRCUIT_OPEN::working_set_exceeds_1_5GB'}
+            if(-not('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}
+            $sw=[Diagnostics.Stopwatch]::StartNew();$root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle));if(-not$root){throw 'CHATGPT_TRANSPORT_CIRCUIT_OPEN::uia_root_unavailable'}
+            $condition=New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::AutomationIdProperty),'prompt-textarea'
+            $null=$root.FindFirst([System.Windows.Automation.TreeScope]::Subtree,$condition);$sw.Stop()
+            if($sw.ElapsedMilliseconds -gt 2000){throw "CHATGPT_TRANSPORT_CIRCUIT_OPEN::uia_latency_$($sw.ElapsedMilliseconds)ms"}
+            [pscustomobject][ordered]@{status='HEALTHY';uia_latency_ms=$sw.ElapsedMilliseconds;working_set_bytes=$process.WorkingSet64;handles=$process.Handles}
+        }.GetNewClosure()
         GetCurrentConversation={
             param($Context)
             $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$Context.window_handle))
@@ -740,6 +753,7 @@ function Invoke-AidosRepositoryThinkerTrigger {
     Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
     try{
         $context=& $Backend.GetProcessContext ([string]$binding.process_name)
+        if($Backend.PSObject.Properties['TestTransportHealth']){& $Backend.TestTransportHealth $context|Out-Null}
         $activation=& $Backend.ActivateConversation $context $binding
         $context=& $Backend.FocusConversation $activation.context $binding
         $prompt=New-AidosRepositoryThinkerTriggerText -Binding $binding -Handoff $Handoff
