@@ -50,6 +50,14 @@ try{
     $loaded=Read-AidosRepositoryHandoffGatewayConfiguration -StateRoot $stateRoot
     Assert-Gateway (Test-AidosRepositoryHandoffGatewayKey -Expected $loaded.api_key -Presented $configured.api_key) 'configured API key validates'
     Assert-Gateway (-not(Test-AidosRepositoryHandoffGatewayKey -Expected $loaded.api_key -Presented 'wrong')) 'wrong API key is rejected'
+    $idleState=Get-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Raw|ConvertFrom-Json -Depth 30
+    $idleState.state='IDLE'
+    $idleState|ConvertTo-Json -Depth 30|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
+    $idleSnapshot=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/v1/interface/snapshot' -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root
+    $idleProject=@($idleSnapshot.body.projects)[0]
+    Assert-Gateway ([string]$idleProject.lifecycle -eq 'ACTIVE' -and [string]$idleProject.status -eq 'UNKNOWN') 'IDLE without explicit release remains visible as ACTIVE instead of being reported DONE'
+    $idleState.state='WAITING_DEFINITION'
+    $idleState|ConvertTo-Json -Depth 30|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
     $unauthorized=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/health' -PresentedKey 'wrong' -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root
     Assert-Gateway ([int]$unauthorized.status_code-eq401) 'HTTP router rejects unauthorized requests before project access'
     $health=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/health' -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root

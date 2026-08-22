@@ -762,6 +762,12 @@ function Recover-AidosRepositoryThinkerUnprovenCommit {
     if(-not(Test-Path -LiteralPath $path -PathType Leaf)){throw 'Unproven Thinker commit recovery requires an existing trigger state.'}
     $state=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 50
     if([string]$state.status-ne'COMMITTED'){throw "Unproven Thinker commit recovery requires COMMITTED state, found '$($state.status)'."}
+    $proofProperty=$state.send_proof.PSObject.Properties['visible_handoff_marker_proof_state']
+    if($null -eq $proofProperty){
+        $state.status='FAILED';$state.triggered_at=$null;$state.retry_after=$null;$state.last_error='COMMITTED_WITHOUT_VISIBLE_HANDOFF_MARKER_PROOF: trigger predates fail-closed visible-marker evidence.';$state.updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+        Write-AidosRepositoryThinkerJsonAtomic -Path $path -Value $state
+        return [pscustomobject][ordered]@{status='RECOVERED_UNPROVEN_COMMIT';project_id=$projectId;handoff_id=$handoffId;state=$state}
+    }
     $binding=Read-AidosRepositoryThinkerBinding -StateRoot $StateRoot -ProjectId $projectId
     if($null-eq$binding -or [string]$binding.status-ne'BOUND'){throw 'Unproven Thinker commit recovery requires a bound conversation.'}
     if(-not('System.Windows.Automation.AutomationElement' -as [type])){Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes}

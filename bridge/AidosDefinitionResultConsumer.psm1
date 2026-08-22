@@ -21,7 +21,7 @@ function Resolve-AidosDefinitionActorSourceRef {
     }
     if([IO.Path]::IsPathRooted($relative)){throw 'Definition source_ref must be project-relative or AIDOS/-scoped.'}
     $definitionPrefix=(".aidos/definitions/{0}/v{1}/" -f $DefinitionId,$DefinitionVersion)
-    $allowed=($relative -eq '.aidos/PROJECT.json' -or $relative -eq '.aidos/documentation/PROJECT_BASELINE.json' -or $relative -eq '.aidos/documentation/PROJECT_ACCESS.json' -or $relative -eq '.aidos/evidence/EVIDENCE_INVENTORY.json' -or $relative -eq '.aidos/profile/PROJECT_APPLICABILITY.json' -or $relative.StartsWith('.aidos/goals/',[StringComparison]::Ordinal) -or $relative -eq 'AGENTS.md' -or $relative.StartsWith('docs/',[StringComparison]::Ordinal) -or $relative.StartsWith($definitionPrefix,[StringComparison]::Ordinal))
+    $allowed=($relative -eq '.aidos/PROJECT.json' -or $relative -eq '.aidos/documentation/PROJECT_BASELINE.json' -or $relative -eq '.aidos/documentation/PROJECT_ACCESS.json' -or $relative -eq '.aidos/evidence/EVIDENCE_INVENTORY.json' -or $relative -eq '.aidos/profile/PROJECT_APPLICABILITY.json' -or $relative.StartsWith('.aidos/goals/',[StringComparison]::Ordinal) -or $relative.StartsWith('.aidos/human-input/',[StringComparison]::Ordinal) -or $relative -eq 'AGENTS.md' -or $relative.StartsWith('docs/',[StringComparison]::Ordinal) -or $relative.StartsWith($definitionPrefix,[StringComparison]::Ordinal))
     if(-not$allowed){throw "Definition source_ref is outside authorized project source set: $relative"}
     $path=[IO.Path]::GetFullPath((Join-Path $root $relative));$prefix=$root+[IO.Path]::DirectorySeparatorChar
     $cmp=if([OperatingSystem]::IsWindows()){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
