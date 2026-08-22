@@ -22,3 +22,90 @@ jobs:
       - name: Independent review authority recovery regression
         shell: pwsh
         run: ./tests/ReviewAuthorityRecovery.Tests.ps1
+
+  windows-portable-review-loop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip only the unavailable hosted-runner WSL fixture
+        shell: pwsh
+        run: |
+          $path='tests/PORTABILITY.json'
+          $p=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json -Depth 20
+          $skip=[ordered]@{}
+          foreach($property in $p.windows_candidate_validation_skip.PSObject.Properties){$skip[$property.Name]=$property.Value}
+          $skip['WindowsPath.Tests.ps1']='GitHub-hosted Windows has no Ubuntu WSL distribution. The dedicated AIDOS host does, so this validation-only branch skips only that environment fixture.'
+          [ordered]@{schema_version='0.1';windows_candidate_validation_skip=$skip}|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $path -Encoding utf8NoBOM
+      - name: Run host candidate validator with hosted-runner WSL fixture skipped
+        shell: pwsh
+        run: ./tools/Test-AidosCorePortable.ps1 -RepoRoot $PWD
+
+  windows-self-update-schedule-probe:
+    runs-on: windows-latest
+    steps:
+      - name: Prove exact five-minute recurring Task Scheduler semantics
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          $taskName='AIDOS Host Self Update Probe'
+          $stateRoot=Join-Path $env:RUNNER_TEMP ('aidos-self-update-probe-'+[guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $stateRoot -Force|Out-Null
+          $launcherPath=Join-Path $stateRoot 'SELF_UPDATE_LAUNCHER.vbs'
+          @'
+          Option Explicit
+          WScript.Quit 0
+          '@|Set-Content -LiteralPath $launcherPath -Encoding ascii
+          $authorizedUser=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+          $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+          $action=New-ScheduledTaskAction -Execute $wscript -Argument "`"$launcherPath`""
+          $principal=New-ScheduledTaskPrincipal -UserId $authorizedUser -LogonType Interactive -RunLevel Limited
+          $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+          $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+          try {
+              Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'Validation-only mirror of the AIDOS self-update recurrence contract.'|Out-Null
+              Enable-ScheduledTask -TaskName $taskName|Out-Null
+              Start-ScheduledTask -TaskName $taskName
+              $deadline=(Get-Date).AddSeconds(20)
+              do {
+                  Start-Sleep -Milliseconds 250
+                  $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                  $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+                  if($task.State -ne 'Running'){break}
+              } while((Get-Date)-lt$deadline)
+              $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+              $persistedTrigger=@($task.Triggers)[0]
+              $persistedAction=@($task.Actions)[0]
+              [pscustomobject]@{
+                  state=$task.State
+                  last_result=$info.LastTaskResult
+                  next_run_time=$info.NextRunTime
+                  execute=$persistedAction.Execute
+                  arguments=$persistedAction.Arguments
+                  start_boundary=$persistedTrigger.StartBoundary
+                  repetition_interval=$persistedTrigger.Repetition.Interval
+                  repetition_duration=$persistedTrigger.Repetition.Duration
+              }|Format-List
+              if([string]$persistedAction.Execute -notmatch 'wscript\.exe$'){throw 'Task does not use the hidden wscript action.'}
+              if([string]$persistedTrigger.Repetition.Interval -ne 'PT5M'){throw "Unexpected repetition interval: $($persistedTrigger.Repetition.Interval)"}
+              if($task.State -eq 'Disabled'){throw 'Task became disabled after manual start.'}
+              if($info.LastTaskResult -ne 0){throw "Manual task run failed: $($info.LastTaskResult)"}
+              if($info.NextRunTime -le (Get-Date).AddSeconds(-5)){throw "Recurring task has no future NextRunTime: $($info.NextRunTime)"}
+          } finally {
+              Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+              Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $stateRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  live-repository-gateway-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require live auth-gated AIDOS gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --connect-timeout 10 --max-time 20 --silent --show-error --header 'Authorization: Bearer invalid-probe-key' --output /tmp/aidos-gateway-body.txt --write-out '%{http_code}' 'https://aidos.tail561ce5.ts.net/health')"
+          cat /tmp/aidos-gateway-body.txt || true
+          echo "HTTP_STATUS=$code"
+          test "$code" = "401"
