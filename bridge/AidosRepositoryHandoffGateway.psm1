@@ -479,9 +479,14 @@ function Get-AidosRepositoryInterfaceSnapshot {
     $projects=[Collections.Generic.List[object]]::new();$humanInputs=[Collections.Generic.List[object]]::new();$timeline=[Collections.Generic.List[object]]::new()
     foreach($file in @(Get-ChildItem -LiteralPath $projectsRoot -Filter '*.json' -File -ErrorAction SilentlyContinue|Sort-Object Name)){
         $project=Read-AidosJson $file.FullName;$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$status=Get-AidosRuntimeStatusProjection $root;$runtime=@($status.projects)[0];$state=[string]$runtime.state
-        $mapped=if($state-in @('CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING')){'RUNNING'}elseif($state-in @('WAITING_USER','RECOVERY_REQUIRED')){'BLOCKED'}elseif($state-in @('PAUSED','SAFE_STOPPED')){'PAUSED'}elseif($state-eq'IDLE'){'COMPLETE'}else{'UNKNOWN'}
+        # IDLE means that no actor is currently scheduled. It is not delivery
+        # evidence: an accepted Definition may still have no explicit release.
+        # Keep such projects visible in the ACTIVE portfolio until Core records
+        # a release-owned terminal state. DONE must never be inferred from idle.
+        $mapped=if($state-in @('CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING')){'RUNNING'}elseif($state-in @('WAITING_USER','RECOVERY_REQUIRED')){'BLOCKED'}elseif($state-in @('PAUSED','SAFE_STOPPED')){'PAUSED'}elseif($state-eq'IDLE'){'UNKNOWN'}else{'UNKNOWN'}
+        $lifecycle=if($state-eq'RELEASE_READY'){'DONE'}elseif($state-in @('PAUSED','SAFE_STOPPED')){'ON_HOLD'}elseif($state-in @('WAITING_USER','RECOVERY_REQUIRED','CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING','IDLE')){'ACTIVE'}else{'NEW'}
         $workstreams=@($runtime.workstreams|ForEach-Object {[pscustomobject][ordered]@{id=[string]$_.workstream_id;name=[string]$_.workstream_id;status=if([string]$_.status-eq'ACTIVE'){'RUNNING'}else{'UNKNOWN'};progress=0;activeActor=[string]$_.current_actor_role;blocker=if([int]$_.blocker_count-gt0){'Open blocker'}else{$null}}})
-        $projects.Add([pscustomobject][ordered]@{id=[string]$project.project_id;name=[string]$project.project_id;status=$mapped;progress=0;eta=[ordered]@{confidence='NOT_RELIABLY_ESTIMABLE'};workstreams=@($workstreams);controls=@('START','PAUSE','RESUME','SAFE_STOP');latestActivity=$null})
+        $projects.Add([pscustomobject][ordered]@{id=[string]$project.project_id;name=[string]$project.project_id;status=$mapped;lifecycle=$lifecycle;progress=0;eta=[ordered]@{confidence='NOT_RELIABLY_ESTIMABLE'};workstreams=@($workstreams);controls=@('START','PAUSE','RESUME','SAFE_STOP');latestActivity=$null})
         foreach($request in @(Get-AidosRepositoryInterfaceOpenHumanInputs $root)){$humanInputs.Add([pscustomobject][ordered]@{id=[string]$request.request_id;projectId=[string]$project.project_id;title=[string]$request.title;context=[string]$request.question;options=@($request.options|ForEach-Object {[string]$_.id})})}
         foreach($event in @(Get-AidosRepositoryInterfaceRecentEvents -ProjectRoot $root -Limit 25)){$timeline.Add([pscustomobject][ordered]@{id=[string]$event.event_id;projectId=[string]$project.project_id;at=[string]$event.timestamp;kind=[string]$event.event_type;message=([string]$event.event_type)})}
     }
