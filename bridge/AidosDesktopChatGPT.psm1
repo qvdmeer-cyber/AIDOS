@@ -612,6 +612,18 @@ function New-AidosDesktopChatGPTWindowsBackend {
             $Context.window_is_foreground=([AidosNativeDesktopV3]::GetForegroundWindow() -eq $handle)
             $root=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
             if(-not $root){ throw 'ChatGPT window is not accessible through UI Automation.' }
+            # Enrollment binds a specific conversation, while the desktop app
+            # may currently display another one. Activate the bound item before
+            # focusing the composer; otherwise a valid send proof could be
+            # recorded for the wrong conversation.
+            if($Enrollment -and -not [string]::IsNullOrWhiteSpace([string]$Enrollment.conversation_proof_text)){
+                $conversation=Find-AidosDesktopChatGPTConversationElement $root ([string]$Enrollment.conversation_proof_text)
+                try {
+                    $invoke=$conversation.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                    $invoke.Invoke()
+                    Start-Sleep -Milliseconds 500
+                } catch { throw "Bound ChatGPT conversation could not be activated: $($_.Exception.Message)" }
+            }
             $composer=Get-AidosDesktopChatGPTComposerElement $root
             $uiaFocus=$false
             try {
