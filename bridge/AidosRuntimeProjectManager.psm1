@@ -14,6 +14,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousRepair.psm1') -DisableNam
 Import-Module (Join-Path $PSScriptRoot 'AidosAutonomousIntegration.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosReviewBlocker.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosWorkerDispatchGuard.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryWorkerHandoff.psm1') -DisableNameChecking
 
 function Get-AidosRuntimeRegistryProjects {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot)
@@ -69,7 +70,7 @@ function Invoke-AidosRuntimeProjectManagerTick {
     if([string]$definitionClosure.status-eq'ERROR'){return New-AidosRuntimeManagerErrorResult $RegistryRoot $integration $blockerResume $consume $finalAcceptanceResume $humanResume $definitionClosure}
 
     $projects=@(Get-AidosRuntimeRegistryProjects -RegistryRoot $RegistryRoot);$candidates=[Collections.Generic.List[object]]::new()
-    foreach($project in $projects){try{$null=Test-AidosRegistryProjectBinding $project;$selection=Get-AidosRuntimeNextActor -ProjectRoot ([string]$project.local_root);$candidates.Add([pscustomobject][ordered]@{project=$project;selection=$selection})}catch{$candidates.Add([pscustomobject][ordered]@{project=$project;selection=[pscustomobject][ordered]@{project_root=[string]$project.local_root;project_state='UNKNOWN';control_mode='UNKNOWN';actor_role=$null;actor_identity=$null;action='BINDING_ERROR';priority=1000;activatable=$false;error=$_.Exception.Message}})}}
+    foreach($project in $projects){try{$null=Test-AidosRegistryProjectBinding $project;$null=Repair-AidosRepositoryWorkerResultRecovery -Project $project;$selection=Get-AidosRuntimeNextActor -ProjectRoot ([string]$project.local_root);$candidates.Add([pscustomobject][ordered]@{project=$project;selection=$selection})}catch{$candidates.Add([pscustomobject][ordered]@{project=$project;selection=[pscustomobject][ordered]@{project_root=[string]$project.local_root;project_state='UNKNOWN';control_mode='UNKNOWN';actor_role=$null;actor_identity=$null;action='BINDING_ERROR';priority=1000;activatable=$false;error=$_.Exception.Message}})}}
     $ordered=@($candidates|Sort-Object @{Expression={[int]$_.selection.priority};Descending=$true},@{Expression={[string]$_.project.project_id};Descending=$false});$results=[Collections.Generic.List[object]]::new();$processed=0
     foreach($candidate in $ordered){
         if($processed-ge$MaxProjects){break};$selection=$candidate.selection;$activation=$null;$persistence=$null;$status='OBSERVED'
