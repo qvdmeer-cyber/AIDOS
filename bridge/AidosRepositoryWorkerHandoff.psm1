@@ -413,6 +413,33 @@ function Complete-AidosRepositoryWorkerHandoffPersistence {
     }
 }
 
+function Repair-AidosRepositoryWorkerResultRecovery {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project)
+    $root=Resolve-AidosFileSystemPath ([string]$Project.local_root)
+    $state=Get-AidosState -ProjectRoot $root
+    if([string]$state.state-ne'RECOVERY_REQUIRED'){
+        return [pscustomobject][ordered]@{status='NOT_REQUIRED';project_id=[string]$Project.project_id}
+    }
+    $handoff=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId ([string]$Project.project_id)
+    if($null-eq$handoff -or [string]$handoff.metadata.kind-ne'RESULT' -or [string]$handoff.metadata.action-ne'DISPATCH_EXECUTION_RESULT'){
+        return [pscustomobject][ordered]@{status='NO_RECOVERABLE_RESULT_HANDOFF';project_id=[string]$Project.project_id}
+    }
+    if([string]$handoff.metadata.binding.execution_id-ne[string]$state.execution_id -or [int]$handoff.metadata.binding.revision-ne[int]$state.revision -or [string]$handoff.metadata.binding.definition_id-ne[string]$state.definition_id -or [int]$handoff.metadata.binding.definition_version-ne[int]$state.definition_version){
+        throw 'Recoverable Worker result handoff binding differs from canonical state.'
+    }
+    $resultPath=Join-Path $root ([string]$handoff.metadata.payload_ref)
+    if(-not(Test-Path -LiteralPath $resultPath -PathType Leaf)){throw 'Recoverable Worker result handoff payload is missing.'}
+    $result=Read-AidosJson -Path $resultPath
+    $guardPath=Get-AidosWorkerDispatchGuardPath -ProjectRoot $root -ExecutionId ([string]$state.execution_id) -Revision ([int]$state.revision)
+    if(-not(Test-Path -LiteralPath $guardPath -PathType Leaf)){throw 'Recoverable Worker result requires dispatch guard evidence.'}
+    $guard=Read-AidosJson -Path $guardPath
+    if([string]$result.validation_status-ne'PASS' -or [string]$guard.status-ne'PASS'){throw 'Recoverable Worker result lacks PASS validation or dispatch-guard evidence.'}
+    Set-AidosState -ProjectRoot $root -NewState REVIEW_READY -Actor BRIDGE -Patch @{validation_result=[string]$state.validation_result}|Out-Null
+    Add-AidosEvent -ProjectRoot $root -EventType 'RECOVERY_RECONCILED_RESULT_HANDOFF' -Actor BRIDGE -Payload @{execution_id=[string]$state.execution_id;revision=[int]$state.revision;handoff_id=[string]$handoff.metadata.handoff_id;validation_status=[string]$result.validation_status;dispatch_guard=[string]$guard.status}|Out-Null
+    [pscustomobject][ordered]@{status='RECONCILED';project_id=[string]$Project.project_id;execution_id=[string]$state.execution_id;revision=[int]$state.revision;handoff_id=[string]$handoff.metadata.handoff_id}
+}
+
 function Invoke-AidosRepositoryWorkerFinalizationFromManagerResult {
     [CmdletBinding()]
     param(
@@ -492,4 +519,4 @@ function Resume-AidosRepositoryWorkerHandoff {
     [pscustomobject][ordered]@{status=[string]$worker.status;assignment_handoff=$assignment;worker=$worker;terminal_result=$terminal;result_handoff=$result}
 }
 
-Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment,Resolve-AidosRepositoryWorkerStaleConsumedReviewAssignment,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff,Resume-AidosRepositoryWorkerHandoff
+Export-ModuleMember -Function Resolve-AidosRepositoryWorkerHandoffModulePath,Get-AidosRepositoryWorkerBinding,Get-AidosRepositoryWorkerSourceRefs,New-AidosRepositoryWorkerAssignmentBody,Get-AidosRepositoryWorkerChangedLifecyclePaths,New-AidosRepositoryWorkerDeferredPersistence,Resolve-AidosRepositoryWorkerStaleConsumedThinkerAssignment,Resolve-AidosRepositoryWorkerStaleConsumedReviewAssignment,Publish-AidosRepositoryWorkerAssignment,Resolve-AidosRepositoryWorkerTerminalResult,Publish-AidosRepositoryWorkerResult,Complete-AidosRepositoryWorkerHandoffPersistence,Repair-AidosRepositoryWorkerResultRecovery,Invoke-AidosRepositoryWorkerFinalizationFromManagerResult,Invoke-AidosRepositoryWorkerHandoff,Resume-AidosRepositoryWorkerHandoff
