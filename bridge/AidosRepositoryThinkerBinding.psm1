@@ -4,7 +4,6 @@ $ErrorActionPreference='Stop'
 # Foreground/UIA operations in ChatGPT Classic are asynchronous WebView
 # transitions. A short settle window prevents rapid focus churn from racing
 # the composer's React input surface while keeping the transport automatic.
-$AidosRepositoryThinkerFocusCooldownMilliseconds=750
 
 Import-Module (Join-Path $PSScriptRoot 'AidosDesktopChatGPT.psm1') -DisableNameChecking
 
@@ -597,7 +596,6 @@ function Invoke-AidosRepositoryThinkerPromptSend {
 function New-AidosRepositoryThinkerWindowsBackend {
     [CmdletBinding()]
     param([string]$ProcessName='ChatGPT Classic')
-    $focusCooldownMilliseconds=750
     $desktop=New-AidosDesktopChatGPTWindowsBackend -ProcessName $ProcessName
     $desktopFocus=$desktop.FocusConversation
     [pscustomobject]@{
@@ -664,7 +662,7 @@ function New-AidosRepositoryThinkerWindowsBackend {
                 }
             }
             & $desktopFocus $Context $Binding
-            Start-Sleep -Milliseconds $focusCooldownMilliseconds
+            Start-Sleep -Milliseconds 750
             $Context
         }).GetNewClosure()
         SendPrompt={param($Context,$Binding,$PromptText,$Assignment);Invoke-AidosRepositoryThinkerPromptSend -Context $Context -Binding $Binding -PromptText $PromptText -Assignment $Assignment}
