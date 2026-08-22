@@ -58,6 +58,14 @@ try{
     Assert-Gateway ([string]$idleProject.lifecycle -eq 'ACTIVE' -and [string]$idleProject.status -eq 'UNKNOWN') 'IDLE without explicit release remains visible as ACTIVE instead of being reported DONE'
     $idleState.state='WAITING_DEFINITION'
     $idleState|ConvertTo-Json -Depth 30|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
+    $staleState=$idleState|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30;$staleState.state='GPT_REVIEWING';if(-not$staleState.PSObject.Properties['updated_at']){$staleState|Add-Member -NotePropertyName updated_at -NotePropertyValue $null};$staleState.updated_at=[DateTimeOffset]::UtcNow.AddMinutes(-10).ToString('o');$staleState|ConvertTo-Json -Depth 30|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
+    $triggerDir=Join-Path $stateRoot 'triggers/PROJECT-1';New-Item -ItemType Directory -Path $triggerDir -Force|Out-Null
+    [ordered]@{schema_version='0.1';project_id='PROJECT-1';handoff_id=$handoffId;handoff_sha256=('a'*64);status='FAILED';attempt=1;triggered_at=$null;retry_after=$null;last_error='composer sentinel failed';send_proof=$null;updated_at=[DateTimeOffset]::UtcNow.AddMinutes(-10).ToString('o')}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $triggerDir "$handoffId.json") -Encoding utf8NoBOM
+    $staleSnapshot=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/v1/interface/snapshot' -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root -BridgeStateRoot $stateRoot
+    $staleProject=@($staleSnapshot.body.projects)[0]
+    Assert-Gateway ([string]$staleProject.status -eq 'BLOCKED' -and [string]$staleProject.latestActivity.blocker -eq 'THINKER_TRIGGER_FAILED' -and [bool]$staleProject.latestActivity.stale) 'stale active Thinker work is projected as BLOCKED with durable blocker activity'
+    Remove-Item -LiteralPath (Join-Path $triggerDir "$handoffId.json") -Force
+    $idleState.state='WAITING_DEFINITION';$idleState|ConvertTo-Json -Depth 30|Set-Content -LiteralPath (Join-Path $projectRoot '.aidos/STATE.json') -Encoding utf8NoBOM
     $unauthorized=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/health' -PresentedKey 'wrong' -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root
     Assert-Gateway ([int]$unauthorized.status_code-eq401) 'HTTP router rejects unauthorized requests before project access'
     $health=Invoke-AidosRepositoryHandoffGatewayRequest -Method GET -Path '/health' -PresentedKey $loaded.api_key -ExpectedKey $loaded.api_key -RegistryRoot $registryRoot -AidosRoot $root

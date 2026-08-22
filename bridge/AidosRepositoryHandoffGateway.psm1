@@ -180,7 +180,12 @@ function Get-AidosRepositoryHandoffGatewaySource {
     $handoff=Read-AidosRepositoryHandoff -ProjectRoot ([string]$project.local_root) -ExpectedProjectId ([string]$project.project_id)
     if($null-eq$handoff-or[string]$handoff.metadata.kind-ne'ASSIGNMENT'){throw 'No active assignment handoff authorizes source access.'}
     $authorized=@($handoff.metadata.source_refs|ForEach-Object {[string]$_})
-    $exact=@($authorized|Where-Object {[string]::Equals($_,$SourceRef,[StringComparison]::Ordinal)})
+    # Assignment evidence may carry Windows separators while the canonical
+    # handoff stores POSIX project-relative refs. They identify the same
+    # project-local path; compare only after normalizing separators, then use
+    # the normalized value for containment and reading.
+    $normalizedRequested=$SourceRef.Replace('\','/').Trim()
+    $exact=@($authorized|Where-Object {[string]::Equals(([string]$_).Replace('\','/').Trim(),$normalizedRequested,[StringComparison]::Ordinal)})
     if($exact.Count-ne1){throw "Source ref '$SourceRef' is not authorized exactly by the current handoff."}
     $resolved=Resolve-AidosRepositoryHandoffGatewaySourcePath -Project $project -AidosRoot $AidosRoot -SourceRef $SourceRef
     $bytes=[IO.File]::ReadAllBytes($resolved.path)
@@ -188,7 +193,10 @@ function Get-AidosRepositoryHandoffGatewaySource {
     $decoder=[Text.UTF8Encoding]::new($false,$true)
     try{$text=$decoder.GetString($bytes)}catch{throw "Authorized source is not valid UTF-8 text: $SourceRef"}
     if($text.IndexOf([char]0)-ge0){throw "Authorized source is not UTF-8 text: $SourceRef"}
-    if($text-match'(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*\S+'){throw "Authorized source is not secret-free: $SourceRef"}
+    # Reject material credentials, while allowing source code that merely
+    # references an environment-backed secret (for example
+    # `const secret = process.env.AIDOS_TELEGRAM_WEBHOOK_SECRET`).
+    if($text-match'(?im)-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*(?!process\.env\b|\$env:|\$\{)["'']?[^\s"'']{16,}'){throw "Authorized source is not secret-free: $SourceRef"}
     if($StartCharacter-gt$text.Length){throw "Authorized source startCharacter exceeds source length: $SourceRef"}
     if($StartCharacter-gt0-and$StartCharacter-lt$text.Length-and[char]::IsLowSurrogate($text[$StartCharacter])-and[char]::IsHighSurrogate($text[$StartCharacter-1])){throw 'Authorized source startCharacter splits a UTF-16 surrogate pair.'}
     $end=[Math]::Min($text.Length,$StartCharacter+$MaximumCharacters)
@@ -474,21 +482,31 @@ function New-AidosRepositoryHandoffGatewayResponse {
     [pscustomobject][ordered]@{status_code=$StatusCode;body=$Body}
 }
 function Get-AidosRepositoryInterfaceSnapshot {
-    [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot)
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$RegistryRoot,[string]$BridgeStateRoot=(Get-AidosRepositoryHandoffBridgeDefaultStateRoot),[int]$StallThresholdMinutes=5)
     $projectsRoot=Join-Path ([IO.Path]::GetFullPath($RegistryRoot)) 'projects'
     $projects=[Collections.Generic.List[object]]::new();$humanInputs=[Collections.Generic.List[object]]::new();$timeline=[Collections.Generic.List[object]]::new()
     foreach($file in @(Get-ChildItem -LiteralPath $projectsRoot -Filter '*.json' -File -ErrorAction SilentlyContinue|Sort-Object Name)){
-        $project=Read-AidosJson $file.FullName;$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$status=Get-AidosRuntimeStatusProjection $root;$runtime=@($status.projects)[0];$state=[string]$runtime.state
+        $project=Read-AidosJson $file.FullName;$root=Resolve-AidosFileSystemPath ([string]$project.local_root);$status=Get-AidosRuntimeStatusProjection $root;$runtime=@($status.projects)[0];$state=[string]$runtime.state;$stateRecord=Get-AidosState $root
+        $recentEvents=@(Get-AidosRepositoryInterfaceRecentEvents -ProjectRoot $root -Limit 25)
+        $lastActivityText=if($stateRecord.PSObject.Properties['updated_at']){[string]$stateRecord.updated_at}else{''}
+        if($recentEvents.Count){$latestEvent=@($recentEvents|Where-Object {-not[string]::IsNullOrWhiteSpace([string]$_.timestamp)}|Sort-Object {[DateTimeOffset]$_.timestamp} -Descending|Select-Object -First 1);if($latestEvent){$lastActivityText=[string]$latestEvent.timestamp}}
+        $lastActivity=$null;$stale=$false
+        try{$lastActivity=[DateTimeOffset]$lastActivityText;$stale=([DateTimeOffset]::UtcNow-$lastActivity).TotalMinutes -gt $StallThresholdMinutes}catch{}
+        $triggerFailed=$false;$handoffId=$null
+        try{$handoff=Read-AidosRepositoryHandoff -ProjectRoot $root -ExpectedProjectId ([string]$project.project_id);$handoffId=[string]$handoff.metadata.handoff_id;$triggerPath=Join-Path ([IO.Path]::GetFullPath($BridgeStateRoot)) ("triggers/{0}/{1}.json" -f [string]$project.project_id,$handoffId);if(Test-Path -LiteralPath $triggerPath -PathType Leaf){$trigger=Read-AidosJson $triggerPath;$triggerFailed=([string]$trigger.status-eq'FAILED')}}catch{}
+        $blocked=($triggerFailed -or ($stale -and $state-in @('CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING')))
         # IDLE means that no actor is currently scheduled. It is not delivery
         # evidence: an accepted Definition may still have no explicit release.
         # Keep such projects visible in the ACTIVE portfolio until Core records
         # a release-owned terminal state. DONE must never be inferred from idle.
-        $mapped=if($state-in @('CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING')){'RUNNING'}elseif($state-in @('WAITING_USER','RECOVERY_REQUIRED')){'BLOCKED'}elseif($state-in @('PAUSED','SAFE_STOPPED')){'PAUSED'}elseif($state-eq'IDLE'){'UNKNOWN'}else{'UNKNOWN'}
+        $mapped=if($blocked -or $state-in @('WAITING_USER','RECOVERY_REQUIRED')){'BLOCKED'}elseif($state-in @('CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING')){'RUNNING'}elseif($state-in @('PAUSED','SAFE_STOPPED')){'PAUSED'}elseif($state-eq'IDLE'){'UNKNOWN'}else{'UNKNOWN'}
         $lifecycle=if($state-eq'RELEASE_READY'){'DONE'}elseif($state-in @('PAUSED','SAFE_STOPPED')){'ON_HOLD'}elseif($state-in @('WAITING_USER','RECOVERY_REQUIRED','CODEX_RUNNING','TASK_READY','GPT_REVIEWING','DEFINITION_RUNNING','IDLE')){'ACTIVE'}else{'NEW'}
         $workstreams=@($runtime.workstreams|ForEach-Object {[pscustomobject][ordered]@{id=[string]$_.workstream_id;name=[string]$_.workstream_id;status=if([string]$_.status-eq'ACTIVE'){'RUNNING'}else{'UNKNOWN'};progress=0;activeActor=[string]$_.current_actor_role;blocker=if([int]$_.blocker_count-gt0){'Open blocker'}else{$null}}})
-        $projects.Add([pscustomobject][ordered]@{id=[string]$project.project_id;name=[string]$project.project_id;status=$mapped;lifecycle=$lifecycle;progress=0;eta=[ordered]@{confidence='NOT_RELIABLY_ESTIMABLE'};workstreams=@($workstreams);controls=@('START','PAUSE','RESUME','SAFE_STOP');latestActivity=$null})
+        $latestActivity=$null
+        if($lastActivity){$latestActivity=[ordered]@{at=$lastActivity.ToString('o');stale=$stale;blocker=if($triggerFailed){'THINKER_TRIGGER_FAILED'}elseif($stale){'NO_DURABLE_PROGRESS'}else{$null};handoffId=$handoffId}}
+        $projects.Add([pscustomobject][ordered]@{id=[string]$project.project_id;name=[string]$project.project_id;status=$mapped;lifecycle=$lifecycle;progress=0;eta=[ordered]@{confidence='NOT_RELIABLY_ESTIMABLE'};workstreams=@($workstreams);controls=@('START','PAUSE','RESUME','SAFE_STOP');latestActivity=$latestActivity})
         foreach($request in @(Get-AidosRepositoryInterfaceOpenHumanInputs $root)){$humanInputs.Add([pscustomobject][ordered]@{id=[string]$request.request_id;projectId=[string]$project.project_id;title=[string]$request.title;context=[string]$request.question;options=@($request.options|ForEach-Object {[string]$_.id})})}
-        foreach($event in @(Get-AidosRepositoryInterfaceRecentEvents -ProjectRoot $root -Limit 25)){$timeline.Add([pscustomobject][ordered]@{id=[string]$event.event_id;projectId=[string]$project.project_id;at=[string]$event.timestamp;kind=[string]$event.event_type;message=([string]$event.event_type)})}
+        foreach($event in $recentEvents){$timeline.Add([pscustomobject][ordered]@{id=[string]$event.event_id;projectId=[string]$project.project_id;at=[string]$event.timestamp;kind=[string]$event.event_type;message=([string]$event.event_type)})}
     }
     [pscustomobject][ordered]@{contractVersion='0.1';generatedAt=[DateTimeOffset]::UtcNow.ToString('o');projects=@($projects);humanInputs=@($humanInputs);insights=@();timeline=@($timeline)}
 }
@@ -507,7 +525,7 @@ function Invoke-AidosRepositoryHandoffGatewayRequest {
     if(-not(Test-AidosRepositoryHandoffGatewayKey -Expected $ExpectedKey -Presented $PresentedKey)){return New-AidosRepositoryHandoffGatewayResponse 401 ([ordered]@{error='UNAUTHORIZED'})}
     try{
         if($Method-eq'GET'-and$Path-eq'/health'){return New-AidosRepositoryHandoffGatewayResponse 200 ([ordered]@{status='OK';service='AIDOS_REPOSITORY_HANDOFF_GATEWAY'})}
-        if($Method-eq'GET'-and$Path-eq'/v1/interface/snapshot'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryInterfaceSnapshot -RegistryRoot $RegistryRoot)}
+        if($Method-eq'GET'-and$Path-eq'/v1/interface/snapshot'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryInterfaceSnapshot -RegistryRoot $RegistryRoot -BridgeStateRoot $BridgeStateRoot)}
         if($Method-eq'GET'-and$Path-match'^/v1/interface/projects/([^/]+)/definition$'){return New-AidosRepositoryHandoffGatewayResponse 200 (Get-AidosRepositoryInterfaceDefinition -RegistryRoot $RegistryRoot -ProjectId ([Uri]::UnescapeDataString($Matches[1])))}
         if($Method-eq'POST'-and$Path-eq'/v1/interface/intents'){
             if($null-eq$Body -or -not$Body.projectId -or -not$Body.kind){return New-AidosRepositoryHandoffGatewayResponse 400 ([ordered]@{error='BODY_REQUIRED'})}
