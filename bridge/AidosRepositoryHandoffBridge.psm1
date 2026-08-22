@@ -12,6 +12,7 @@ Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryWorkerHandoff.psm1') -Glo
 $script:AidosRepositoryReviewHandoffModule=Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryReviewHandoff.psm1') -Global -PassThru -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryThinkerBinding.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'AidosRepositoryHumanInputTransport.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'AidosPlatformRepairSupervisor.psm1') -Global -DisableNameChecking
 
 function Get-AidosRepositoryHandoffBridgePath {
     [CmdletBinding()]
@@ -182,6 +183,11 @@ function Invoke-AidosCurrentRepositoryThinkerTriggers {
                 if($pending.Count-ne1){throw "Current Thinker handoff assignment '$assignmentId' is ambiguous in pending runtime state."}
             }
             $trigger=if($ThinkerTrigger){& $ThinkerTrigger $StateRoot $handoff $ProcessName}else{AidosRepositoryThinkerBinding\Invoke-AidosRepositoryThinkerTrigger -StateRoot $StateRoot -Handoff $handoff -ProcessName $ProcessName}
+            $repair=$null
+            if([string]$trigger.status-eq'FAILED'){
+                $repairBlocker=New-AidosPlatformRepairBlocker -StateRoot $StateRoot -Component 'ChatGPT Thinker transport' -ErrorText ([string]$trigger.error) -Repository 'AIDOS' -EvidenceRefs @("thinker-trigger:$([string]$project.project_id)/$([string]$handoff.metadata.handoff_id)")
+                if([string]$repairBlocker.classification-ne'HUMAN_REQUIRED'){$repair=New-AidosPlatformRepairAssignment -StateRoot $StateRoot -Blocker (Read-AidosJson (Get-AidosPlatformRepairPath -StateRoot $StateRoot -RepairId ([string]$repairBlocker.repair_id)))}else{$repair=$repairBlocker}
+            }
             $results.Add([pscustomobject][ordered]@{
                 project_id=[string]$project.project_id
                 handoff_id=[string]$handoff.metadata.handoff_id
@@ -189,6 +195,7 @@ function Invoke-AidosCurrentRepositoryThinkerTriggers {
                 review_id=$reviewId
                 status=[string]$trigger.status
                 trigger=$trigger
+                platform_repair=$repair
             })
             $processed++
         }catch{
