@@ -511,7 +511,7 @@ function Invoke-AidosRepositoryHandoffGatewayRequest {
             if([string]$Body.kind-eq'START' -and $workflowState-eq'IDLE'){
                 $state=Get-AidosState $root;if([string]::IsNullOrWhiteSpace([string]$state.definition_id)){throw 'START requires an accepted Definition or a new project goal.'}
                 $definitionPath=Join-Path $root ('.aidos/definitions/{0}/v{1}/DEFINITION.json' -f [string]$state.definition_id,[int]$state.definition_version);if(-not(Test-Path -LiteralPath $definitionPath -PathType Leaf)){throw 'START requires the active Definition artifact.'};$definition=Read-AidosJson $definitionPath;if([string]$definition.status-ne'ACCEPTED'){throw "START requires an ACCEPTED Definition; current status is '$([string]$definition.status)'."}
-                Set-AidosState -ProjectRoot $root -NewState TASK_READY -Actor SYSTEM -Patch @{}|Out-Null;$workflowState='TASK_READY';Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'INTERFACE_START_TASK_READY' -ProjectId ([string]$project.project_id)|Out-Null
+                Set-AidosState -ProjectRoot $root -NewState TASK_READY -Actor SYSTEM -Patch @{execution_id=$null;revision=$null;codex_session_id=$null;review_id=$null;lease_id=$null;terminal_result=$null;validation_result=$null}|Out-Null;$workflowState='TASK_READY';Signal-AidosRepositoryHandoffBridge -StateRoot $BridgeStateRoot -Reason 'INTERFACE_START_TASK_READY' -ProjectId ([string]$project.project_id)|Out-Null
             }
             return New-AidosRepositoryHandoffGatewayResponse 202 ([ordered]@{accepted=$true;control_id=[string]$submitted.intent.control_id;workflow_state=$workflowState})
         }
