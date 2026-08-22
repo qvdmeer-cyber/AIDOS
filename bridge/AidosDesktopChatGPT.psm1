@@ -602,7 +602,7 @@ function New-AidosDesktopChatGPTWindowsBackend {
             }
         }
         FocusConversation = {
-            param($Context,$Enrollment)
+            param($Context,$Enrollment,[bool]$ActivateConversation=$false)
             Initialize-AidosDesktopChatGPTWindowsAutomation
             if([string]::IsNullOrWhiteSpace([string]$Context.window_handle)){ throw 'ChatGPT window is not present.' }
             $handle=[IntPtr]([int64]$Context.window_handle)
@@ -616,7 +616,7 @@ function New-AidosDesktopChatGPTWindowsBackend {
             # may currently display another one. Activate the bound item before
             # focusing the composer; otherwise a valid send proof could be
             # recorded for the wrong conversation.
-            if($Enrollment -and -not [string]::IsNullOrWhiteSpace([string]$Enrollment.conversation_proof_text)){
+            if($ActivateConversation -and $Enrollment -and -not [string]::IsNullOrWhiteSpace([string]$Enrollment.conversation_proof_text)){
                 $conversation=Find-AidosDesktopChatGPTConversationElement $root ([string]$Enrollment.conversation_proof_text)
                 try {
                     $invoke=$conversation.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
@@ -704,7 +704,18 @@ function New-AidosDesktopChatGPTWindowsBackend {
             $elements=@($root.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition))
             $candidates=@()
             foreach($element in $elements){
-                $text=Get-AidosDesktopChatGPTElementText $element
+                # ChatGPT's Chromium accessibility tree is very large after a
+                # review prompt.  Reading Value/Text patterns on every node can
+                # block indefinitely.  Responses are exposed as compact Text
+                # controls; inspect their Name first and only fall back to the
+                # text pattern for those controls.
+                $controlType=$null
+                try { $controlType=$element.Current.ControlType } catch {}
+                if($controlType -ne [System.Windows.Automation.ControlType]::Text -and
+                   $controlType -ne [System.Windows.Automation.ControlType]::Document){ continue }
+                $text=$null
+                try { $text=[string]$element.Current.Name } catch {}
+                if([string]::IsNullOrWhiteSpace([string]$text)){ $text=Get-AidosDesktopChatGPTElementText $element }
                 if([string]::IsNullOrWhiteSpace([string]$text)){ continue }
                 if([string]$text.IndexOf('"envelope_type":"REVIEW_RESPONSE"',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
                    [string]$text.IndexOf('"envelope_type": "REVIEW_RESPONSE"',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
@@ -880,13 +891,18 @@ function ConvertFrom-AidosDesktopChatGPTStrictResponseText {
         # bridge-bound path values; all identities and all other malformed JSON
         # remain fail-closed and normal binding validation still follows.
         $allowed=@{}
-        foreach($value in @($ExpectedPathValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })){ $allowed[[string]$value]=$true }
+        foreach($value in @($ExpectedPathValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })){
+            $canonical=[string]$value
+            $normalized=[regex]::Replace($canonical,'\\+','\\')
+            $allowed[$normalized]=$canonical
+        }
         $pathFieldPattern=[regex]::new('"(?<name>project_root|path)"\s*:\s*"(?<value>(?:\\.|[^"\\])*)"')
         $repaired=$pathFieldPattern.Replace($trim,[System.Text.RegularExpressions.MatchEvaluator]{
             param($match)
             $value=[string]$match.Groups['value'].Value
-            if($allowed.ContainsKey($value)){
-                return '"'+[string]$match.Groups['name'].Value+'":'+($value | ConvertTo-Json -Compress)
+            $normalized=[regex]::Replace($value,'\\+','\\')
+            if($allowed.ContainsKey($normalized)){
+                return '"'+[string]$match.Groups['name'].Value+'":'+([string]$allowed[$normalized] | ConvertTo-Json -Compress)
             }
             $match.Value
         })
@@ -1067,8 +1083,9 @@ function Invoke-AidosDesktopChatGPTReview {
         $context=& $Backend.GetProcessContext $ProcessName
         if(-not $context -or -not $context.present){ throw 'ChatGPT process/window is not present.' }
         Test-AidosDesktopChatGPTEnrollmentBinding $enrollment $reviewerBinding $context | Out-Null
-        if($context.window_is_minimized -or -not (Test-AidosDesktopChatGPTWindowFocusProof $context)){ $context=& $Backend.FocusConversation $context $enrollment }
-        if(-not (Test-AidosDesktopChatGPTWindowFocusProof $context)){ throw 'ChatGPT window could not be brought to foreground or given UI Automation composer focus.' }
+        # Response polling is read-only. Do not refocus the composer or switch
+        # conversations here: doing so can hide the already-rendered response
+        # and must never become an implicit transport mutation.
         $responseText=$null
         for($attempt=0;$attempt -lt $ResponseTimeoutSeconds;$attempt++){
             Start-Sleep -Seconds 1
@@ -1131,7 +1148,7 @@ function Invoke-AidosDesktopChatGPTReview {
         $context=& $Backend.GetProcessContext $ProcessName
         if(-not $context -or -not $context.present){ throw 'ChatGPT process/window is not present.' }
         Test-AidosDesktopChatGPTEnrollmentBinding $enrollment $reviewerBinding $context | Out-Null
-        if($context.window_is_minimized -or -not (Test-AidosDesktopChatGPTWindowFocusProof $context)){ $context=& $Backend.FocusConversation $context $enrollment }
+        if($context.window_is_minimized -or -not (Test-AidosDesktopChatGPTWindowFocusProof $context)){ $context=& $Backend.FocusConversation $context $enrollment $true }
         if(-not (Test-AidosDesktopChatGPTWindowFocusProof $context)){ throw 'ChatGPT window could not be brought to foreground or given UI Automation composer focus.' }
         $prepared=[ordered]@{
             schema_version='0.1'
