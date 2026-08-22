@@ -466,7 +466,10 @@ function Invoke-AidosRepositoryThinkerPromptSend {
     $mutationOccurred=([string]$before-ne[string]$PromptText)
     $composer.SetFocus()
     $focusProven=$false
-    for($attempt=0;$attempt-lt10;$attempt++){
+    # ChatGPT Classic can take several UIA dispatch turns to transfer focus
+    # after a cold restart. Keep the proof bounded, but allow a full 3 seconds
+    # for the native focus state to settle before failing closed.
+    for($attempt=0;$attempt-lt30;$attempt++){
         Start-Sleep -Milliseconds 100
         if(Test-AidosRepositoryThinkerComposerFocusProof -Composer $composer){$focusProven=$true;break}
         try{$composer.SetFocus()}catch{}
