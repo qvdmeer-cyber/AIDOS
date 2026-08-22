@@ -66,6 +66,13 @@ Worker completion is not acceptance. AIDOS runs:
 
 A validation failure moves to `EXECUTION_VALIDATION_FAILED`; process/runtime failure moves to `RECOVERY_REQUIRED`.
 
+If startup finds a terminal Codex event in `codex-events.jsonl` but the supervisor
+did not persist `RESULT.json`/`VALIDATION.json`, Core writes a bound
+`RECOVERY.json` containing the event hash and session binding. The recovered
+execution outcome remains `UNKNOWN` and validation remains `NOT_RUN`; Core never
+infers successful completion from a terminal event. The project stays in
+`RECOVERY_REQUIRED` until an explicit, exact-session recovery dispatch is made.
+
 ## Current limitation
 
 The initial adapter runs one bounded Worker execution synchronously through the existing project manager path. This is sufficient to prove the full vertical lifecycle before introducing parallel workstreams, dependency scheduling and shared-resource leases.

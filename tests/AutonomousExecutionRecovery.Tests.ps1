@@ -18,7 +18,8 @@ Assert-Recovery ($source.Contains("state.state-ne'RECOVERY_REQUIRED'")) 'resume 
 Assert-Recovery ($source.Contains("'.aidos/runtime/lease.json'")) 'resume rejects an unreconciled lease'
 Assert-Recovery ($source.Contains("'RESULT.json'")) 'resume rejects an existing terminal result'
 Assert-Recovery ($source.Contains("type-eq'thread.started'")) 'resume binds durable thread.started evidence'
-Assert-Recovery ($source.Contains("type-in@('turn.completed','turn.failed','error')")) 'resume rejects terminal event evidence'
+Assert-Recovery ($source.Contains("type-in@('turn.completed','turn.failed','error')")) 'resume classifies terminal event evidence'
+Assert-Recovery ($source.Contains("RECOVERY.json")) 'resume requires Core terminal-event recovery evidence'
 Assert-Recovery ($source.Contains('StreamWriter]::new($eventsPath,$resuming')) 'resume appends to prior event evidence'
 Assert-Recovery ($source.Contains('resumed=$resuming')) 'terminal result records resume provenance'
 Write-Output "PASS: $passed autonomous execution recovery assertions"
